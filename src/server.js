@@ -62,10 +62,13 @@ app.get("/health", (_req, res) => {
   res.json({
     ok: true,
     assistant: "Georgie",
-    version: "0.3.0",
+    version: "0.4.0",
     voice: true,
     memory: true,
     identity: true,
+    wakeName: true,
+    handsFree: true,
+    bargeIn: true,
     configured: Boolean(process.env.OPENAI_API_KEY)
   });
 });
