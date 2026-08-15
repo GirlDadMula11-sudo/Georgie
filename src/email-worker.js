@@ -5,134 +5,14 @@ import { enqueueEvent } from "./events.js";
 import { createTask } from "./tasks.js";
 import { listNeoMailboxes, listRecentMessages, neoMailConfigured, readMessage } from "./integrations/neo-mail.js";
 
-const DATA_DIR = process.env.GEORGIE_DATA_DIR || "data";
+const DATA_DIR = process.env.GEORGIE_DATA_DIR || (process.env.VERCEL ? "/tmp/georgie-data" : "data");
 const STATE_FILE = path.join(DATA_DIR, "email-state.json");
 let timer = null;
 let running = false;
-
-async function readState() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  try { return JSON.parse(await fs.readFile(STATE_FILE, "utf8")); }
-  catch { return { processed: {} }; }
-}
-
-async function writeState(state) {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  const temp = `${STATE_FILE}.${process.pid}.${Date.now()}.tmp`;
-  await fs.writeFile(temp, JSON.stringify(state, null, 2));
-  await fs.rename(temp, STATE_FILE);
-}
-
-function safeDueAt(value) {
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
-}
-
-async function processMailbox(mailbox, state) {
-  const userId = process.env.GEORGIE_PRIMARY_USER_ID || "primary";
-  const recent = await listRecentMessages(mailbox.id, {
-    limit: Number(process.env.GEORGIE_EMAIL_SCAN_LIMIT || 20),
-    unseenOnly: true
-  });
-
-  state.processed[mailbox.id] ||= {};
-
-  for (const item of recent.reverse()) {
-    const key = String(item.uid);
-    if (state.processed[mailbox.id][key]) continue;
-
-    try {
-      const full = await readMessage(mailbox.id, item.uid, { markSeen: false });
-      const triage = await analyzeOperationalEmail(full);
-      const priority = ["low", "normal", "high", "urgent"].includes(triage.priority) ? triage.priority : "normal";
-      const summary = String(triage.summary || full.subject || "Email received").slice(0, 1500);
-      const action = String(triage.action || "").slice(0, 2000);
-      const suggestedReply = String(triage.suggestedReply || "").slice(0, 4000);
-      const dueAt = safeDueAt(triage.dueAt);
-
-      if (triage.requiresAction) {
-        await createTask({
-          userId,
-          title: action || `Respond to: ${full.subject || full.from || "email"}`,
-          notes: [
-            `Mailbox: ${mailbox.label || mailbox.email}`,
-            `From: ${full.from || "unknown"}`,
-            `Subject: ${full.subject || ""}`,
-            `Summary: ${summary}`,
-            suggestedReply ? `Suggested reply: ${suggestedReply}` : ""
-          ].filter(Boolean).join("\n"),
-          dueAt,
-          priority,
-          source: `neo-mail:${mailbox.id}:${item.uid}`
-        });
-      }
-
-      if (priority === "high" || priority === "urgent" || triage.requiresAction) {
-        await enqueueEvent({
-          userId,
-          type: "email.triage",
-          title: priority === "urgent" ? `Urgent email: ${full.subject || full.from}` : `Email needs attention: ${full.subject || full.from}`,
-          body: summary,
-          priority,
-          dedupeKey: `neo:${mailbox.id}:${item.uid}`,
-          data: {
-            mailboxId: mailbox.id,
-            uid: item.uid,
-            from: full.from,
-            subject: full.subject,
-            category: triage.category || "other",
-            requiresAction: Boolean(triage.requiresAction),
-            action,
-            dueAt,
-            suggestedReply,
-            confidence: Number(triage.confidence || 0)
-          }
-        });
-      }
-
-      state.processed[mailbox.id][key] = {
-        at: new Date().toISOString(),
-        priority,
-        category: triage.category || "other",
-        requiresAction: Boolean(triage.requiresAction)
-      };
-
-      const keys = Object.keys(state.processed[mailbox.id]);
-      if (keys.length > 2000) {
-        for (const oldKey of keys.slice(0, keys.length - 1500)) delete state.processed[mailbox.id][oldKey];
-      }
-    } catch (error) {
-      console.warn(`Neo triage failed for ${mailbox.id}/${item.uid}:`, error instanceof Error ? error.message : error);
-    }
-  }
-}
-
-export async function sweepNeoMail() {
-  if (running || !neoMailConfigured()) return;
-  running = true;
-  try {
-    const state = await readState();
-    for (const mailbox of listNeoMailboxes()) {
-      await processMailbox(mailbox, state);
-      await writeState(state);
-    }
-  } catch (error) {
-    console.warn("Neo Mail sweep failed:", error instanceof Error ? error.message : error);
-  } finally {
-    running = false;
-  }
-}
-
-export function startEmailIntelligence() {
-  if (timer || !neoMailConfigured()) return;
-  const intervalMs = Math.max(60_000, Number(process.env.GEORGIE_EMAIL_POLL_MS || 180_000));
-  sweepNeoMail();
-  timer = setInterval(sweepNeoMail, intervalMs);
-  timer.unref?.();
-}
-
-export function stopEmailIntelligence() {
-  if (timer) clearInterval(timer);
-  timer = null;
-}
+async function readState(){await fs.mkdir(DATA_DIR,{recursive:true});try{return JSON.parse(await fs.readFile(STATE_FILE,"utf8"));}catch{return{processed:{}};}}
+async function writeState(state){await fs.mkdir(DATA_DIR,{recursive:true});const temp=`${STATE_FILE}.${process.pid}.${Date.now()}.tmp`;await fs.writeFile(temp,JSON.stringify(state,null,2));await fs.rename(temp,STATE_FILE);}
+function safeDueAt(value){if(!value)return null;const date=new Date(value);return Number.isFinite(date.getTime())?date.toISOString():null;}
+async function processMailbox(mailbox,state){const userId=process.env.GEORGIE_PRIMARY_USER_ID||"primary";const recent=await listRecentMessages(mailbox.id,{limit:Number(process.env.GEORGIE_EMAIL_SCAN_LIMIT||20),unseenOnly:true});state.processed[mailbox.id]||={};for(const item of recent.reverse()){const key=String(item.uid);if(state.processed[mailbox.id][key])continue;try{const full=await readMessage(mailbox.id,item.uid,{markSeen:false});const triage=await analyzeOperationalEmail(full);const priority=["low","normal","high","urgent"].includes(triage.priority)?triage.priority:"normal";const summary=String(triage.summary||full.subject||"Email received").slice(0,1500);const action=String(triage.action||"").slice(0,2000);const suggestedReply=String(triage.suggestedReply||"").slice(0,4000);const dueAt=safeDueAt(triage.dueAt);if(triage.requiresAction){await createTask({userId,title:action||`Respond to: ${full.subject||full.from||"email"}`,notes:[`Mailbox: ${mailbox.label||mailbox.email}`,`From: ${full.from||"unknown"}`,`Subject: ${full.subject||""}`,`Summary: ${summary}`,suggestedReply?`Suggested reply: ${suggestedReply}`:""].filter(Boolean).join("\n"),dueAt,priority,source:`neo-mail:${mailbox.id}:${item.uid}`});}if(priority==="high"||priority==="urgent"||triage.requiresAction){await enqueueEvent({userId,type:"email.triage",title:priority==="urgent"?`Urgent email: ${full.subject||full.from}`:`Email needs attention: ${full.subject||full.from}`,body:summary,priority,dedupeKey:`neo:${mailbox.id}:${item.uid}`,data:{mailboxId:mailbox.id,uid:item.uid,from:full.from,subject:full.subject,category:triage.category||"other",requiresAction:Boolean(triage.requiresAction),action,dueAt,suggestedReply,confidence:Number(triage.confidence||0)}});}state.processed[mailbox.id][key]={at:new Date().toISOString(),priority,category:triage.category||"other",requiresAction:Boolean(triage.requiresAction)};const keys=Object.keys(state.processed[mailbox.id]);if(keys.length>2000){for(const oldKey of keys.slice(0,keys.length-1500))delete state.processed[mailbox.id][oldKey];}}catch(error){console.warn(`Neo triage failed for ${mailbox.id}/${item.uid}:`,error instanceof Error?error.message:error);}}}
+export async function sweepNeoMail(){if(running||!neoMailConfigured())return;running=true;try{const state=await readState();for(const mailbox of listNeoMailboxes()){await processMailbox(mailbox,state);await writeState(state);}}catch(error){console.warn("Neo Mail sweep failed:",error instanceof Error?error.message:error);}finally{running=false;}}
+export function startEmailIntelligence(){if(timer||!neoMailConfigured())return;const intervalMs=Math.max(60000,Number(process.env.GEORGIE_EMAIL_POLL_MS||180000));sweepNeoMail();timer=setInterval(sweepNeoMail,intervalMs);timer.unref?.();}
+export function stopEmailIntelligence(){if(timer)clearInterval(timer);timer=null;}
