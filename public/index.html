@@ -12,12 +12,26 @@
     <section class="hero">
       <div class="eyebrow">VOICE ASSISTANT</div>
       <h1>Georgie</h1>
+      <div class="presence-row">
+        <span id="presenceDot" class="presence-dot"></span>
+        <span id="presenceState" class="presence-state">Manual mode</span>
+      </div>
       <p id="status" class="status">Ready when you are.</p>
     </section>
 
     <section class="conversation" id="conversation" aria-live="polite"></section>
 
     <section class="controls">
+      <div class="handsfree-panel">
+        <div>
+          <strong>Hands-free mode</strong>
+          <span>Say “Georgie” to wake me</span>
+        </div>
+        <button id="handsFreeToggle" class="mode-toggle" type="button" role="switch" aria-checked="false">
+          <span class="toggle-knob"></span>
+        </button>
+      </div>
+
       <button id="voiceButton" class="voice-button" type="button" aria-label="Talk to Georgie">
         <span class="voice-core"></span>
         <span id="voiceLabel">Hold to talk</span>
@@ -27,6 +41,8 @@
         <input id="textInput" autocomplete="off" placeholder="Or type to Georgie…" aria-label="Message Georgie" />
         <button type="submit">Send</button>
       </form>
+
+      <p class="privacy-note">Hands-free mode listens for speech while this page is active. Audio is only sent for transcription after voice activity is detected.</p>
     </section>
   </main>
 
