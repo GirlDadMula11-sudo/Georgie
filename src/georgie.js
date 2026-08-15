@@ -1,13 +1,14 @@
 const OPENAI_BASE_URL = "https://api.openai.com/v1";
 
-const SYSTEM_PROMPT = `You are Georgie, a sophisticated personal AI assistant.
-You are fast, calm, capable, proactive, and highly practical.
-Your job is to understand the user's goal, reason carefully, guide them toward the best next action, and use connected capabilities when available.
-Use provided memory, identity, task, and tool context naturally when relevant, but do not force it into unrelated answers.
+const SYSTEM_PROMPT = `You are Georgie, a sophisticated personal AI assistant operating system.
+You are fast, calm, capable, proactive, highly practical, and deeply resourceful.
+Your job is to understand the user's real goal, reason carefully, reduce their workload, anticipate useful next steps, and use connected capabilities when they materially improve the outcome.
+Use provided memory, identity, task, mail, and tool context naturally when relevant, but do not force it into unrelated answers.
 Treat memories as context that may become outdated. If a current user statement conflicts with an older memory, prefer the current statement.
-Never claim an action succeeded unless the system confirms it.
+Use live web research when current, niche, changing, or externally verifiable information would improve accuracy.
+Distinguish facts, inferences, recommendations, and completed actions. Never claim an action succeeded unless the system confirms it.
 When an action requires approval or a connector is unavailable, state that clearly and continue helping with what is available.
-Keep spoken responses natural and concise unless detail is requested.`;
+Prefer concise spoken answers, but be thorough when complexity, risk, or a decision requires it.`;
 
 function requireApiKey() {
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured");
@@ -54,19 +55,24 @@ export async function askGeorgie(input, history = [], context = "") {
     ? history.slice(-16).filter((item) => item && ["user", "assistant"].includes(item.role) && typeof item.content === "string")
     : [];
   const instructions = context ? `${SYSTEM_PROMPT}\n\nCURRENT CONTEXT\n${context}` : SYSTEM_PROMPT;
+  const body = {
+    model: process.env.OPENAI_MODEL || "gpt-5",
+    instructions,
+    input: [...safeHistory, { role: "user", content: input.trim() }]
+  };
+  if (process.env.GEORGIE_WEB_ENABLED !== "false") {
+    body.tools = [{ type: "web_search" }];
+  }
   const response = await openAI("/responses", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || "gpt-5",
-      instructions,
-      input: [...safeHistory, { role: "user", content: input.trim() }]
-    })
+    body: JSON.stringify(body)
   });
   const payload = await response.json();
   const text = extractResponseText(payload);
   if (!text) throw new Error("Georgie returned an empty response");
-  return { text, responseId: payload.id };
+  const webSearches = (payload.output || []).filter((item) => item.type === "web_search_call").length;
+  return { text, responseId: payload.id, webSearches };
 }
 
 export async function planActions(input, toolDefinitions = []) {
@@ -74,7 +80,7 @@ export async function planActions(input, toolDefinitions = []) {
   try {
     const result = await jsonResponse({
       model: process.env.OPENAI_ROUTER_MODEL || process.env.OPENAI_MODEL || "gpt-5",
-      instructions: `You are Georgie's action router. Decide whether the user's request needs any available tools. Return strict JSON only: {"actions":[{"tool":"tool.name","args":{}}]}. Use only tools listed below. Prefer no tool when the user is only asking for advice, explanation, conversation, or creative work. Use task tools when the user explicitly asks to create, list, complete, cancel, or update tasks/reminders. Use memory search only when durable personal context is necessary and not already supplied. Do not invent unavailable tools. Maximum 4 actions.\n\nAVAILABLE TOOLS\n${JSON.stringify(toolDefinitions)}`,
+      instructions: `You are Georgie's action router. Decide whether the user's request needs any available tools. Return strict JSON only: {"actions":[{"tool":"tool.name","args":{}}]}. Use only tools listed below. Prefer no tool when the user is only asking for advice, explanation, conversation, or creative work. Use email tools when the user needs actual mailbox information; never invent mailbox contents. Use task tools when the user explicitly asks to create, list, complete, cancel, or update tasks/reminders. Use memory search only when durable personal context is necessary and not already supplied. Do not invent unavailable tools. Maximum 4 actions.\n\nAVAILABLE TOOLS\n${JSON.stringify(toolDefinitions)}`,
       input: input.trim()
     });
     return Array.isArray(result.actions)
@@ -82,6 +88,24 @@ export async function planActions(input, toolDefinitions = []) {
       : [];
   } catch {
     return [];
+  }
+}
+
+export async function analyzeOperationalEmail(message) {
+  try {
+    return await jsonResponse({
+      model: process.env.OPENAI_ROUTER_MODEL || process.env.OPENAI_MODEL || "gpt-5",
+      instructions: `You are Georgie's executive email triage engine. Return strict JSON only with: {"priority":"low|normal|high|urgent","category":"client|lender|partner|finance|legal|operations|personal|marketing|other","summary":"...","requiresAction":true,"action":"...","dueAt":null,"suggestedReply":"...","confidence":0.0}. Be conservative about urgency. Treat explicit deadlines, funding decisions, approvals, client/lender blockers, legal notices, payment issues, security alerts, and time-sensitive family matters as potentially high priority. Do not invent facts. Suggested replies must be concise, professional, and based only on the message.`,
+      input: JSON.stringify({
+        subject: message?.subject || "",
+        from: message?.from || "",
+        to: message?.to || "",
+        date: message?.date || null,
+        text: String(message?.text || "").slice(0, 16000)
+      })
+    });
+  } catch {
+    return { priority: "normal", category: "other", summary: "Email received", requiresAction: false, action: "", dueAt: null, suggestedReply: "", confidence: 0 };
   }
 }
 
@@ -124,7 +148,7 @@ export async function synthesizeSpeech(text) {
       voice: process.env.OPENAI_VOICE || "cedar",
       input: text.slice(0, 4096),
       response_format: "mp3",
-      instructions: "Speak naturally, confidently, warmly, and efficiently. Sound like a highly capable personal assistant."
+      instructions: "Speak naturally, confidently, warmly, and efficiently. Sound like a highly capable executive and personal assistant."
     })
   });
   return Buffer.from(await response.arrayBuffer());
