@@ -18,6 +18,8 @@ import {
 import { createTask, deleteTask, listTasks, updateTask } from "./tasks.js";
 import { acknowledgeEvent, listEvents } from "./events.js";
 import { startProactiveEngine } from "./proactive.js";
+import { startEmailIntelligence, sweepNeoMail } from "./email-worker.js";
+import { listNeoMailboxes, neoMailConfigured, verifyNeoMailbox } from "./integrations/neo-mail.js";
 import { executeTool, listToolDefinitions } from "./tools.js";
 
 const app = express();
@@ -43,7 +45,7 @@ app.use("/api", rateLimit({ windowMs: 60_000, limit: Number(process.env.GEORGIE_
 app.use(express.static("public", { maxAge: process.env.NODE_ENV === "production" ? "1h" : 0 }));
 
 function getUserId(req) {
-  return String(req.headers["x-georgie-user"] || req.body?.userId || req.query?.userId || "primary").slice(0, 100);
+  return String(req.headers["x-georgie-user"] || req.body?.userId || req.query?.userId || process.env.GEORGIE_PRIMARY_USER_ID || "primary").slice(0, 100);
 }
 
 function getSessionId(req) {
@@ -78,7 +80,7 @@ async function completeTurn({ userId, sessionId, input, history = [] }) {
   const taskSnapshot = await listTasks(userId, { status: "open", limit: 8 });
   const contextParts = [memory.prompt];
   if (taskSnapshot.length) contextParts.push(`OPEN TASKS\n${taskSnapshot.map((task) => `- ${task.title}${task.dueAt ? ` (due ${task.dueAt})` : ""}`).join("\n")}`);
-  if (toolResults.length) contextParts.push(`TOOL EXECUTION RESULTS\n${JSON.stringify(toolResults).slice(0, 8000)}`);
+  if (toolResults.length) contextParts.push(`TOOL EXECUTION RESULTS\n${JSON.stringify(toolResults).slice(0, 10000)}`);
   const response = await askGeorgie(input, persistedHistory, contextParts.filter(Boolean).join("\n\n"));
   await appendSessionTurn({ userId, sessionId, role: "user", content: input });
   await appendSessionTurn({ userId, sessionId, role: "assistant", content: response.text });
@@ -90,7 +92,7 @@ app.get("/health", (_req, res) => {
   res.json({
     ok: true,
     assistant: "Georgie",
-    version: "0.6.0",
+    version: "0.7.0",
     voice: true,
     memory: true,
     identity: true,
@@ -100,6 +102,9 @@ app.get("/health", (_req, res) => {
     tasks: true,
     toolRouter: true,
     proactiveEngine: true,
+    neoMail: neoMailConfigured(),
+    emailIntelligence: neoMailConfigured(),
+    liveWebResearch: process.env.GEORGIE_WEB_ENABLED !== "false",
     pwa: true,
     productionSecurity: true,
     configured: Boolean(process.env.OPENAI_API_KEY)
@@ -107,6 +112,21 @@ app.get("/health", (_req, res) => {
 });
 
 app.get("/api/tools", (_req, res) => res.json({ ok: true, tools: listToolDefinitions() }));
+
+app.get("/api/mail/accounts", (_req, res) => {
+  try { res.json({ ok: true, provider: "neo", configured: neoMailConfigured(), accounts: listNeoMailboxes() }); }
+  catch (error) { res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Unknown error" }); }
+});
+
+app.post("/api/mail/verify/:id", async (req, res) => {
+  try { res.json({ ok: true, result: await verifyNeoMailbox(req.params.id) }); }
+  catch (error) { res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "Neo Mail verification failed" }); }
+});
+
+app.post("/api/mail/sweep", async (_req, res) => {
+  try { await sweepNeoMail(); res.json({ ok: true }); }
+  catch (error) { res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Neo Mail sweep failed" }); }
+});
 
 app.get("/api/profile", async (req, res) => {
   try { res.json({ ok: true, profile: await getProfile(getUserId(req)) }); }
@@ -225,6 +245,7 @@ app.post("/api/voice-turn", upload.single("audio"), async (req, res) => {
       remembered: response.remembered,
       memoryCount: response.memoryCount,
       actions: response.actions,
+      webSearches: response.webSearches || 0,
       audioBase64: speech.toString("base64"),
       audioMimeType: "audio/mpeg"
     });
@@ -237,5 +258,6 @@ app.use((error, _req, res, _next) => {
 });
 
 startProactiveEngine();
+startEmailIntelligence();
 const port = Number(process.env.PORT || 3000);
 app.listen(port, () => console.log(`Georgie is listening on http://localhost:${port}`));
