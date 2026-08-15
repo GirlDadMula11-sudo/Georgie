@@ -1,0 +1,31 @@
+name: Verify Georgie
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - name: Verify required production files
+        run: |
+          test -f public/index.html
+          test -f src/server.js
+          test -f src/georgie.js
+          test -f src/memory.js
+          test -f src/tools.js
+          test -f mac-agent/agent.js
