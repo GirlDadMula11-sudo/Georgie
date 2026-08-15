@@ -6,7 +6,7 @@ import { rateLimit } from "express-rate-limit";
 import path from "path";
 import { fileURLToPath } from "url";
 import { askGeorgie, extractMemoryCandidates, planActions, synthesizeSpeech, transcribeAudio } from "./georgie.js";
-import { addMemory, appendSessionTurn, buildMemoryContext, deleteMemory, getProfile, getSessionHistory, listMemories, searchMemories, updateProfile } from "./memory.js";
+import { addMemory, appendSessionTurn, buildMemoryContext, deleteMemory, getMemoryStorageStatus, getProfile, getSessionHistory, listMemories, searchMemories, updateProfile } from "./memory.js";
 import { createTask, deleteTask, listTasks, updateTask } from "./tasks.js";
 import { acknowledgeEvent, listEvents } from "./events.js";
 import { startProactiveEngine } from "./proactive.js";
@@ -31,12 +31,28 @@ app.get("/", (_req, res) => res.sendFile(path.join(publicDir, "index.html")));
 
 function getUserId(req) { return String(req.headers["x-georgie-user"] || req.body?.userId || req.query?.userId || process.env.GEORGIE_PRIMARY_USER_ID || "primary").slice(0, 100); }
 function getSessionId(req) { return String(req.headers["x-georgie-session"] || req.body?.sessionId || req.query?.sessionId || "default").slice(0, 150); }
-function readinessSnapshot() { const openAI=Boolean(process.env.OPENAI_API_KEY); const neoMail=neoMailConfigured(); const macAgent=Boolean(process.env.GEORGIE_MAC_AGENT_TOKEN); const blockers=[]; if(!openAI) blockers.push("OPENAI_API_KEY"); return { ready: blockers.length===0, activationState:blockers.length?"secrets_pending":"core_ready", blockers, optionalConnections:{neoMail,macAgent}, connections:{openAI,neoMail,macAgent,liveWebResearch:process.env.GEORGIE_WEB_ENABLED!=="false",persistentData:Boolean(process.env.GEORGIE_DATA_DIR)}, platform:{voice:true,wakeName:true,memory:true,tasks:true,proactiveEngine:true,emailIntelligence:true,toolRouter:true,macRemoteAgent:true,pwa:true,productionSecurity:true} }; }
+function readinessSnapshot() {
+  const openAI = Boolean(process.env.OPENAI_API_KEY);
+  const neoMail = neoMailConfigured();
+  const macAgent = Boolean(process.env.GEORGIE_MAC_AGENT_TOKEN);
+  const memoryStorage = getMemoryStorageStatus();
+  const blockers = [];
+  if (!openAI) blockers.push("OPENAI_API_KEY");
+  if (!memoryStorage.durable) blockers.push("durable_memory_not_connected");
+  return {
+    ready: blockers.length === 0,
+    activationState: blockers.length ? "connection_pending" : "core_ready",
+    blockers,
+    optionalConnections: { neoMail, macAgent },
+    connections: { openAI, neoMail, macAgent, liveWebResearch: process.env.GEORGIE_WEB_ENABLED !== "false", memoryStorage },
+    platform: { voice: true, wakeName: true, memory: true, tasks: true, proactiveEngine: true, emailIntelligence: true, toolRouter: true, macRemoteAgent: true, pwa: true, productionSecurity: true }
+  };
+}
 async function rememberTurn(userId,userText,assistantText){try{const candidates=await extractMemoryCandidates(userText,assistantText);await Promise.all(candidates.map(memory=>addMemory({userId,...memory,source:"auto-extracted"})));return candidates.length;}catch(error){console.warn("Memory extraction skipped:",error instanceof Error?error.message:error);return 0;}}
 async function runPlannedActions(userId,input){const actions=await planActions(input,listToolDefinitions());const policy=process.env.GEORGIE_AUTO_ACTION_POLICY||"low_risk_write";const results=[];for(const action of actions)results.push(await executeTool({name:action.tool,args:action.args||{},userId,policy}));return results;}
 async function completeTurn({userId,sessionId,input,history=[]}){const persistedHistory=history?.length?history:await getSessionHistory(userId,sessionId,16);const memory=await buildMemoryContext(userId,input);const toolResults=await runPlannedActions(userId,input);const taskSnapshot=await listTasks(userId,{status:"open",limit:8});const contextParts=[memory.prompt];if(taskSnapshot.length)contextParts.push(`OPEN TASKS\n${taskSnapshot.map(task=>`- ${task.title}${task.dueAt?` (due ${task.dueAt})`:""}`).join("\n")}`);if(toolResults.length)contextParts.push(`TOOL EXECUTION RESULTS\n${JSON.stringify(toolResults).slice(0,10000)}`);const response=await askGeorgie(input,persistedHistory,contextParts.filter(Boolean).join("\n\n"));await appendSessionTurn({userId,sessionId,role:"user",content:input});await appendSessionTurn({userId,sessionId,role:"assistant",content:response.text});const remembered=await rememberTurn(userId,input,response.text);return {...response,remembered,memoryCount:memory.memories.length,actions:toolResults};}
 
-app.get("/health",(_req,res)=>{const r=readinessSnapshot();res.json({ok:true,assistant:"Georgie",version:"0.8.1",...r.platform,neoMail:r.connections.neoMail,macAgent:r.connections.macAgent,liveWebResearch:r.connections.liveWebResearch,configured:r.connections.openAI,activationState:r.activationState});});
+app.get("/health",(_req,res)=>{const r=readinessSnapshot();res.json({ok:true,assistant:"Georgie",version:"1.0.0",ready:r.ready,...r.platform,neoMail:r.connections.neoMail,macAgent:r.connections.macAgent,liveWebResearch:r.connections.liveWebResearch,memoryStorage:r.connections.memoryStorage,configured:r.connections.openAI,activationState:r.activationState,blockers:r.blockers});});
 app.get("/api/readiness",(_req,res)=>res.json({ok:true,...readinessSnapshot()}));
 app.get("/api/tools",(_req,res)=>res.json({ok:true,tools:listToolDefinitions()}));
 app.use("/api/mac",createMacRouter());
