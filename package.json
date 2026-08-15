@@ -1,0 +1,19 @@
+{
+  "name": "georgie",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Voice-first personal AI assistant",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "openai": "^4.77.0"
+  }
+}
