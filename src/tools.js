@@ -1,5 +1,14 @@
 import { searchMemories } from "./memory.js";
 import { createTask, listTasks, updateTask } from "./tasks.js";
+import {
+  listNeoMailboxes,
+  listRecentMessages,
+  neoMailConfigured,
+  readMessage,
+  searchMessages,
+  sendMessage,
+  verifyNeoMailbox
+} from "./integrations/neo-mail.js";
 
 const LEVELS = {
   read: 0,
@@ -51,6 +60,71 @@ defineTool({
 });
 
 defineTool({
+  name: "email.accounts",
+  description: "List the user's configured Neo Mail mailboxes and their business roles.",
+  risk: "read",
+  async run() {
+    return listNeoMailboxes();
+  }
+});
+
+defineTool({
+  name: "email.verify",
+  description: "Verify secure IMAP and SMTP connectivity for a configured Neo Mail mailbox.",
+  risk: "read",
+  async run({ args }) {
+    return verifyNeoMailbox(args?.mailboxId);
+  }
+});
+
+defineTool({
+  name: "email.list",
+  description: "List recent Neo Mail inbox messages. Supports unseen-only filtering.",
+  risk: "read",
+  async run({ args }) {
+    return listRecentMessages(args?.mailboxId, {
+      limit: args?.limit || 20,
+      unseenOnly: Boolean(args?.unseenOnly)
+    });
+  }
+});
+
+defineTool({
+  name: "email.search",
+  description: "Search a Neo Mail mailbox by sender, recipient, subject, or message body.",
+  risk: "read",
+  async run({ args }) {
+    return searchMessages(args?.mailboxId, { query: args?.query || "", limit: args?.limit || 25 });
+  }
+});
+
+defineTool({
+  name: "email.read",
+  description: "Read the content and attachment metadata for one Neo Mail message.",
+  risk: "read",
+  async run({ args }) {
+    return readMessage(args?.mailboxId, args?.uid, { markSeen: Boolean(args?.markSeen) });
+  }
+});
+
+defineTool({
+  name: "email.send",
+  description: "Send an email through a configured Neo Mail mailbox. This creates an external communication and requires external-side-effect authorization.",
+  risk: "external_side_effect",
+  async run({ args }) {
+    return sendMessage(args?.mailboxId, {
+      to: args?.to,
+      cc: args?.cc,
+      bcc: args?.bcc,
+      subject: args?.subject,
+      text: args?.text,
+      html: args?.html,
+      replyTo: args?.replyTo
+    });
+  }
+});
+
+defineTool({
   name: "system.status",
   description: "Inspect currently configured Georgie capabilities.",
   risk: "read",
@@ -60,8 +134,9 @@ defineTool({
       memory: true,
       handsFree: true,
       tasks: true,
+      proactive: true,
       externalConnectors: {
-        email: Boolean(process.env.GEORGIE_EMAIL_ENABLED === "true"),
+        neoMail: neoMailConfigured(),
         calendar: Boolean(process.env.GEORGIE_CALENDAR_ENABLED === "true"),
         web: Boolean(process.env.GEORGIE_WEB_ENABLED === "true"),
         notifications: Boolean(process.env.GEORGIE_NOTIFICATIONS_ENABLED === "true")
