@@ -16,6 +16,8 @@ import {
   updateProfile
 } from "./memory.js";
 import { createTask, deleteTask, listTasks, updateTask } from "./tasks.js";
+import { acknowledgeEvent, listEvents } from "./events.js";
+import { startProactiveEngine } from "./proactive.js";
 import { executeTool, listToolDefinitions } from "./tools.js";
 
 const app = express();
@@ -60,8 +62,7 @@ async function rememberTurn(userId, userText, assistantText) {
 }
 
 async function runPlannedActions(userId, input) {
-  const definitions = listToolDefinitions();
-  const actions = await planActions(input, definitions);
+  const actions = await planActions(input, listToolDefinitions());
   const policy = process.env.GEORGIE_AUTO_ACTION_POLICY || "low_risk_write";
   const results = [];
   for (const action of actions) {
@@ -79,24 +80,17 @@ async function completeTurn({ userId, sessionId, input, history = [] }) {
   if (taskSnapshot.length) contextParts.push(`OPEN TASKS\n${taskSnapshot.map((task) => `- ${task.title}${task.dueAt ? ` (due ${task.dueAt})` : ""}`).join("\n")}`);
   if (toolResults.length) contextParts.push(`TOOL EXECUTION RESULTS\n${JSON.stringify(toolResults).slice(0, 8000)}`);
   const response = await askGeorgie(input, persistedHistory, contextParts.filter(Boolean).join("\n\n"));
-
   await appendSessionTurn({ userId, sessionId, role: "user", content: input });
   await appendSessionTurn({ userId, sessionId, role: "assistant", content: response.text });
   const remembered = await rememberTurn(userId, input, response.text);
-
-  return {
-    ...response,
-    remembered,
-    memoryCount: memory.memories.length,
-    actions: toolResults
-  };
+  return { ...response, remembered, memoryCount: memory.memories.length, actions: toolResults };
 }
 
 app.get("/health", (_req, res) => {
   res.json({
     ok: true,
     assistant: "Georgie",
-    version: "0.5.0",
+    version: "0.6.0",
     voice: true,
     memory: true,
     identity: true,
@@ -105,6 +99,7 @@ app.get("/health", (_req, res) => {
     bargeIn: true,
     tasks: true,
     toolRouter: true,
+    proactiveEngine: true,
     pwa: true,
     productionSecurity: true,
     configured: Boolean(process.env.OPENAI_API_KEY)
@@ -171,6 +166,18 @@ app.delete("/api/tasks/:id", async (req, res) => {
   } catch (error) { res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Unknown error" }); }
 });
 
+app.get("/api/events", async (req, res) => {
+  try { res.json({ ok: true, events: await listEvents(getUserId(req), { status: req.query?.status || "pending", limit: req.query?.limit || 30 }) }); }
+  catch (error) { res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Unknown error" }); }
+});
+
+app.post("/api/events/:id/ack", async (req, res) => {
+  try {
+    const event = await acknowledgeEvent(getUserId(req), req.params.id);
+    res.status(event ? 200 : 404).json({ ok: Boolean(event), event });
+  } catch (error) { res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Unknown error" }); }
+});
+
 app.get("/api/session", async (req, res) => {
   try { res.json({ ok: true, history: await getSessionHistory(getUserId(req), getSessionId(req), Number(req.query?.limit || 40)) }); }
   catch (error) { res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Unknown error" }); }
@@ -229,5 +236,6 @@ app.use((error, _req, res, _next) => {
   res.status(500).json({ ok: false, error: "Georgie encountered an internal error." });
 });
 
+startProactiveEngine();
 const port = Number(process.env.PORT || 3000);
 app.listen(port, () => console.log(`Georgie is listening on http://localhost:${port}`));
