@@ -15,8 +15,5 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm install
-      - run: node --check src/georgie.js
-      - run: node --check src/memory.js
-      - run: node --check src/server.js
-      - run: node --check public/handsfree.js
-      - run: node --check public/app.js
+      - run: npm run check
+      - run: docker build -t georgie-ci .
