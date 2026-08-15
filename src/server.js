@@ -52,6 +52,37 @@ function getSessionId(req) {
   return String(req.headers["x-georgie-session"] || req.body?.sessionId || req.query?.sessionId || "default").slice(0, 150);
 }
 
+function readinessSnapshot() {
+  const openAI = Boolean(process.env.OPENAI_API_KEY);
+  const neoMail = neoMailConfigured();
+  const persistentData = Boolean(process.env.GEORGIE_DATA_DIR);
+  const blockers = [];
+  if (!openAI) blockers.push("OPENAI_API_KEY");
+  if (!neoMail) blockers.push("GEORGIE_NEO_MAILBOXES_JSON");
+  return {
+    ready: blockers.length === 0,
+    activationState: blockers.length ? "secrets_pending" : "ready_for_live_verification",
+    blockers,
+    connections: {
+      openAI,
+      neoMail,
+      liveWebResearch: process.env.GEORGIE_WEB_ENABLED !== "false",
+      persistentData
+    },
+    platform: {
+      voice: true,
+      wakeName: true,
+      memory: true,
+      tasks: true,
+      proactiveEngine: true,
+      emailIntelligence: true,
+      toolRouter: true,
+      pwa: true,
+      productionSecurity: true
+    }
+  };
+}
+
 async function rememberTurn(userId, userText, assistantText) {
   try {
     const candidates = await extractMemoryCandidates(userText, assistantText);
@@ -89,28 +120,20 @@ async function completeTurn({ userId, sessionId, input, history = [] }) {
 }
 
 app.get("/health", (_req, res) => {
+  const readiness = readinessSnapshot();
   res.json({
     ok: true,
     assistant: "Georgie",
-    version: "0.7.0",
-    voice: true,
-    memory: true,
-    identity: true,
-    wakeName: true,
-    handsFree: true,
-    bargeIn: true,
-    tasks: true,
-    toolRouter: true,
-    proactiveEngine: true,
-    neoMail: neoMailConfigured(),
-    emailIntelligence: neoMailConfigured(),
-    liveWebResearch: process.env.GEORGIE_WEB_ENABLED !== "false",
-    pwa: true,
-    productionSecurity: true,
-    configured: Boolean(process.env.OPENAI_API_KEY)
+    version: "0.7.1",
+    ...readiness.platform,
+    neoMail: readiness.connections.neoMail,
+    liveWebResearch: readiness.connections.liveWebResearch,
+    configured: readiness.connections.openAI,
+    activationState: readiness.activationState
   });
 });
 
+app.get("/api/readiness", (_req, res) => res.json({ ok: true, ...readinessSnapshot() }));
 app.get("/api/tools", (_req, res) => res.json({ ok: true, tools: listToolDefinitions() }));
 
 app.get("/api/mail/accounts", (_req, res) => {
