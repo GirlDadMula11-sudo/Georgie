@@ -4,13 +4,18 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0b0b0d" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Georgie" />
   <title>Georgie</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/georgie-icon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <main class="shell">
     <section class="hero">
-      <div class="eyebrow">VOICE ASSISTANT</div>
+      <div class="eyebrow">PERSONAL AI</div>
       <h1>Georgie</h1>
       <div class="presence-row">
         <span id="presenceDot" class="presence-dot"></span>
@@ -38,11 +43,11 @@
       </button>
 
       <form id="textForm" class="text-form">
-        <input id="textInput" autocomplete="off" placeholder="Or type to Georgie…" aria-label="Message Georgie" />
+        <input id="textInput" autocomplete="off" placeholder="Ask Georgie anything…" aria-label="Message Georgie" />
         <button type="submit">Send</button>
       </form>
 
-      <p class="privacy-note">Hands-free mode listens for speech while this page is active. Audio is only sent for transcription after voice activity is detected.</p>
+      <p class="privacy-note">Georgie can remember useful context, manage tasks, and route actions through permission-aware tools. Hands-free audio is only sent after speech activity is detected.</p>
     </section>
   </main>
 
