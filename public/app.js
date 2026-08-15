@@ -12,6 +12,19 @@ let history = [];
 let activeAudio;
 let isBusy = false;
 
+const userId = localStorage.getItem("georgie:userId") || crypto.randomUUID();
+const sessionId = localStorage.getItem("georgie:sessionId") || crypto.randomUUID();
+localStorage.setItem("georgie:userId", userId);
+localStorage.setItem("georgie:sessionId", sessionId);
+
+function requestHeaders(extra = {}) {
+  return {
+    "X-Georgie-User": userId,
+    "X-Georgie-Session": sessionId,
+    ...extra
+  };
+}
+
 function setStatus(text) {
   statusEl.textContent = text;
 }
@@ -34,7 +47,22 @@ function appendMessage(role, text) {
 
 function pushHistory(role, content) {
   history.push({ role, content });
-  history = history.slice(-12);
+  history = history.slice(-16);
+}
+
+async function restoreSession() {
+  try {
+    const response = await fetch(`/api/session?limit=16`, { headers: requestHeaders() });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok || !Array.isArray(payload.history)) return;
+    history = payload.history.slice(-16);
+    for (const turn of history) {
+      if (["user", "assistant"].includes(turn.role) && turn.content) appendMessage(turn.role, turn.content);
+    }
+    if (history.length) setStatus("Memory restored. Ready when you are.");
+  } catch (error) {
+    console.warn("Session restore unavailable", error);
+  }
 }
 
 function chooseMimeType() {
@@ -72,9 +100,15 @@ async function runVoiceTurn(audioBlob) {
     const extension = audioBlob.type.includes("mp4") ? "m4a" : "webm";
     form.append("audio", audioBlob, `voice.${extension}`);
     form.append("history", JSON.stringify(history));
+    form.append("userId", userId);
+    form.append("sessionId", sessionId);
 
     setStatus("Thinking…");
-    const response = await fetch("/api/voice-turn", { method: "POST", body: form });
+    const response = await fetch("/api/voice-turn", {
+      method: "POST",
+      headers: requestHeaders(),
+      body: form
+    });
     const payload = await response.json();
     if (!response.ok || !payload.ok) throw new Error(payload.error || "Voice request failed");
 
@@ -83,7 +117,7 @@ async function runVoiceTurn(audioBlob) {
     appendMessage("assistant", payload.text);
     pushHistory("assistant", payload.text);
 
-    setStatus("Speaking…");
+    setStatus(payload.remembered ? `Speaking… remembered ${payload.remembered} new detail${payload.remembered === 1 ? "" : "s"}.` : "Speaking…");
     await playBase64Audio(payload.audioBase64, payload.audioMimeType);
   } catch (error) {
     console.error(error);
@@ -156,25 +190,26 @@ textForm.addEventListener("submit", async (event) => {
   isBusy = true;
   textInput.value = "";
   appendMessage("user", input);
+  const priorHistory = history.slice();
   pushHistory("user", input);
   setStatus("Thinking…");
 
   try {
     const response = await fetch("/api/respond", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ input, history: history.slice(0, -1) })
+      headers: requestHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ input, history: priorHistory, userId, sessionId })
     });
     const payload = await response.json();
     if (!response.ok || !payload.ok) throw new Error(payload.error || "Request failed");
 
     appendMessage("assistant", payload.text);
     pushHistory("assistant", payload.text);
-    setStatus("Speaking…");
+    setStatus(payload.remembered ? `Speaking… remembered ${payload.remembered} new detail${payload.remembered === 1 ? "" : "s"}.` : "Speaking…");
 
     const speechResponse = await fetch("/api/speak", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: requestHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ text: payload.text })
     });
     if (!speechResponse.ok) throw new Error("Speech synthesis failed");
@@ -195,3 +230,5 @@ textForm.addEventListener("submit", async (event) => {
     isBusy = false;
   }
 });
+
+restoreSession();
