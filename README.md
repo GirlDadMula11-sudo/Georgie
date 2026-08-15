@@ -2,36 +2,75 @@
 
 Georgie is a sophisticated, voice-first personal AI assistant designed to respond quickly, reason across tasks, guide decisions, and coordinate tools and integrations through a modular architecture.
 
-## Initial system goals
+## Voice loop
 
-- Voice-first interaction loop
-- Wake-name / push-to-talk compatible input layer
-- Speech-to-text transcription
-- Reasoning and orchestration layer
-- OpenAI-powered assistant responses
-- Text-to-speech output
-- Persistent conversation/session architecture
-- Modular tools and integrations
-- Secure configuration through environment variables
-
-## Architecture
+The first end-to-end voice layer is now implemented:
 
 ```text
-Voice input
+Browser microphone
    ↓
-Speech recognition
+MediaRecorder audio capture
    ↓
-Georgie Orchestrator
+OpenAI speech-to-text
    ↓
-Reasoning / Tool Routing / Memory
+Georgie reasoning core
    ↓
-Assistant response
+OpenAI text-to-speech
    ↓
-Text-to-speech
-   ↓
-Voice response
+Spoken audio playback
 ```
 
-## Status
+The browser never receives the OpenAI API key. Audio and reasoning requests are handled by the Node server.
 
-Foundation initialized. The first milestone is a functioning voice → Georgie → response loop, followed by memory, tool integrations, proactive workflows, and a polished interface.
+## Current capabilities
+
+- Hold-to-talk microphone interaction
+- Mobile-friendly browser recording, including iOS-compatible MIME fallback
+- Speech transcription with `gpt-4o-mini-transcribe`
+- Georgie reasoning through the Responses API
+- Spoken responses with `gpt-4o-mini-tts`
+- Default `cedar` voice
+- Typed-chat fallback
+- Short conversation history passed between turns
+- Secure server-side API credentials
+- Health/configuration endpoint
+- Responsive voice interface
+
+## Run locally
+
+Requirements: Node.js 20+ and an OpenAI API key.
+
+```bash
+npm install
+cp .env.example .env
+npm start
+```
+
+Set `OPENAI_API_KEY` in `.env`, then open `http://localhost:3000` in a browser and allow microphone access.
+
+## Configuration
+
+```env
+OPENAI_API_KEY=...
+PORT=3000
+OPENAI_MODEL=gpt-5
+OPENAI_TRANSCRIBE_MODEL=gpt-4o-mini-transcribe
+OPENAI_TTS_MODEL=gpt-4o-mini-tts
+OPENAI_VOICE=cedar
+```
+
+## API
+
+- `GET /health` — service/configuration status
+- `POST /api/transcribe` — audio → text
+- `POST /api/respond` — text → Georgie response
+- `POST /api/speak` — text → speech audio
+- `POST /api/voice-turn` — complete audio → transcript → Georgie → spoken response pipeline
+
+## Roadmap
+
+1. Persistent memory and session identity
+2. Wake-name / hands-free listening behavior
+3. Tool and account integrations
+4. Proactive tasks, alerts, and workflows
+5. Premium multimodal interface and native-device experience
