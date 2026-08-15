@@ -18,4 +18,5 @@ jobs:
       - run: node --check src/georgie.js
       - run: node --check src/memory.js
       - run: node --check src/server.js
+      - run: node --check public/handsfree.js
       - run: node --check public/app.js
