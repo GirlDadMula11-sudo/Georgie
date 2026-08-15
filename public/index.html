@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0b0b0d" />
+  <meta name="theme-color" content="#070708" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Georgie" />
@@ -13,44 +13,55 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <main class="shell">
-    <section class="hero">
-      <div class="eyebrow">PERSONAL AI</div>
+  <main class="app-shell">
+    <header class="topbar">
+      <button class="icon-button" aria-label="Settings">⚙</button>
+      <div class="brand"><strong>GEORGIE</strong><span>Your Personal AI Assistant</span></div>
+      <button class="icon-button" aria-label="Notifications">♢</button>
+    </header>
+
+    <section class="identity-card">
+      <div class="avatar-ring"><img src="/georgie-avatar.jpg" alt="Georgie, your personal AI assistant" /></div>
       <h1>Georgie</h1>
-      <div class="presence-row">
-        <span id="presenceDot" class="presence-dot"></span>
-        <span id="presenceState" class="presence-state">Manual mode</span>
-      </div>
-      <p id="status" class="status">Ready when you are.</p>
+      <div class="presence-row"><span id="presenceDot" class="presence-dot"></span><span id="presenceState" class="presence-state">Online</span></div>
+      <p id="status" class="status">I’m here to help you stay ahead and get things done.</p>
+    </section>
+
+    <section class="capability-grid" aria-label="Georgie capabilities">
+      <article><span class="cap-icon">◉</span><strong>Memory</strong><small>Active</small></article>
+      <article><span class="cap-icon">✓</span><strong>Tasks</strong><small>Ready</small></article>
+      <article><span class="cap-icon">✉</span><strong>NEO Mail</strong><small>Connect</small></article>
+      <article><span class="cap-icon">▣</span><strong>Mac Agent</strong><small>Connect</small></article>
     </section>
 
     <section class="conversation" id="conversation" aria-live="polite"></section>
 
+    <section class="priority-card">
+      <div class="section-title"><strong>TODAY’S COMMAND CENTER</strong><span>Live</span></div>
+      <p>Ask Georgie what needs your attention, create tasks, research anything, or manage connected tools.</p>
+    </section>
+
     <section class="controls">
       <div class="handsfree-panel">
-        <div>
-          <strong>Hands-free mode</strong>
-          <span>Say “Georgie” to wake me</span>
-        </div>
-        <button id="handsFreeToggle" class="mode-toggle" type="button" role="switch" aria-checked="false">
-          <span class="toggle-knob"></span>
-        </button>
+        <div><strong>Hands-free mode</strong><span>Say “Georgie” to wake me</span></div>
+        <button id="handsFreeToggle" class="mode-toggle" type="button" role="switch" aria-checked="false"><span class="toggle-knob"></span></button>
       </div>
 
       <button id="voiceButton" class="voice-button" type="button" aria-label="Talk to Georgie">
-        <span class="voice-core"></span>
-        <span id="voiceLabel">Hold to talk</span>
+        <span class="wave">▥</span><span class="voice-core">●</span><span id="voiceLabel">HOLD TO TALK</span><span class="wave">▥</span>
       </button>
 
       <form id="textForm" class="text-form">
         <input id="textInput" autocomplete="off" placeholder="Ask Georgie anything…" aria-label="Message Georgie" />
         <button type="submit">Send</button>
       </form>
-
-      <p class="privacy-note">Georgie can remember useful context, manage tasks, and route actions through permission-aware tools. Hands-free audio is only sent after speech activity is detected.</p>
+      <p class="privacy-note">Durable memory • permission-aware actions • voice-first intelligence</p>
     </section>
-  </main>
 
+    <nav class="bottom-nav" aria-label="Primary navigation">
+      <button class="active"><span>⌂</span>Home</button><button><span>◌</span>Chat</button><button><span>☑</span>Tasks</button><button><span>✉</span>NEO Mail</button><button><span>•••</span>More</button>
+    </nav>
+  </main>
   <script type="module" src="/app.js"></script>
   <script type="module" src="/proactive.js"></script>
   <script type="module" src="/pwa.js"></script>
