@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: georgie
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: GEORGIE_DATA_DIR
+        value: /var/data
+      - key: GEORGIE_AUTO_ACTION_POLICY
+        value: low_risk_write
+      - key: OPENAI_API_KEY
+        sync: false
+    disk:
+      name: georgie-data
+      mountPath: /var/data
+      sizeGB: 1
