@@ -3,6 +3,8 @@ const OPENAI_BASE_URL = "https://api.openai.com/v1";
 const SYSTEM_PROMPT = `You are Georgie, a sophisticated personal AI assistant.
 You are fast, calm, capable, proactive, and highly practical.
 Your job is to understand the user's goal, reason carefully, guide them toward the best next action, and use connected capabilities when available.
+Use provided memory and identity context naturally when relevant, but do not force it into unrelated answers.
+Treat memories as context that may become outdated. If a current user statement conflicts with an older memory, prefer the current statement.
 Keep spoken responses natural and concise unless detail is requested.
 Never pretend an external action succeeded unless the system confirms it.`;
 
@@ -32,64 +34,89 @@ async function openAI(path, options = {}) {
 
 function extractResponseText(payload) {
   if (payload.output_text) return payload.output_text;
-
   for (const item of payload.output || []) {
     for (const content of item.content || []) {
       if (content.type === "output_text" && content.text) return content.text;
     }
   }
-
   return "";
 }
 
-export async function askGeorgie(input, history = []) {
+export async function askGeorgie(input, history = [], memoryContext = "") {
   if (!input?.trim()) throw new Error("Input is required");
 
   const safeHistory = Array.isArray(history)
     ? history
-        .slice(-12)
+        .slice(-16)
         .filter((item) => item && ["user", "assistant"].includes(item.role) && typeof item.content === "string")
     : [];
+
+  const instructions = memoryContext
+    ? `${SYSTEM_PROMPT}\n\nMEMORY AND IDENTITY CONTEXT\n${memoryContext}`
+    : SYSTEM_PROMPT;
 
   const response = await openAI("/responses", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-5",
-      instructions: SYSTEM_PROMPT,
+      instructions,
       input: [...safeHistory, { role: "user", content: input.trim() }]
     })
   });
 
   const payload = await response.json();
   const text = extractResponseText(payload);
-
   if (!text) throw new Error("Georgie returned an empty response");
-
   return { text, responseId: payload.id };
+}
+
+export async function extractMemoryCandidates(userText, assistantText = "") {
+  if (!userText?.trim()) return [];
+
+  const response = await openAI("/responses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: process.env.OPENAI_MEMORY_MODEL || process.env.OPENAI_MODEL || "gpt-5",
+      instructions: `Extract only durable information worth remembering for a personal assistant.\nReturn strict JSON only, with this shape: {"memories":[{"text":"...","category":"preference|identity|relationship|project|goal|routine|constraint|fact","importance":0.0,"tags":["..."]}]}.\nRemember stable preferences, identities, relationships, ongoing projects, goals, routines, constraints, and durable factual context.\nDo not store passwords, authentication secrets, API keys, one-time codes, financial account numbers, or other credentials.\nDo not save casual filler, temporary emotions, or short-lived details unless they clearly matter to an ongoing goal.\nUse importance from 0 to 1. Return at most 5 memories. If nothing is worth saving, return {"memories":[]}.`,
+      input: `User: ${userText.trim()}\nAssistant: ${String(assistantText || "").slice(0, 4000)}`
+    })
+  });
+
+  const payload = await response.json();
+  const raw = extractResponseText(payload).trim();
+  try {
+    const cleaned = raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
+    const parsed = JSON.parse(cleaned);
+    if (!Array.isArray(parsed.memories)) return [];
+    return parsed.memories
+      .filter((item) => item && typeof item.text === "string" && item.text.trim())
+      .slice(0, 5)
+      .map((item) => ({
+        text: item.text.trim().slice(0, 2000),
+        category: String(item.category || "fact").slice(0, 50),
+        importance: Math.max(0, Math.min(1, Number(item.importance) || 0.5)),
+        tags: Array.isArray(item.tags) ? item.tags.map(String).slice(0, 12) : []
+      }));
+  } catch {
+    return [];
+  }
 }
 
 export async function transcribeAudio({ buffer, mimeType, filename }) {
   if (!buffer?.length) throw new Error("Audio is required");
-
   const form = new FormData();
   form.append("model", process.env.OPENAI_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe");
   form.append("file", new Blob([buffer], { type: mimeType || "audio/webm" }), filename || "voice.webm");
-
-  const response = await openAI("/audio/transcriptions", {
-    method: "POST",
-    body: form
-  });
-
+  const response = await openAI("/audio/transcriptions", { method: "POST", body: form });
   const payload = await response.json();
   if (!payload.text?.trim()) throw new Error("No speech was detected");
-
   return payload.text.trim();
 }
 
 export async function synthesizeSpeech(text) {
   if (!text?.trim()) throw new Error("Text is required for speech synthesis");
-
   const response = await openAI("/audio/speech", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -101,6 +128,5 @@ export async function synthesizeSpeech(text) {
       instructions: "Speak naturally, confidently, warmly, and efficiently. Sound like a highly capable personal assistant."
     })
   });
-
   return Buffer.from(await response.arrayBuffer());
 }
