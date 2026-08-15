@@ -57,6 +57,14 @@ export async function listTasks(userId, { status = "open", limit = 50 } = {}) {
     .slice(0, Math.max(1, Math.min(Number(limit) || 50, 200)));
 }
 
+export async function listAllTasks({ status = "open", limit = 1000 } = {}) {
+  const store = await readStore();
+  return store.tasks
+    .filter((task) => status === "all" || task.status === status)
+    .sort((a, b) => new Date(a.dueAt || a.createdAt) - new Date(b.dueAt || b.createdAt))
+    .slice(0, Math.max(1, Math.min(Number(limit) || 1000, 5000)));
+}
+
 export async function updateTask(userId, taskId, patch = {}) {
   const store = await readStore();
   const task = store.tasks.find((item) => item.userId === userId && item.id === taskId);
