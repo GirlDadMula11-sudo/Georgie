@@ -1,0 +1,13 @@
+{
+  "name": "Georgie Personal Assistant",
+  "short_name": "Georgie",
+  "description": "Voice-first personal AI assistant",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#070709",
+  "theme_color": "#0b0b0d",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/georgie-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
