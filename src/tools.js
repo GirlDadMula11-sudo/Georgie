@@ -1,5 +1,6 @@
 import { searchMemories } from "./memory.js";
 import { createTask, listTasks, updateTask } from "./tasks.js";
+import { enqueueMacJob, listMacJobs } from "./mac/queue.js";
 import {
   listNeoMailboxes,
   listRecentMessages,
@@ -56,6 +57,78 @@ defineTool({
   risk: "low_risk_write",
   async run({ userId, args }) {
     return updateTask(userId, args?.taskId, args?.patch || {});
+  }
+});
+
+defineTool({
+  name: "mac.jobs",
+  description: "List recent jobs executed or queued for the user's Georgie Mac Agent.",
+  risk: "read",
+  async run({ userId, args }) {
+    return listMacJobs(userId, Number(args?.limit || 30));
+  }
+});
+
+defineTool({
+  name: "mac.system_info",
+  description: "Ask the user's connected Mac for hostname, architecture, OS release and uptime.",
+  risk: "read",
+  async run({ userId, args }) {
+    return enqueueMacJob({ userId, deviceId: args?.deviceId || "primary-mac", action: "system.info", risk: "read", reason: "System status requested by Georgie" });
+  }
+});
+
+defineTool({
+  name: "mac.clipboard_read",
+  description: "Read text currently on the connected Mac clipboard.",
+  risk: "read",
+  async run({ userId, args }) {
+    return enqueueMacJob({ userId, deviceId: args?.deviceId || "primary-mac", action: "clipboard.read", risk: "read", reason: "Clipboard requested by Georgie" });
+  }
+});
+
+defineTool({
+  name: "mac.file_read",
+  description: "Read a text file from the connected Mac Desktop, Documents, or Downloads folder.",
+  risk: "read",
+  async run({ userId, args }) {
+    return enqueueMacJob({ userId, deviceId: args?.deviceId || "primary-mac", action: "file.read", args: { path: args?.path }, risk: "read", reason: "File requested by Georgie" });
+  }
+});
+
+defineTool({
+  name: "mac.open_app",
+  description: "Open an allowlisted application on the connected Mac.",
+  risk: "low_risk_write",
+  async run({ userId, args }) {
+    return enqueueMacJob({ userId, deviceId: args?.deviceId || "primary-mac", action: "app.open", args: { app: args?.app }, risk: "low_risk_write", reason: "Application launch requested by Georgie" });
+  }
+});
+
+defineTool({
+  name: "mac.open_url",
+  description: "Open an HTTP or HTTPS URL on the connected Mac.",
+  risk: "low_risk_write",
+  async run({ userId, args }) {
+    return enqueueMacJob({ userId, deviceId: args?.deviceId || "primary-mac", action: "url.open", args: { url: args?.url }, risk: "low_risk_write", reason: "Web page requested by Georgie" });
+  }
+});
+
+defineTool({
+  name: "mac.clipboard_write",
+  description: "Put text onto the connected Mac clipboard.",
+  risk: "low_risk_write",
+  async run({ userId, args }) {
+    return enqueueMacJob({ userId, deviceId: args?.deviceId || "primary-mac", action: "clipboard.write", args: { text: args?.text }, risk: "low_risk_write", reason: "Clipboard update requested by Georgie" });
+  }
+});
+
+defineTool({
+  name: "mac.notification",
+  description: "Show a local notification on the connected Mac.",
+  risk: "low_risk_write",
+  async run({ userId, args }) {
+    return enqueueMacJob({ userId, deviceId: args?.deviceId || "primary-mac", action: "notification.show", args: { title: args?.title, body: args?.body }, risk: "low_risk_write", reason: "Notification requested by Georgie" });
   }
 });
 
@@ -135,6 +208,7 @@ defineTool({
       handsFree: true,
       tasks: true,
       proactive: true,
+      macAgent: Boolean(process.env.GEORGIE_MAC_AGENT_TOKEN),
       externalConnectors: {
         neoMail: neoMailConfigured(),
         calendar: Boolean(process.env.GEORGIE_CALENDAR_ENABLED === "true"),
