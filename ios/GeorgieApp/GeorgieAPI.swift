@@ -140,7 +140,7 @@ actor GeorgieAPI {
 
     func sierraPortfolio() async throws -> [SierraDealSummary] {
         guard isEnrolled else { return [] }
-        let envelope = try await run(request(path: "api/sierra/portfolio?limit=30", contentType: nil), as: SierraPortfolioEnvelope.self)
+        let envelope = try await run(request(path: "api/sierra/portfolio", contentType: nil), as: SierraPortfolioEnvelope.self)
         return envelope.deals
     }
 
