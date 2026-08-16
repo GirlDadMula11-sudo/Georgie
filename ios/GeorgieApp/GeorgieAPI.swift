@@ -17,12 +17,47 @@ struct GeorgieTask: Codable, Identifiable {
     let status: String
 }
 
+struct SierraDealSummary: Codable, Identifiable {
+    let referralId: String?
+    let referenceNumber: String
+    let legalBusinessName: String?
+    let requestedAmount: Double?
+    let currentStage: String?
+    let nextAction: String?
+    let submittedLenderCount: Int?
+    let availableOffers: Int?
+    let attentionLevel: String?
+    let attentionScore: Int?
+
+    var id: String { referralId ?? referenceNumber }
+
+    enum CodingKeys: String, CodingKey {
+        case referralId = "referral_id"
+        case referenceNumber = "reference_number"
+        case legalBusinessName = "legal_business_name"
+        case requestedAmount = "requested_amount"
+        case currentStage = "current_stage"
+        case nextAction = "next_action"
+        case submittedLenderCount = "submitted_lender_count"
+        case availableOffers = "available_offers"
+        case attentionLevel = "attention_level"
+        case attentionScore = "attention_score"
+    }
+}
+
+struct SierraHealth: Codable {
+    let healthStatus: String?
+    enum CodingKeys: String, CodingKey { case healthStatus = "health_status" }
+}
+
 struct ReadinessEnvelope: Codable { let ok: Bool; let ready: Bool?; let activationState: String?; let blockers: [String]? }
 struct TasksEnvelope: Codable { let ok: Bool; let tasks: [GeorgieTask] }
 struct EnrollmentEnvelope: Codable { let ok: Bool; let token: String }
 struct DeviceEnvelope: Codable { let ok: Bool; let deviceId: String; let deviceName: String?; let platform: String? }
 struct TextTurnEnvelope: Codable { let ok: Bool; let text: String; let responseId: String?; let remembered: Int? }
 struct VoiceTurnEnvelope: Codable { let ok: Bool; let transcript: String; let text: String; let responseId: String?; let audioBase64: String?; let audioMimeType: String? }
+struct SierraPortfolioEnvelope: Codable { let ok: Bool; let deals: [SierraDealSummary] }
+struct SierraHealthEnvelope: Codable { let ok: Bool; let health: SierraHealth }
 
 enum GeorgieAPIError: LocalizedError {
     case invalidResponse
@@ -101,6 +136,18 @@ actor GeorgieAPI {
         guard isEnrolled else { return [] }
         let envelope = try await run(request(path: "api/mobile/tasks", contentType: nil), as: TasksEnvelope.self)
         return envelope.tasks
+    }
+
+    func sierraPortfolio() async throws -> [SierraDealSummary] {
+        guard isEnrolled else { return [] }
+        let envelope = try await run(request(path: "api/sierra/portfolio?limit=30", contentType: nil), as: SierraPortfolioEnvelope.self)
+        return envelope.deals
+    }
+
+    func sierraHealth() async throws -> SierraHealth {
+        guard isEnrolled else { throw GeorgieAPIError.unauthorized }
+        let envelope = try await run(request(path: "api/sierra/health", contentType: nil), as: SierraHealthEnvelope.self)
+        return envelope.health
     }
 
     func respond(_ input: String) async throws -> TextTurnEnvelope {
