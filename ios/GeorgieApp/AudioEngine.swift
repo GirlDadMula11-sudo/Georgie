@@ -18,7 +18,7 @@ final class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
         guard await requestPermission() else { throw NSError(domain: "GeorgieAudio", code: 1, userInfo: [NSLocalizedDescriptionKey: "Microphone access is required."]) }
         stopPlayback()
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
+        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
         try session.setActive(true)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("georgie-\(UUID().uuidString).m4a")
         let settings: [String: Any] = [
