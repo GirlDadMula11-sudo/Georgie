@@ -1,5 +1,5 @@
-const CACHE = "georgie-shell-v1";
-const SHELL = ["/", "/styles.css", "/app.js", "/handsfree.js", "/manifest.webmanifest", "/georgie-icon.svg"];
+const CACHE = "georgie-shell-v2";
+const SHELL = ["/", "/styles.css", "/sierra.css", "/app.js", "/sierra-desk.js", "/handsfree.js", "/manifest.webmanifest", "/georgie-icon.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));
