@@ -21,11 +21,15 @@ struct GeorgieApp: App {
                 .task {
                     await NotificationManager.shared.requestAuthorization()
                     await store.refreshDashboard()
+                    await store.consumePendingVoiceLaunch()
                 }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                Task { await store.refreshDashboard() }
+                Task {
+                    await store.refreshDashboard()
+                    await store.consumePendingVoiceLaunch()
+                }
             }
         }
     }
