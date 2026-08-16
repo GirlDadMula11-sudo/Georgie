@@ -16,6 +16,7 @@ struct ContentView: View {
                             capabilityGrid
                             if !store.messages.isEmpty { conversation }
                             priorities
+                            sierraDesk
                             composer
                             voiceControl
                         } else {
@@ -72,7 +73,7 @@ struct ContentView: View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
             CapabilityTile(icon: "brain.head.profile", title: "Memory", value: "Active")
             CapabilityTile(icon: "checkmark.circle", title: "Tasks", value: "\(store.tasks.count) Open")
-            CapabilityTile(icon: "envelope", title: "NEO", value: "Ready")
+            CapabilityTile(icon: "building.2", title: "Sierra", value: store.sierraHealthStatus)
             CapabilityTile(icon: "desktopcomputer", title: "Mac", value: "Agent")
         }
     }
@@ -87,6 +88,43 @@ struct ContentView: View {
             if store.tasks.isEmpty { Text("No open tasks right now.").foregroundStyle(.secondary).font(.subheadline) }
             else { ForEach(store.tasks.prefix(4)) { task in HStack(alignment: .top, spacing: 10) { Image(systemName: "circle").foregroundStyle(gold); VStack(alignment: .leading, spacing: 2) { Text(task.title).font(.subheadline.weight(.medium)); if let due = task.dueAt { Text(due).font(.caption2).foregroundStyle(.secondary) } }; Spacer() } } }
         }.padding(15).background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(gold.opacity(0.24)))
+    }
+
+    private var sierraDesk: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("SIERRA CAPITAL DESK").font(.caption.bold()).foregroundStyle(gold)
+                    Text(store.sierraHealthStatus).font(.caption2).foregroundStyle(store.sierraHealthStatus.lowercased() == "healthy" ? .green : .secondary)
+                }
+                Spacer()
+                Button { Task { await store.refreshDashboard() } } label: { Image(systemName: "arrow.clockwise").foregroundStyle(gold) }
+            }
+            if store.sierraDeals.isEmpty {
+                Text("No Sierra deals available yet.").font(.subheadline).foregroundStyle(.secondary)
+            } else {
+                ForEach(store.sierraDeals.prefix(5)) { deal in
+                    Button { Task { await store.askAboutSierraDeal(deal) } } label: {
+                        HStack(alignment: .top, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(deal.legalBusinessName ?? deal.referenceNumber).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
+                                Text("\(deal.referenceNumber) · \(deal.currentStage ?? "File Build")").font(.caption2).foregroundStyle(.secondary)
+                                if let action = deal.nextAction, !action.isEmpty { Text(action).font(.caption2).foregroundStyle(.secondary).lineLimit(2) }
+                            }
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 4) {
+                                if let amount = deal.requestedAmount { Text(amount, format: .currency(code: "USD").precision(.fractionLength(0))).font(.caption.weight(.semibold)).foregroundStyle(gold) }
+                                Text((deal.attentionLevel ?? "Normal").uppercased()).font(.system(size: 9, weight: .bold)).foregroundStyle((deal.attentionLevel ?? "").lowercased() == "high" ? .orange : .green)
+                            }
+                        }
+                        .padding(11)
+                        .background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
+                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.06)))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }.padding(15).background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(gold.opacity(0.3)))
     }
 
     private var composer: some View {
