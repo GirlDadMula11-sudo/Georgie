@@ -10,6 +10,15 @@ import {
   sendMessage,
   verifyNeoMailbox
 } from "./integrations/neo-mail.js";
+import {
+  getSierraDeal,
+  getSierraHealth,
+  getSierraLenderResponses,
+  getSierraOffers,
+  getSierraPortfolio,
+  queueSierraAction,
+  sierraWorkforceConfigured
+} from "./integrations/sierra-workforce.js";
 
 const LEVELS = { read: 0, low_risk_write: 1, sensitive_write: 2, external_side_effect: 3 };
 const registry = new Map();
@@ -44,7 +53,16 @@ defineTool({ name: "email.search", description: "Search a Neo Mail mailbox by se
 defineTool({ name: "email.read", description: "Read the content and attachment metadata for one Neo Mail message.", risk: "read", async run({ args }) { return readMessage(args?.mailboxId, args?.uid, { markSeen: Boolean(args?.markSeen) }); } });
 defineTool({ name: "email.send", description: "Send an email through a configured Neo Mail mailbox. This creates an external communication and requires external-side-effect authorization.", risk: "external_side_effect", async run({ args }) { return sendMessage(args?.mailboxId, { to: args?.to, cc: args?.cc, bcc: args?.bcc, subject: args?.subject, text: args?.text, html: args?.html, replyTo: args?.replyTo }); } });
 
-defineTool({ name: "system.status", description: "Inspect currently configured Georgie capabilities.", risk: "read", async run() { return { voice: true, memory: true, handsFree: true, tasks: true, proactive: true, macAgent: Boolean(process.env.GEORGIE_MAC_AGENT_TOKEN), externalConnectors: { neoMail: neoMailConfigured(), calendar: Boolean(process.env.GEORGIE_CALENDAR_ENABLED === "true"), web: Boolean(process.env.GEORGIE_WEB_ENABLED === "true"), notifications: Boolean(process.env.GEORGIE_NOTIFICATIONS_ENABLED === "true") } }; } });
+defineTool({ name: "sierra.portfolio", description: "Read Sierra's canonical CRM portfolio, prioritized by operational attention, including pipeline, underwriting, evidence, exceptions, lender activity, offers and closing status.", risk: "read", async run({ userId, args }) { return getSierraPortfolio(userId, { limit: args?.limit || 25 }); } });
+defineTool({ name: "sierra.deal", description: "Read the complete canonical Sierra CRM workspace for one deal by SCA reference number or referral ID.", risk: "read", async run({ userId, args }) { return getSierraDeal(userId, args?.reference || args?.referenceNumber || args?.id); } });
+defineTool({ name: "sierra.health", description: "Read Sierra's latest operations-health snapshot including pipeline failures, lender delivery, evidence and recovery status.", risk: "read", async run({ userId }) { return getSierraHealth(userId); } });
+defineTool({ name: "sierra.lenders", description: "Read lender placements, response timing, follow-up state, requests and communication activity for a Sierra deal.", risk: "read", async run({ userId, args }) { return getSierraLenderResponses(userId, args?.reference || args?.referenceNumber); } });
+defineTool({ name: "sierra.offers", description: "Read and compare normalized financing offers for a Sierra deal, including payment burden, net proceeds, economics confidence and ranking.", risk: "read", async run({ userId, args }) { return getSierraOffers(userId, args?.reference || args?.referenceNumber); } });
+defineTool({ name: "sierra.exception_outreach", description: "Queue Sierra's governed exception-resolution outreach for a deal. This may contact the original deal source and therefore requires external-side-effect approval.", risk: "external_side_effect", async run({ userId, args }) { return queueSierraAction(userId, { reference: args?.reference || args?.referenceNumber, action: "exception_outreach", reason: args?.reason }); } });
+defineTool({ name: "sierra.lender_followup", description: "Queue a governed Sierra lender follow-up for a deal. This creates an external communication and requires approval.", risk: "external_side_effect", async run({ userId, args }) { return queueSierraAction(userId, { reference: args?.reference || args?.referenceNumber, action: "lender_followup", reason: args?.reason }); } });
+defineTool({ name: "sierra.refresh_pipeline", description: "Queue a safe Sierra pipeline re-evaluation for a deal after new evidence or a resolved exception.", risk: "low_risk_write", async run({ userId, args }) { return queueSierraAction(userId, { reference: args?.reference || args?.referenceNumber, action: "refresh_pipeline", reason: args?.reason }); } });
+
+defineTool({ name: "system.status", description: "Inspect currently configured Georgie capabilities.", risk: "read", async run() { return { voice: true, memory: true, handsFree: true, tasks: true, proactive: true, macAgent: Boolean(process.env.GEORGIE_MAC_AGENT_TOKEN), externalConnectors: { neoMail: neoMailConfigured(), sierraWorkforce: sierraWorkforceConfigured(), calendar: Boolean(process.env.GEORGIE_CALENDAR_ENABLED === "true"), web: Boolean(process.env.GEORGIE_WEB_ENABLED === "true"), notifications: Boolean(process.env.GEORGIE_NOTIFICATIONS_ENABLED === "true") } }; } });
 
 export function listToolDefinitions() { return [...registry.values()].map(({ name, description, risk }) => ({ name, description, risk })); }
 export function canAutoExecute(risk, policy = "low_risk_write") { return LEVELS[risk] <= LEVELS[policy]; }
