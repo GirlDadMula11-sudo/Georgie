@@ -5,6 +5,8 @@ import SwiftUI
 final class AssistantStore: ObservableObject {
     @Published var messages: [GeorgieMessage] = []
     @Published var tasks: [GeorgieTask] = []
+    @Published var sierraDeals: [SierraDealSummary] = []
+    @Published var sierraHealthStatus = "Connecting"
     @Published var status = "Online"
     @Published var isBusy = false
     @Published var isReady = false
@@ -41,18 +43,36 @@ final class AssistantStore: ObservableObject {
             if KeychainStore.read(account: GeorgieConfig.deviceTokenKey) != nil {
                 _ = try await GeorgieAPI.shared.verifyEnrollment()
                 isEnrolled = true
-                tasks = try await GeorgieAPI.shared.tasks()
+                async let taskRequest = GeorgieAPI.shared.tasks()
+                async let sierraRequest = GeorgieAPI.shared.sierraPortfolio()
+                async let healthRequest = GeorgieAPI.shared.sierraHealth()
+                tasks = try await taskRequest
+                sierraDeals = try await sierraRequest
+                let health = try await healthRequest
+                sierraHealthStatus = (health.healthStatus ?? "Connected").replacingOccurrences(of: "_", with: " ").capitalized
             } else {
                 isEnrolled = false
                 tasks = []
+                sierraDeals = []
+                sierraHealthStatus = "Secure activation required"
             }
             status = !isEnrolled ? "Activation needed" : (isReady ? "Online" : "Connecting")
         } catch {
             isEnrolled = KeychainStore.read(account: GeorgieConfig.deviceTokenKey) != nil
-            if !isEnrolled { tasks = [] }
+            if !isEnrolled {
+                tasks = []
+                sierraDeals = []
+                sierraHealthStatus = "Secure activation required"
+            } else {
+                sierraHealthStatus = "Limited"
+            }
             status = isEnrolled ? "Limited" : "Activation needed"
             errorMessage = error.localizedDescription
         }
+    }
+
+    func askAboutSierraDeal(_ deal: SierraDealSummary) async {
+        await sendText("Give me the complete Sierra desk brief for \(deal.referenceNumber). Explain what matters, blockers, underwriting evidence, lender activity, offers, and the next best action.")
     }
 
     func sendText(_ input: String? = nil) async {
@@ -122,6 +142,8 @@ final class AssistantStore: ObservableObject {
             UserDefaults.standard.set(true, forKey: pendingVoiceKey)
             await consumePendingVoiceLaunch()
         case "tasks":
+            await refreshDashboard()
+        case "sierra":
             await refreshDashboard()
         default:
             break
