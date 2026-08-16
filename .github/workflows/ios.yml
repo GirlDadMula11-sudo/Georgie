@@ -16,7 +16,7 @@ permissions:
 jobs:
   native-ios:
     runs-on: macos-15
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - name: Install XcodeGen
@@ -31,5 +31,15 @@ jobs:
             -scheme Georgie \
             -configuration Debug \
             -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+      - name: Build Georgie for physical iPhone architecture
+        run: |
+          cd ios
+          xcodebuild \
+            -project Georgie.xcodeproj \
+            -scheme Georgie \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO \
             build
