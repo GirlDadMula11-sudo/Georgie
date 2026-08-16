@@ -11,6 +11,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/georgie-icon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/sierra.css" />
 </head>
 <body>
   <main class="app-shell">
@@ -41,6 +42,20 @@
       <p>Ask Georgie what needs your attention, create tasks, research anything, or manage connected tools.</p>
     </section>
 
+    <section class="sierra-desk" id="sierraDesk" aria-live="polite">
+      <div class="sierra-desk-head">
+        <div><strong>SIERRA CAPITAL DESK</strong><span id="sierraHealth">Connecting…</span></div>
+        <button id="sierraRefresh" type="button">Refresh</button>
+      </div>
+      <div class="sierra-metrics">
+        <article><small>Active</small><strong id="sierraActive">—</strong></article>
+        <article><small>Needs attention</small><strong id="sierraAttention">—</strong></article>
+        <article><small>At lenders</small><strong id="sierraLenders">—</strong></article>
+        <article><small>Offers</small><strong id="sierraOffers">—</strong></article>
+      </div>
+      <div id="sierraDeals" class="sierra-deals"><p>Loading Sierra operations…</p></div>
+    </section>
+
     <section class="controls">
       <div class="handsfree-panel">
         <div><strong>Hands-free mode</strong><span>Say “Georgie” to wake me</span></div>
@@ -63,6 +78,7 @@
     </nav>
   </main>
   <script type="module" src="/app.js"></script>
+  <script type="module" src="/sierra-desk.js"></script>
   <script type="module" src="/proactive.js"></script>
   <script type="module" src="/pwa.js"></script>
 </body>
