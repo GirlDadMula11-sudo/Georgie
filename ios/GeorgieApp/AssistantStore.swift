@@ -13,19 +13,22 @@ final class AssistantStore: ObservableObject {
     @Published var textInput = ""
     @Published var errorMessage: String?
     let audio = AudioEngine()
+    private let pendingVoiceKey = "georgie:startVoiceOnLaunch"
 
     func enroll() async {
         let code = enrollmentCode.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !code.isEmpty, !isBusy else { return }
-        isBusy = true; status = "Activating"
+        isBusy = true
+        status = "Activating"
         defer { isBusy = false }
         do {
             try await GeorgieAPI.shared.enroll(code: code)
             enrollmentCode = ""
             isEnrolled = true
-            status = "Online"
+            status = "Secured"
             await refreshDashboard()
         } catch {
+            isEnrolled = KeychainStore.read(account: GeorgieConfig.deviceTokenKey) != nil
             status = "Activation needed"
             errorMessage = error.localizedDescription
         }
@@ -35,11 +38,19 @@ final class AssistantStore: ObservableObject {
         do {
             let r = try await GeorgieAPI.shared.readiness()
             isReady = r.ready ?? false
-            isEnrolled = KeychainStore.read(account: GeorgieConfig.deviceTokenKey) != nil
-            tasks = isEnrolled ? (try await GeorgieAPI.shared.tasks()) : []
+            if KeychainStore.read(account: GeorgieConfig.deviceTokenKey) != nil {
+                _ = try await GeorgieAPI.shared.verifyEnrollment()
+                isEnrolled = true
+                tasks = try await GeorgieAPI.shared.tasks()
+            } else {
+                isEnrolled = false
+                tasks = []
+            }
             status = !isEnrolled ? "Activation needed" : (isReady ? "Online" : "Connecting")
         } catch {
-            status = "Limited"
+            isEnrolled = KeychainStore.read(account: GeorgieConfig.deviceTokenKey) != nil
+            if !isEnrolled { tasks = [] }
+            status = isEnrolled ? "Limited" : "Activation needed"
             errorMessage = error.localizedDescription
         }
     }
@@ -50,39 +61,70 @@ final class AssistantStore: ObservableObject {
         guard !text.isEmpty, !isBusy else { return }
         textInput = ""
         messages.append(GeorgieMessage(role: "user", content: text))
-        isBusy = true; status = "Thinking"
+        isBusy = true
+        status = "Thinking"
         defer { isBusy = false; status = "Online" }
         do {
             let response = try await GeorgieAPI.shared.respond(text)
             messages.append(GeorgieMessage(role: "assistant", content: response.text))
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            isEnrolled = KeychainStore.read(account: GeorgieConfig.deviceTokenKey) != nil
+            errorMessage = error.localizedDescription
+        }
     }
 
     func startVoice() async {
         guard isEnrolled else { errorMessage = "Activate this iPhone to use Georgie."; return }
-        guard !isBusy else { return }
-        do { try await audio.startRecording(); status = "Listening" }
-        catch { errorMessage = error.localizedDescription }
+        guard !isBusy, !audio.isRecording else { return }
+        do {
+            try await audio.startRecording()
+            status = "Listening"
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func finishVoice() async {
         guard let url = audio.stopRecording() else { return }
-        isBusy = true; status = "Thinking"
-        defer { isBusy = false; status = "Online"; try? FileManager.default.removeItem(at: url) }
+        isBusy = true
+        status = "Thinking"
+        defer {
+            isBusy = false
+            status = "Online"
+            try? FileManager.default.removeItem(at: url)
+        }
         do {
             let response = try await GeorgieAPI.shared.voiceTurn(fileURL: url)
             messages.append(GeorgieMessage(role: "user", content: response.transcript))
             messages.append(GeorgieMessage(role: "assistant", content: response.text))
             try audio.play(base64: response.audioBase64)
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            isEnrolled = KeychainStore.read(account: GeorgieConfig.deviceTokenKey) != nil
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func consumePendingVoiceLaunch() async {
+        guard UserDefaults.standard.bool(forKey: pendingVoiceKey) else { return }
+        UserDefaults.standard.set(false, forKey: pendingVoiceKey)
+        if !isEnrolled { await refreshDashboard() }
+        guard isEnrolled else {
+            errorMessage = "Activate this iPhone before using the Georgie voice shortcut."
+            return
+        }
+        await startVoice()
     }
 
     func handleDeepLink(_ url: URL) async {
         guard url.scheme == "georgie" else { return }
         switch url.host {
-        case "voice": if isEnrolled { await startVoice() }
-        case "tasks": await refreshDashboard()
-        default: break
+        case "voice":
+            UserDefaults.standard.set(true, forKey: pendingVoiceKey)
+            await consumePendingVoiceLaunch()
+        case "tasks":
+            await refreshDashboard()
+        default:
+            break
         }
     }
 }
