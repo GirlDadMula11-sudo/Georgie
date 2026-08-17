@@ -18,17 +18,45 @@ final class GeorgieWindowController: NSWindowController, NSTextFieldDelegate {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    private func loadAvatarImage() -> NSImage? {
+        let fm = FileManager.default
+        var candidates: [String] = []
+        if let resourcePath = Bundle.main.resourcePath {
+            candidates.append((resourcePath as NSString).appendingPathComponent("georgie-avatar.jpg"))
+        }
+        if let executable = Bundle.main.executablePath {
+            let appContents = ((executable as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent
+            candidates.append((appContents as NSString).appendingPathComponent("Resources/georgie-avatar.jpg"))
+        }
+        if let home = ProcessInfo.processInfo.environment["HOME"] {
+            candidates.append("\(home)/Applications/Georgie.app/Contents/Resources/georgie-avatar.jpg")
+        }
+        for path in candidates where fm.fileExists(atPath: path) {
+            if let image = NSImage(contentsOfFile: path) { return image }
+        }
+        return nil
+    }
+
     private func buildUI() {
         guard let content = window?.contentView else { return }
         content.wantsLayer = true
         content.layer?.backgroundColor = NSColor(calibratedWhite: 0.05, alpha: 1).cgColor
 
         avatar.frame = NSRect(x: 135, y: 330, width: 150, height: 150)
-        avatar.imageScaling = .scaleProportionallyUpOrDown
+        avatar.imageScaling = .scaleAxesIndependently
         avatar.wantsLayer = true
         avatar.layer?.cornerRadius = 75
         avatar.layer?.masksToBounds = true
-        if let resource = Bundle.main.path(forResource: "georgie-avatar", ofType: "jpg"), let image = NSImage(contentsOfFile: resource) { avatar.image = image }
+        avatar.layer?.borderWidth = 3
+        avatar.layer?.borderColor = NSColor(calibratedRed: 0.94, green: 0.80, blue: 0.45, alpha: 1).cgColor
+        avatar.layer?.backgroundColor = NSColor(calibratedRed: 0.16, green: 0.14, blue: 0.10, alpha: 1).cgColor
+        if let image = loadAvatarImage() {
+            avatar.image = image
+            avatar.toolTip = "Georgie"
+        } else {
+            avatar.image = NSImage(systemSymbolName: "person.crop.circle.fill", accessibilityDescription: "Georgie")
+            responseLabel.stringValue = "Georgie portrait resource needs to be reinstalled."
+        }
         content.addSubview(avatar)
 
         let title = NSTextField(labelWithString: "GEORGIE")
@@ -102,7 +130,7 @@ final class GeorgieWindowController: NSWindowController, NSTextFieldDelegate {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("primary", forHTTPHeaderField: "X-Georgie-User")
         req.setValue("native-mac", forHTTPHeaderField: "X-Georgie-Session")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: ["input": text, "history": []])
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["input": text, "history": []] as [String : Any])
         URLSession.shared.dataTask(with: req) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 if let error = error { self?.responseLabel.stringValue = "Georgie cloud error: \(error.localizedDescription)"; return }
@@ -132,9 +160,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func registerHotKey() {
-        var id = EventHotKeyID(signature: OSType(0x47454F52), id: 1)
-        RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey), id, GetApplicationEventTarget(), 0, &hotKeyRef)
-        InstallEventHandler(GetApplicationEventTarget(), { _, event, userData in
+        let hotKeyID = EventHotKeyID(signature: OSType(0x47454F52), id: 1)
+        var mutableID = hotKeyID
+        RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey), mutableID, GetApplicationEventTarget(), 0, &hotKeyRef)
+        InstallEventHandler(GetApplicationEventTarget(), { _, _, userData in
             guard let userData = userData else { return noErr }
             let app = Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue()
             app.showGeorgie()
