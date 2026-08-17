@@ -4,8 +4,10 @@ import {
   getSierraDeal,
   getSierraHealth,
   getSierraLenderResponses,
+  getSierraNetworkGaps,
   getSierraOffers,
   getSierraPortfolio,
+  getSierraStrategy,
   queueSierraAction,
   sierraWorkforceConfigured
 } from "./integrations/sierra-workforce.js";
@@ -47,6 +49,22 @@ export function createSierraRouter() {
       res.json({ ok: true, health: await getSierraHealth(req.georgieUserId) });
     } catch (error) {
       res.status(503).json({ ok: false, error: error instanceof Error ? error.message : "Sierra health unavailable" });
+    }
+  });
+
+  router.get("/strategy", async (req, res) => {
+    try {
+      res.json({ ok: true, strategy: await getSierraStrategy(req.georgieUserId) });
+    } catch (error) {
+      res.status(503).json({ ok: false, error: error instanceof Error ? error.message : "Sierra strategy intelligence unavailable" });
+    }
+  });
+
+  router.get("/network-gaps", async (req, res) => {
+    try {
+      res.json({ ok: true, network: await getSierraNetworkGaps(req.georgieUserId) });
+    } catch (error) {
+      res.status(503).json({ ok: false, error: error instanceof Error ? error.message : "Sierra network intelligence unavailable" });
     }
   });
 
