@@ -63,6 +63,18 @@ export async function getSierraOffers(userId, reference) {
   });
 }
 
+export async function getSierraStrategy(userId) {
+  return rpc("georgie_workforce_strategy", {
+    p_user_id: String(userId || "primary")
+  });
+}
+
+export async function getSierraNetworkGaps(userId) {
+  return rpc("georgie_workforce_network_gaps", {
+    p_user_id: String(userId || "primary")
+  });
+}
+
 export async function queueSierraAction(userId, { reference, action, reason } = {}) {
   return rpc("georgie_workforce_queue_action", {
     p_user_id: String(userId || "primary"),
