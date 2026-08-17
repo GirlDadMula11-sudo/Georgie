@@ -14,8 +14,10 @@ import {
   getSierraDeal,
   getSierraHealth,
   getSierraLenderResponses,
+  getSierraNetworkGaps,
   getSierraOffers,
   getSierraPortfolio,
+  getSierraStrategy,
   queueSierraAction,
   sierraWorkforceConfigured
 } from "./integrations/sierra-workforce.js";
@@ -57,6 +59,8 @@ const workforceOnly = true;
 defineTool({ name: "sierra.portfolio", workforceOnly, description: "Read Sierra's canonical CRM portfolio, prioritized by operational attention, including pipeline, underwriting, evidence, exceptions, lender activity, offers and closing status.", risk: "read", async run({ userId, args }) { return getSierraPortfolio(userId, { limit: args?.limit || 25 }); } });
 defineTool({ name: "sierra.deal", workforceOnly, description: "Read the complete canonical Sierra CRM workspace for one deal by SCA reference number or referral ID.", risk: "read", async run({ userId, args }) { return getSierraDeal(userId, args?.reference || args?.referenceNumber || args?.id); } });
 defineTool({ name: "sierra.health", workforceOnly, description: "Read Sierra's latest operations-health snapshot including pipeline failures, lender delivery, evidence and recovery status.", risk: "read", async run({ userId }) { return getSierraHealth(userId); } });
+defineTool({ name: "sierra.strategy", workforceOnly, description: "Read Sierra's prioritized company-evolution and strategic intelligence recommendations, ranked by impact, evidence, confidence, effort and risk.", risk: "read", async run({ userId }) { return getSierraStrategy(userId); } });
+defineTool({ name: "sierra.network_gaps", workforceOnly, description: "Read financing-product gaps in Sierra's lender network plus verified external lender candidates and partnership-outreach status.", risk: "read", async run({ userId }) { return getSierraNetworkGaps(userId); } });
 defineTool({ name: "sierra.lenders", workforceOnly, description: "Read lender placements, response timing, follow-up state, requests and communication activity for a Sierra deal.", risk: "read", async run({ userId, args }) { return getSierraLenderResponses(userId, args?.reference || args?.referenceNumber); } });
 defineTool({ name: "sierra.offers", workforceOnly, description: "Read and compare normalized financing offers for a Sierra deal, including payment burden, net proceeds, economics confidence and ranking.", risk: "read", async run({ userId, args }) { return getSierraOffers(userId, args?.reference || args?.referenceNumber); } });
 defineTool({ name: "sierra.exception_outreach", workforceOnly, description: "Queue Sierra's governed exception-resolution outreach for a deal. This may contact the original deal source and therefore requires external-side-effect approval.", risk: "external_side_effect", async run({ userId, args }) { return queueSierraAction(userId, { reference: args?.reference || args?.referenceNumber, action: "exception_outreach", reason: args?.reason }); } });
