@@ -1,6 +1,6 @@
 import express from "express";
 import crypto from "crypto";
-import { claimMacJobs, completeMacJob } from "./queue.js";
+import { claimMacJobs, completeMacJob, enqueueMacJob, listMacJobs } from "./queue.js";
 
 const heartbeats = new Map();
 
@@ -59,6 +59,36 @@ export function createMacRouter() {
       res.status(job ? 200 : 404).json({ ok: Boolean(job), job });
     } catch (error) {
       res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Could not complete Mac job" });
+    }
+  });
+
+  router.post("/:deviceId/test", async (req, res) => {
+    try {
+      const deviceId = String(req.params.deviceId).slice(0, 160);
+      const online = getMacDeviceStatus().some(device => device.deviceId === deviceId && device.online);
+      const job = await enqueueMacJob({
+        deviceId,
+        action: "notification.show",
+        args: {
+          title: "Georgie",
+          body: String(req.body?.message || "Georgie is connected to this Mac.").slice(0, 500)
+        },
+        risk: "low_risk_write",
+        reason: "Protected Mac round-trip connection test"
+      });
+      res.status(202).json({ ok: true, online, jobId: job.id, status: job.status });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Could not queue Mac test" });
+    }
+  });
+
+  router.get("/:deviceId/jobs/:jobId/status", async (req, res) => {
+    try {
+      const jobs = await listMacJobs(undefined, 500);
+      const job = jobs.find(item => item.id === String(req.params.jobId) && item.deviceId === String(req.params.deviceId));
+      res.status(job ? 200 : 404).json({ ok: Boolean(job), job: job || null });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Could not read Mac job status" });
     }
   });
 
