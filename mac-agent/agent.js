@@ -9,12 +9,18 @@ const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || os.hostname();
 const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;
-const INTERVAL = Math.max(3000, Number(process.env.GEORGIE_MAC_POLL_MS || 5000));
+const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));
 
 if (!BASE || !TOKEN) throw new Error("GEORGIE_SERVER_URL and GEORGIE_MAC_AGENT_TOKEN are required");
 
-const SAFE_APPS = new Set(["Safari","Google Chrome","Notes","Mail","Finder","Calendar","Messages","Preview","System Settings","Microsoft Excel","Microsoft Word","Adobe Acrobat Reader"]);
+const SAFE_APPS = ["Safari","Google Chrome","Notes","Mail","Finder","Calendar","Messages","Preview","System Settings","Microsoft Excel","Microsoft Word","Adobe Acrobat Reader"];
 const SAFE_KEYS = new Set(["return","tab","escape","space","delete","up arrow","down arrow","left arrow","right arrow"]);
+function canonicalApp(value) {
+  const requested = String(value || "").trim().toLowerCase();
+  const app = SAFE_APPS.find(name => name.toLowerCase() === requested);
+  if (!app) throw new Error("Application is not allowlisted");
+  return app;
+}
 
 async function api(route, options = {}) {
   const response = await fetch(`${BASE}${route}`, {
@@ -43,14 +49,14 @@ async function execute(job) {
     case "system.info":
       return { hostname: os.hostname(), platform: os.platform(), release: os.release(), arch: os.arch(), uptime: os.uptime() };
     case "app.open": {
-      if (!SAFE_APPS.has(a.app)) throw new Error("Application is not allowlisted");
-      await execFileAsync("open", ["-a", a.app]);
-      return { opened: a.app };
+      const app = canonicalApp(a.app);
+      await execFileAsync("open", ["-a", app]);
+      return { opened: app };
     }
     case "app.activate": {
-      if (!SAFE_APPS.has(a.app)) throw new Error("Application is not allowlisted");
-      await runAppleScript(`tell application ${JSON.stringify(a.app)} to activate`);
-      return { activated: a.app };
+      const app = canonicalApp(a.app);
+      await runAppleScript(`tell application ${JSON.stringify(app)} to activate`);
+      return { activated: app };
     }
     case "url.open": {
       const url = new URL(String(a.url));
