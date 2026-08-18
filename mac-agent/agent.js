@@ -7,7 +7,7 @@ import fs from "fs/promises";
 
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
-const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || os.hostname();
+const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
 const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;
 const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));
 
@@ -36,6 +36,28 @@ async function runAppleScript(script) {
   return stdout.trim();
 }
 
+async function waitForAppProcess(app, timeoutMs = 8000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const running = await runAppleScript(`tell application "System Events" to exists process ${JSON.stringify(app)}`);
+      if (running === "true") return true;
+    } catch {}
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  return false;
+}
+
+async function openAndActivateApp(app) {
+  await execFileAsync("open", ["-a", app], { timeout: 15000 });
+  try {
+    await runAppleScript(`tell application ${JSON.stringify(app)} to activate`);
+  } catch {}
+  const running = await waitForAppProcess(app);
+  if (!running) throw new Error(`${app} did not report as running after launch`);
+  return { opened: app, verifiedRunning: true };
+}
+
 function assertUserFile(target) {
   const resolved = path.resolve(String(target || ""));
   const allowedRoots = ["Desktop","Documents","Downloads"].map(name => path.join(os.homedir(), name));
@@ -50,8 +72,7 @@ async function execute(job) {
       return { hostname: os.hostname(), platform: os.platform(), release: os.release(), arch: os.arch(), uptime: os.uptime() };
     case "app.open": {
       const app = canonicalApp(a.app);
-      await execFileAsync("open", ["-a", app]);
-      return { opened: app };
+      return openAndActivateApp(app);
     }
     case "app.activate": {
       const app = canonicalApp(a.app);
