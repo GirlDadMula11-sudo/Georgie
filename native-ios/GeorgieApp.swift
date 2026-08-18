@@ -28,16 +28,33 @@ final class GeorgieVoice: NSObject, ObservableObject, SFSpeechRecognizerDelegate
     private var task: SFSpeechRecognitionTask?
     private let speaker = AVSpeechSynthesizer()
     private let server = URL(string: "https://georgie.onrender.com/api/respond")!
+    private var systemWakeObserver: NSObjectProtocol?
 
     override init() {
         super.init(); recognizer.delegate = self
         SFSpeechRecognizer.requestAuthorization { _ in }
         AVAudioApplication.requestRecordPermission { _ in }
+        systemWakeObserver = NotificationCenter.default.addObserver(forName: .georgieStartListening, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.startFromSystemInvocation() }
+        }
+    }
+
+    deinit {
+        if let systemWakeObserver { NotificationCenter.default.removeObserver(systemWakeObserver) }
     }
 
     func toggle() { listening ? stop(process: true) : start() }
 
+    func startFromSystemInvocation() {
+        guard !listening, !busy else { return }
+        UserDefaults.standard.removeObject(forKey: "georgie.startListeningOnLaunch")
+        transcript = ""
+        response = "I'm listening."
+        start()
+    }
+
     func start() {
+        guard !audioEngine.isRunning else { return }
         task?.cancel(); task = nil
         let req = SFSpeechAudioBufferRecognitionRequest(); req.shouldReportPartialResults = true
         if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
@@ -62,6 +79,7 @@ final class GeorgieVoice: NSObject, ObservableObject, SFSpeechRecognizerDelegate
     func stop(process: Bool) {
         if audioEngine.isRunning { audioEngine.stop(); audioEngine.inputNode.removeTap(onBus: 0) }
         request?.endAudio(); task?.cancel(); request = nil; task = nil; listening = false
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         if process { let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines); if !text.isEmpty { submit(text) } }
     }
 
@@ -72,7 +90,7 @@ final class GeorgieVoice: NSObject, ObservableObject, SFSpeechRecognizerDelegate
     }
 
     private func handleFastIntent(_ raw: String) -> Bool {
-        let text = raw.lowercased().replacingOccurrences(of: "georgie,", with: "").replacingOccurrences(of: "georgie ", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = raw.lowercased().replacingOccurrences(of: "hey georgie", with: "").replacingOccurrences(of: "georgie,", with: "").replacingOccurrences(of: "georgie ", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
         if text == "what time is it" || text == "what's the time" {
             let f = DateFormatter(); f.timeStyle = .short; reply("It's \(f.string(from: Date()))."); return true
         }
@@ -105,6 +123,7 @@ final class GeorgieVoice: NSObject, ObservableObject, SFSpeechRecognizerDelegate
 struct GeorgieHome: View {
     @StateObject private var voice = GeorgieVoice()
     @State private var typed = ""
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -124,7 +143,7 @@ struct GeorgieHome: View {
                     Text("●  ONLINE & READY").font(.caption.weight(.semibold)).foregroundStyle(GeorgieTheme.tealSoft)
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("GOOD MORNING").font(.caption.weight(.bold)).foregroundStyle(GeorgieTheme.teal)
+                        Text("VOICE-FIRST ASSISTANT").font(.caption.weight(.bold)).foregroundStyle(GeorgieTheme.teal)
                         Text(voice.response).font(.body).foregroundStyle(GeorgieTheme.ivory).frame(maxWidth: .infinity, alignment: .leading)
                         if !voice.transcript.isEmpty { Text("You: \(voice.transcript)").font(.caption).foregroundStyle(.secondary) }
                     }.padding(18).background(GeorgieTheme.graphite.opacity(0.92)).clipShape(RoundedRectangle(cornerRadius: 20))
@@ -148,6 +167,13 @@ struct GeorgieHome: View {
                 }.padding(20)
             }
         }
+        .onAppear { consumeSystemWakeIfNeeded() }
+        .onChange(of: scenePhase) { _, phase in if phase == .active { consumeSystemWakeIfNeeded() } }
+    }
+
+    private func consumeSystemWakeIfNeeded() {
+        guard UserDefaults.standard.bool(forKey: "georgie.startListeningOnLaunch") else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { voice.startFromSystemInvocation() }
     }
 
     private func quick(_ label: String, _ app: String) -> some View {

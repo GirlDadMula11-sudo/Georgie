@@ -6,6 +6,7 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: GeorgieApp.swift
+      - path: AppIntents.swift
     resources:
       - path: ../public/georgie-avatar.jpg
         name: georgie-avatar.jpg
@@ -15,8 +16,8 @@ targets:
         PRODUCT_NAME: Georgie
         SWIFT_VERSION: 5.10
         TARGETED_DEVICE_FAMILY: "1"
-        CURRENT_PROJECT_VERSION: 1
-        MARKETING_VERSION: 1.0
+        CURRENT_PROJECT_VERSION: 2
+        MARKETING_VERSION: 1.1
         INFOPLIST_KEY_CFBundleDisplayName: Georgie
         INFOPLIST_KEY_NSMicrophoneUsageDescription: Georgie uses the microphone so you can control your assistant by voice.
         INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: Georgie converts spoken commands into actions and assistant requests.
