@@ -6,6 +6,7 @@ import { smartleadConfigured } from "./integrations/smartlead.js";
 import { getMacDeviceStatus } from "./mac/router.js";
 import { getMemoryStorageStatus } from "./memory.js";
 import { resourceGovernorStatus } from "./resource-governor.js";
+import { listDomainPacks } from "./domain-packs.js";
 
 function configured(value) {
   return value ? "configured" : "not_configured";
@@ -38,6 +39,15 @@ export function getCapabilityManifest() {
       killSwitchActive: process.env.GEORGIE_AUTOMATION_KILL_SWITCH === "true",
       fallbackChannels: ["web", "native_ios", "mac_agent", "push_notifications", "neo_mail"]
     },
+    productArchitecture: {
+      identity: "universal_operating_intelligence",
+      enhancementMode: "additive_backward_compatible",
+      existingVoicePersonalityAndWorkflowsPreserved: true,
+      coreIndependentFromSpecializations: true,
+      installedPacks: listDomainPacks(),
+      domainCredentialsSeparated: true,
+      portableModelAdapters: true
+    },
     core: {
       voice: true,
       wakeName: true,
@@ -47,6 +57,13 @@ export function getCapabilityManifest() {
       proactiveMaintenance: true,
       governedTools: true,
       boundedExecution: true
+    },
+    universalCapabilities: {
+      reasoning: ["analysis", "planning", "comparison", "scenario_testing", "counterargument", "uncertainty_calibration", "decision_support"],
+      knowledgeWork: ["web_research", "document_reasoning", "technical_assistance", "learning_and_explanation", "writing", "creative_development"],
+      personalAssistance: ["durable_preferences", "commitment_tracking", "task_coordination", "communication_preparation", "travel_and_purchase_research", "household_planning"],
+      operation: ["typed_tool_planning", "approval_gates", "verification", "action_journal", "bounded_retries", "kill_switch", "fallback_channels"],
+      economics: { deterministicFirst: true, cachedEvidencePreferred: true, tieredModelRouting: true, frontierOnlyWhenJustified: true }
     },
     connections: {
       neoMail: {
