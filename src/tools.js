@@ -7,7 +7,7 @@ import { getProviderObservability, getRenderObservability, getVercelObservabilit
 import { maintenanceStatus, runMaintenanceCycle } from "./maintenance-sentinel.js";
 import { diagnoseSmartleadCampaigns, getSmartleadCampaigns, updateSmartleadCampaignStatus } from "./integrations/smartlead.js";
 import { evaluationScorecard } from "./evaluation.js";
-import { listDecisions, recordDecision } from "./command-layer.js";
+import { decideApproval, listApprovals, listDecisions, recordDecision } from "./command-layer.js";
 import { getMacDeviceStatus } from "./mac/router.js";
 import { resourceGovernorStatus } from "./resource-governor.js";
 import { getCapabilityManifest } from "./capability-manifest.js";
@@ -83,6 +83,8 @@ defineTool({name:"system.evaluations",description:"Read Georgie's measured intel
 defineTool({name:"system.resource_governor",description:"Read Georgie's live bounded-concurrency, queue-pressure, and saturation state to verify that intelligence workloads remain balanced.",risk:"read",async run(){return resourceGovernorStatus()}});
 defineTool({name:"decisions.list",description:"Read the verified decision journal so Georgie can learn the user's approvals, rejections, corrections, rationale, and outcomes.",risk:"read",async run({userId,args}){return listDecisions(userId,{limit:args?.limit||30,domain:args?.domain||"all"})}});
 defineTool({name:"decisions.record",description:"Record an explicit user decision, correction, rationale, verification, or outcome in the durable decision journal.",risk:"low_risk_write",async run({userId,args}){return recordDecision(userId,args||{})}});
+defineTool({name:"approvals.list",description:"List pending, approved, rejected, deferred, or all governed action approvals with evidence, risk, verification, and rollback contracts.",risk:"read",async run({userId,args}){return listApprovals(userId,{status:args?.status||"pending",limit:args?.limit||25})}});
+defineTool({name:"approvals.decide",description:"Record Jason's explicit approval, rejection, or deferral for one exact approval ID. This authorizes but does not execute the action.",risk:"sensitive_write",async run({userId,args}){const id=String(args?.approvalId||"").trim(),decision=String(args?.decision||"").toLowerCase();if(!id)throw new Error("Approval ID is required");return decideApproval(userId,id,{decision,note:args?.note||"Explicit decision issued through Georgie conversation"})}});
 defineTool({name:"system.status",description:"Inspect Georgie's live capability manifest, connection states, verification paths, platform constraints, and resource balance without exposing credentials.",risk:"read",async run(){return getCapabilityManifest()}});
 defineTool({name:"system.action_journal",description:"Read Georgie's durable journal of governed tool attempts, approval requirements, outcomes, and failures.",risk:"read",async run({userId,args}){return listActionJournal(userId,{limit:args?.limit||50})}});
 defineTool({name:"system.reconciliation_status",description:"Read the durable state of Georgie's scheduled intake-transfer, missing-date, funding-evidence, and health-reconciliation workers.",risk:"read",async run({userId}){return reconciliationStatus(userId)}});
