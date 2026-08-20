@@ -3,6 +3,29 @@ function referenceFrom(text = "") {
   return explicit ? explicit[1] : null;
 }
 
+const MAC_APPS = new Map([
+  ["notepad", "Notes"], ["note pad", "Notes"], ["notes", "Notes"], ["note", "Notes"],
+  ["safari", "Safari"], ["chrome", "Google Chrome"], ["google chrome", "Google Chrome"],
+  ["mail", "Mail"], ["finder", "Finder"], ["calendar", "Calendar"], ["messages", "Messages"],
+  ["preview", "Preview"], ["settings", "System Settings"], ["system settings", "System Settings"],
+  ["excel", "Microsoft Excel"], ["microsoft excel", "Microsoft Excel"],
+  ["word", "Microsoft Word"], ["microsoft word", "Microsoft Word"],
+  ["adobe acrobat", "Adobe Acrobat Reader"], ["adobe acrobat reader", "Adobe Acrobat Reader"]
+]);
+
+function parseMacOpen(text = "") {
+  const normalized = String(text).trim().toLowerCase()
+    .replace(/^\s*(?:hey\s+)?georgie[,:]?\s*/, "")
+    .replace(/^please\s+/, "")
+    .replace(/\s+(?:on|using)\s+(?:the\s+)?mac(?:intosh)?(?:\s+(?:desktop|computer))?\s*$/, "")
+    .replace(/\s+for\s+me\s*$/, "")
+    .trim();
+  const match = normalized.match(/^(?:open|launch|start)\s+(?:a|an|the)?\s*(.+)$/);
+  if (!match) return null;
+  const app = MAC_APPS.get(match[1].trim());
+  return app ? app : null;
+}
+
 function parseExplicitEmailSend(text = "") {
   const raw=String(text||"").trim(); const lower=raw.toLowerCase();
   if(!/\b(send|email|e-mail|reply|forward)\b/.test(lower)) return null;
@@ -23,6 +46,7 @@ export function deterministicToolPlan(input = "") {
   const lower = text.toLowerCase();
   if (!text) return [];
   const emailSend=parseExplicitEmailSend(text); if(emailSend) return [emailSend];
+  const macApp=parseMacOpen(text); if(macApp) return [{tool:"mac.devices",args:{}},{tool:"mac.open_app",args:{app:macApp}}];
   const ref = referenceFrom(text);
   if (/\b(what|which|current|show|check|verify|do you|georgie)\b/.test(lower) && /\b(access|connections?|connected|configured|capabilit(?:y|ies)|current blockers?)\b/.test(lower)) return [{ tool: "system.status", args: {} }];
   if (/\b(neo|email|e-mail|mail)\b/.test(lower) && /\b(configured|connected|working|available|send|outbound|status|verify)\b/.test(lower)) return [{ tool: "email.accounts", args: {} }];
