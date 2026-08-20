@@ -19,9 +19,9 @@
   <section id="enrollmentGate" class="enrollment-gate" hidden><form id="enrollmentForm" class="enrollment-card"><img src="/georgie-icon.svg" alt="" /><h1>Activate Georgie</h1><p>Enter your one-time secure enrollment code. This connects only this device and can be revoked.</p><input id="enrollmentCode" autocomplete="one-time-code" placeholder="Enrollment code" required /><button type="submit">Activate this device</button><small id="enrollmentMessage">Your private Sierra information stays locked until activation.</small></form></section>
   <main class="app-shell">
     <header class="topbar">
-      <a class="icon-button" href="#workspaceDetails" aria-label="Open command center">☰</a>
+      <a class="icon-button menu-button" href="#workspaceDetails" aria-label="Open command center"><span></span><span></span><span></span></a>
       <div class="brand"><strong>GEORGIE</strong><span>Your operating intelligence</span></div>
-      <button id="notificationButton" class="icon-button" aria-label="Enable notifications">♢</button>
+      <div class="topbar-actions"><button id="notificationButton" class="micro-button" type="button" aria-label="Enable notifications">◇</button><button id="voiceOutputToggle" class="icon-button voice-output-toggle" type="button" aria-label="Toggle Georgie's voice" aria-pressed="true">◖</button></div>
     </header>
 
     <section class="identity-card compact-identity">
@@ -30,6 +30,7 @@
       </div>
       <div class="identity-copy"><h1>Georgie</h1><div class="presence-row"><span id="presenceDot" class="presence-dot"></span><span id="presenceState" class="presence-state">Online</span></div></div>
     </section>
+    <div class="operating-strip"><span class="live-pulse"></span><strong>Live continuity</strong><span id="continuityState">Restoring conversation</span></div>
     <p id="status" class="status">Ready. Talk or type whenever you need me.</p>
 
     <section class="conversation" id="conversation" aria-live="polite"></section>
@@ -37,7 +38,7 @@
       <form id="textForm" class="text-form"><input id="textInput" autocomplete="off" placeholder="Message Georgie…" aria-label="Message Georgie" /><button type="submit" aria-label="Send message">↑</button></form>
       <button id="voiceButton" class="voice-button" type="button" aria-label="Talk to Georgie"><span class="wave">▥</span><span class="voice-core">●</span><span id="voiceLabel">HOLD TO TALK</span><span class="wave">▥</span></button>
       <div class="handsfree-panel"><div><strong>Hands-free</strong><span>Say “Georgie” to wake me</span></div><button id="handsFreeToggle" class="mode-toggle" type="button" role="switch" aria-checked="false"><span class="toggle-knob"></span></button></div>
-      <p class="privacy-note">Brief voice answers • full copyable response on screen</p>
+      <p class="privacy-note"><span id="voiceOutputState">Voice on</span> • full conversation preserved • full response on screen</p>
     </section>
 
     <details id="workspaceDetails" class="workspace-details">
