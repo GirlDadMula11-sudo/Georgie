@@ -291,25 +291,12 @@ async function runVoiceTurn(audioBlob) {
   voiceButton.disabled = true;
 
   try {
-    const form = new FormData();
-    const extension = audioBlob.type.includes("mp4") ? "m4a" : "webm";
-    form.append("audio", audioBlob, `voice.${extension}`);
-    form.append("history", JSON.stringify(history));
-    form.append("userId", userId);
-    form.append("sessionId", sessionId);
-
-    setStatus("Thinking…");
-    const response = await fetch("/api/mobile/voice-turn", { method: "POST", headers: requestHeaders(), body: form });
-    const payload = await response.json();
-    if (!response.ok || !payload.ok) throw new Error(payload.error || "Voice request failed");
-
-    appendMessage("user", payload.transcript);
-    pushHistory("user", payload.transcript);
-    appendMessage("assistant", payload.text);
-    pushHistory("assistant", payload.text);
-    setStatus(payload.remembered ? `Speaking… remembered ${payload.remembered} new detail${payload.remembered === 1 ? "" : "s"}.` : "Speaking…");
-    const bytes = Uint8Array.from(atob(payload.audioBase64), (char) => char.charCodeAt(0));
-    await playAudioBlob(new Blob([bytes], { type: payload.audioMimeType || "audio/mpeg" }));
+    setStatus("Got it — hearing you now…");
+    playWakeChime().catch(() => {});
+    const transcript = await transcribeBlob(audioBlob);
+    appendMessage("user", transcript);
+    setStatus("Understood — responding…");
+    await sendTextTurn(transcript, { display: false, speakResponse: true });
   } catch (error) {
     console.error(error);
     setStatus(error.message || "Something went wrong.");

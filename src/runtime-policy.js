@@ -10,14 +10,15 @@ export function runtimePolicy(input = "") {
   const words = text ? text.split(/\s+/).length : 0;
   const deep = DEEP_REASONING.test(text) || EXECUTIVE_REASONING.test(text);
   const simple = SIMPLE_LOCAL.test(text);
+  const quick = !deep && !TOOL_INTENT.test(text) && !CURRENT_INFO.test(text) && words <= 18;
   return {
     needsToolRouter: !simple && TOOL_INTENT.test(text),
     allowWebTool: CURRENT_INFO.test(text),
     needsMemoryExtraction: words >= 8 && !/^(thanks|thank you|ok|okay|great|perfect|yes|no|done|got it)[.! ]*$/i.test(text),
     memoryLikelyUseful: DURABLE_MEMORY.test(text),
-    reasoningEffort: simple ? "low" : deep ? "high" : "medium",
+    reasoningEffort: simple || quick ? "low" : deep ? "high" : "medium",
     responseVerbosity: deep ? "medium" : words <= 12 ? "low" : "medium",
-    latencyClass: simple ? "instant" : deep ? "deep" : "standard"
+    latencyClass: simple || quick ? "instant" : deep ? "deep" : "standard"
   };
 }
 

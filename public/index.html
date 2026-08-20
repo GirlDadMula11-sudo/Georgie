@@ -13,33 +13,41 @@
   <link rel="stylesheet" href="/styles.css" />
   <link rel="stylesheet" href="/sierra.css" />
   <link rel="stylesheet" href="/enrollment.css" />
+  <link rel="stylesheet" href="/workspace.css" />
 </head>
 <body>
   <section id="enrollmentGate" class="enrollment-gate" hidden><form id="enrollmentForm" class="enrollment-card"><img src="/georgie-icon.svg" alt="" /><h1>Activate Georgie</h1><p>Enter your one-time secure enrollment code. This connects only this device and can be revoked.</p><input id="enrollmentCode" autocomplete="one-time-code" placeholder="Enrollment code" required /><button type="submit">Activate this device</button><small id="enrollmentMessage">Your private Sierra information stays locked until activation.</small></form></section>
   <main class="app-shell">
     <header class="topbar">
-      <button class="icon-button" aria-label="Settings">⚙</button>
-      <div class="brand"><strong>GEORGIE</strong><span>Your Personal AI Assistant</span></div>
+      <a class="icon-button" href="#workspaceDetails" aria-label="Open command center">☰</a>
+      <div class="brand"><strong>GEORGIE</strong><span>Your operating intelligence</span></div>
       <button id="notificationButton" class="icon-button" aria-label="Enable notifications">♢</button>
     </header>
 
-    <section class="identity-card">
+    <section class="identity-card compact-identity">
       <div class="avatar-ring" aria-label="Georgie portrait">
         <img src="/georgie-avatar.jpg?v=20260818" alt="Georgie, your personal AI assistant" style="width:100%;height:100%;display:block;border-radius:50%;object-fit:cover" />
       </div>
-      <h1>Georgie</h1>
-      <div class="presence-row"><span id="presenceDot" class="presence-dot"></span><span id="presenceState" class="presence-state">Online</span></div>
-      <p id="status" class="status">I’m here to help you stay ahead and get things done.</p>
+      <div class="identity-copy"><h1>Georgie</h1><div class="presence-row"><span id="presenceDot" class="presence-dot"></span><span id="presenceState" class="presence-state">Online</span></div></div>
     </section>
-
-    <section class="capability-grid" aria-label="Georgie capabilities">
-      <article><span class="cap-icon">◉</span><strong>Memory</strong><small>Active</small></article>
-      <article><span class="cap-icon">✓</span><strong>Tasks</strong><small>Ready</small></article>
-      <article><span class="cap-icon">✉</span><strong>NEO Mail</strong><small>Connect</small></article>
-      <article><span class="cap-icon">▣</span><strong>Mac Agent</strong><small>Connect</small></article>
-    </section>
+    <p id="status" class="status">Ready. Talk or type whenever you need me.</p>
 
     <section class="conversation" id="conversation" aria-live="polite"></section>
+    <section class="controls chat-composer">
+      <form id="textForm" class="text-form"><input id="textInput" autocomplete="off" placeholder="Message Georgie…" aria-label="Message Georgie" /><button type="submit" aria-label="Send message">↑</button></form>
+      <button id="voiceButton" class="voice-button" type="button" aria-label="Talk to Georgie"><span class="wave">▥</span><span class="voice-core">●</span><span id="voiceLabel">HOLD TO TALK</span><span class="wave">▥</span></button>
+      <div class="handsfree-panel"><div><strong>Hands-free</strong><span>Say “Georgie” to wake me</span></div><button id="handsFreeToggle" class="mode-toggle" type="button" role="switch" aria-checked="false"><span class="toggle-knob"></span></button></div>
+      <p class="privacy-note">Brief voice answers • full copyable response on screen</p>
+    </section>
+
+    <details id="workspaceDetails" class="workspace-details">
+      <summary>Command Center &amp; Connected Systems</summary>
+      <section class="capability-grid" aria-label="Georgie capabilities">
+        <article><span class="cap-icon">◉</span><strong>Memory</strong><small>Active</small></article>
+        <article><span class="cap-icon">✓</span><strong>Tasks</strong><small>Ready</small></article>
+        <article><span class="cap-icon">✉</span><strong>NEO Mail</strong><small>Active</small></article>
+        <article><span class="cap-icon">▣</span><strong>Mac Agent</strong><small>Optional</small></article>
+      </section>
     <section class="priority-card inbox-card" id="maintenanceInbox" aria-live="polite"><div class="section-title"><strong>GEORGIE MAINTENANCE INBOX</strong><button id="inboxRefresh" type="button">Refresh</button></div><div id="inboxItems"><p>Loading durable maintenance updates…</p></div></section>
     <section class="priority-card command-card" id="commandCenter" aria-live="polite">
       <div class="section-title"><strong>TODAY’S COMMAND CENTER</strong><button id="commandRefresh" type="button">Refresh</button></div>
@@ -52,13 +60,7 @@
       <div class="sierra-metrics"><article><small>Active</small><strong id="sierraActive">—</strong></article><article><small>Needs attention</small><strong id="sierraAttention">—</strong></article><article><small>At lenders</small><strong id="sierraLenders">—</strong></article><article><small>Offers</small><strong id="sierraOffers">—</strong></article></div>
       <div id="sierraDeals" class="sierra-deals"><p>Loading Sierra operations…</p></div>
     </section>
-    <section class="controls">
-      <div class="handsfree-panel"><div><strong>Hands-free mode</strong><span>Say “Georgie” to wake me</span></div><button id="handsFreeToggle" class="mode-toggle" type="button" role="switch" aria-checked="false"><span class="toggle-knob"></span></button></div>
-      <button id="voiceButton" class="voice-button" type="button" aria-label="Talk to Georgie"><span class="wave">▥</span><span class="voice-core">●</span><span id="voiceLabel">HOLD TO TALK</span><span class="wave">▥</span></button>
-      <form id="textForm" class="text-form"><input id="textInput" autocomplete="off" placeholder="Ask Georgie anything…" aria-label="Message Georgie" /><button type="submit">Send</button></form>
-      <p class="privacy-note">Durable memory • permission-aware actions • voice-first intelligence</p>
-    </section>
-    <nav class="bottom-nav" aria-label="Primary navigation"><button class="active"><span>⌂</span>Home</button><button><span>◌</span>Chat</button><button><span>☑</span>Tasks</button><button><span>✉</span>NEO Mail</button><button><span>•••</span>More</button></nav>
+    </details>
   </main>
   <script type="module" src="/device-auth.js"></script>
   <script type="module" src="/app.js"></script>

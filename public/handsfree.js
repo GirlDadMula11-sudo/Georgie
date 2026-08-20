@@ -1,13 +1,13 @@
 const DEFAULTS = {
   wakeNames: ["georgie", "hey georgie", "okay georgie", "ok georgie"],
   followUpMs: 14000,
-  silenceMs: 850,
-  minSpeechMs: 260,
+  silenceMs: 650,
+  minSpeechMs: 160,
   maxUtteranceMs: 12000,
-  calibrationMs: 1200,
+  calibrationMs: 650,
   thresholdMultiplier: 2.35,
   thresholdFloor: 0.018,
-  bargeInMs: 260
+  bargeInMs: 180
 };
 
 export class HandsFreeEngine {

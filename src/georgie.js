@@ -111,7 +111,7 @@ export async function askGeorgie(input, history = [], context = "") {
 }
 
 const SPOKEN_DETAIL_REQUEST = /\b(?:explain|elaborate|expand|walk me through|break (?:it|that) down|more detail|full detail|all (?:the )?details|in depth|deep dive|tell me more|read (?:it|that|the whole|the full)|say (?:it|that|the whole|the full))\b/i;
-const SPOKEN_WORD_LIMIT = Math.max(20, Math.min(60, Number(process.env.GEORGIE_SPOKEN_WORD_LIMIT || 38)));
+const SPOKEN_WORD_LIMIT = Math.max(18, Math.min(60, Number(process.env.GEORGIE_SPOKEN_WORD_LIMIT || 28)));
 
 function speechPlainText(text) {
   return String(text || "")
