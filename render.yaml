@@ -26,6 +26,12 @@ services:
         value: mailto:operations@sierracapitalfunding.com
       - key: GEORGIE_MAINTENANCE_MODE
         value: shadow
+      - key: GEORGIE_RECONCILIATION_MODE
+        value: shadow
+      - key: GEORGIE_RECONCILIATION_ENABLED
+        value: "true"
+      - key: GEORGIE_AUTOMATION_KILL_SWITCH
+        value: "false"
     disk:
       name: georgie-data
       mountPath: /var/data
