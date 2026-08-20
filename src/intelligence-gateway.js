@@ -3,12 +3,13 @@ import { runtimePolicy } from "./runtime-policy.js";
 const HIGH_IMPACT = /\b(production|deploy|database|underwriting|capitalmatch|lender|funding|financial|legal|security|credential|customer|client|incident|outage|repair|rollback)\b/i;
 const SIERRA = /\b(sierra|deal|application|document|underwriting|capitalmatch|lender|submission|funding|crm|worker|queue|deployment|database)\b/i;
 const PERSONAL = /\b(personal|family|household|daughter|travel|purchase|bill|credit|bank|subscription)\b/i;
+const TECHNICAL = /\b(repo|repository|codebase|source code|git|software|programming|developer|debug|api|architecture)\b/i;
 
 export function intelligenceRoute(input = "") {
   const text = String(input || "").trim();
   const policy = runtimePolicy(text);
   const highImpact = HIGH_IMPACT.test(text);
-  const domain = SIERRA.test(text) ? "sierra" : PERSONAL.test(text) ? "personal" : "general";
+  const domain = SIERRA.test(text) ? "sierra" : PERSONAL.test(text) ? "personal" : TECHNICAL.test(text) ? "technical" : "general";
   const tier = policy.reasoningEffort === "high" || highImpact ? "frontier" : policy.reasoningEffort === "medium" ? "balanced" : "fast";
   const model = tier === "frontier"
     ? process.env.OPENAI_MODEL || "gpt-5.6-sol"
