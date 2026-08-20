@@ -13,44 +13,55 @@ trap 'rm -rf "$BUILD_ROOT"' EXIT
 
 mkdir -p "$MACOS" "$RESOURCES" "$HOME/Library/LaunchAgents" "$HOME/Applications"
 
-echo "[Georgie] Stopping any older native Georgie build..."
+echo "[Georgie] Stopping older native Georgie build..."
 launchctl bootout "gui/$(id -u)/com.georgie.native" >/dev/null 2>&1 || true
 pkill -x Georgie >/dev/null 2>&1 || true
 sleep 1
 
-echo "[Georgie] Preparing ultra-low-latency executive voice build..."
+echo "[Georgie] Preparing v2 realtime-feel neural executive voice build..."
 /usr/bin/sed \
   -e 's/speaker.delegate = self/speaker.delegate = self; configureGeorgieExecutiveVoice(speaker)/' \
   -e 's/bufferSize: 1024/bufferSize: 512/' \
   -e 's/withTimeInterval: 0.85/withTimeInterval: 0.40/' \
   -e 's/withTimeInterval: 0.7/withTimeInterval: 0.20/' \
   -e 's/withTimeInterval: 8.0/withTimeInterval: 5.0/' \
-  -e 's/self.responseLabel.stringValue = "Listening…"/self.responseLabel.stringValue = "Yes?"/' \
-  -e 's/self.startCommandListening()/self.say("Yes?")/' \
   "$ROOT/native-mac/GeorgieNative.swift" > "$PATCHED_SOURCE"
 
-# The broad startCommandListening replacement above also touches delegate paths; restore those so only
-# the wake acknowledgement speaks "Yes?" before transitioning into command capture.
 /usr/bin/python3 - "$PATCHED_SOURCE" <<'PY'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1])
 s=p.read_text()
-# Restore normal command starts everywhere first.
-s=s.replace('if self.conversationActive { self.say("Yes?") }\n            else { self.startWakeListening() }', 'if self.conversationActive { self.startCommandListening() }\n            else { self.startWakeListening() }')
-s=s.replace('conversationActive = true\n        self.say("Yes?")', 'conversationActive = true\n        startCommandListening()')
-# Make only the empty wake remainder acknowledge immediately, then the speech delegate starts listening.
-old='self.responseLabel.stringValue = "Yes?"\n                            self.say("Yes?")'
+
+speaker='    private let speaker = NSSpeechSynthesizer()\n'
+if speaker not in s:
+    raise SystemExit('[Georgie] speaker property not found')
+s=s.replace(speaker, speaker + '    private let cloudVoice = GeorgieCloudVoice()\n', 1)
+
+s=s.replace('guard permissionsReady, !speaker.isSpeaking else { return }', 'guard permissionsReady, !speaker.isSpeaking, !cloudVoice.isSpeaking else { return }')
+
+old='''    private func say(_ text: String) {\n        stopCapture()\n        speaker.stopSpeaking()\n        speaker.startSpeaking(text)\n    }\n'''
+new='''    private func say(_ text: String) {\n        stopCapture()\n        cloudVoice.stop()\n        speaker.stopSpeaking()\n\n        // Keep wake acknowledgement entirely local so it is immediate.\n        if text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "yes?" {\n            speaker.startSpeaking("Yes?")\n            return\n        }\n\n        // Full answers use Georgie's neural executive voice. Fall back to the local\n        // voice only if the network/TTS path is unavailable.\n        cloudVoice.speak(text) { [weak self] success in\n            guard let self = self else { return }\n            if success {\n                if self.conversationActive { self.startCommandListening() }\n                else { self.startWakeListening() }\n            } else {\n                self.speaker.startSpeaking(text)\n            }\n        }\n    }\n'''
 if old not in s:
-    raise SystemExit('[Georgie] Wake acknowledgement patch failed.')
+    raise SystemExit('[Georgie] say() replacement target not found')
+s=s.replace(old,new,1)
+
+# Wake with a spoken acknowledgement before opening the command microphone.
+oldwake='''                        if remainder.isEmpty {\n                            self.responseLabel.stringValue = "Listening…"\n                            self.startCommandListening()\n'''
+newwake='''                        if remainder.isEmpty {\n                            self.responseLabel.stringValue = "Yes?"\n                            self.say("Yes?")\n'''
+if oldwake not in s:
+    raise SystemExit('[Georgie] wake acknowledgement target not found')
+s=s.replace(oldwake,newwake,1)
+
 p.write_text(s)
 PY
 
 /usr/bin/grep -q 'configureGeorgieExecutiveVoice(speaker)' "$PATCHED_SOURCE" || { echo "[Georgie] Voice profile injection failed."; exit 1; }
+/usr/bin/grep -q 'GeorgieCloudVoice' "$PATCHED_SOURCE" || { echo "[Georgie] Neural voice injection failed."; exit 1; }
 /usr/bin/grep -q 'bufferSize: 512' "$PATCHED_SOURCE" || { echo "[Georgie] Low latency audio patch failed."; exit 1; }
 
-echo "[Georgie] Building fresh native Mac app with immediate Hey Georgie response..."
-/usr/bin/swiftc "$PATCHED_SOURCE" "$ROOT/native-mac/VoiceProfile.swift" -o "$MACOS/Georgie" -framework AppKit -framework Carbon -framework Speech -framework AVFoundation
+echo "[Georgie] Building v2 native Mac app..."
+/usr/bin/swiftc "$PATCHED_SOURCE" "$ROOT/native-mac/VoiceProfile.swift" "$ROOT/native-mac/CloudVoice.swift" -o "$MACOS/Georgie" -framework AppKit -framework Carbon -framework Speech -framework AVFoundation
 cp "$ROOT/public/georgie-avatar.jpg" "$RESOURCES/georgie-avatar.jpg"
 cat > "$CONTENTS/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -59,8 +70,8 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>Georgie</string>
 <key>CFBundleDisplayName</key><string>Georgie</string>
 <key>CFBundleIdentifier</key><string>com.georgie.native</string>
-<key>CFBundleVersion</key><string>6</string>
-<key>CFBundleShortVersionString</key><string>1.5</string>
+<key>CFBundleVersion</key><string>20</string>
+<key>CFBundleShortVersionString</key><string>2.0</string>
 <key>CFBundleExecutable</key><string>Georgie</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
@@ -94,6 +105,6 @@ launchctl kickstart -k "gui/$(id -u)/com.georgie.native" >/dev/null 2>&1 || true
 sleep 1
 open "$APP" || true
 
-echo "[Georgie] Fresh native Mac app installed (v1.5)."
-echo "[Georgie] Immediate wake acknowledgement, faster audio capture, and executive male voice enabled."
-echo "[Georgie] Say 'Hey Georgie' or use Option+Space to begin a conversation."
+echo "[Georgie] Native Mac app installed (v2.0)."
+echo "[Georgie] Instant local wake + neural executive male answer voice enabled."
+echo "[Georgie] Say 'Hey Georgie' or use Option+Space."
