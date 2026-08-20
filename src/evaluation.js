@@ -24,7 +24,9 @@ export async function recordTurnEvaluation(userId, input = {}) {
     highImpact: Boolean(input.route?.highImpact),
     unsupportedClaimRisk: input.route?.requiresCurrentEvidence && !evidence.length ? "review_required" : "bounded",
     executionAuthority: "observe_recommend_prepare",
-    responseCharacters: Math.max(0, Number(input.responseCharacters) || 0)
+    responseCharacters: Math.max(0, Number(input.responseCharacters) || 0),
+    completed: input.completed !== false,
+    actionSuccess: input.toolCount ? Boolean(input.actionSuccess) : null
   };
   evaluations.push(item);
   await writeCloudState(uid, NS, { evaluations: evaluations.slice(-5000), updatedAt: now() });
@@ -35,11 +37,14 @@ export async function evaluationScorecard(userId, { limit = 200 } = {}) {
   const state = await readCloudState(String(userId || "primary"), NS, { evaluations: [] });
   const items = (Array.isArray(state.evaluations) ? state.evaluations : []).slice(-Math.max(1, Math.min(Number(limit) || 200, 1000)));
   const averageLatencyMs = items.length ? Math.round(items.reduce((sum, item) => sum + item.latencyMs, 0) / items.length) : 0;
+  const actionItems = items.filter((item) => item.actionSuccess !== null && item.actionSuccess !== undefined);
   return {
     sampleSize: items.length,
     averageLatencyMs,
     evidenceCoverage: items.length ? Number((items.filter((item) => item.evidenceCount > 0).length / items.length).toFixed(3)) : 0,
     highImpactReviewRequired: items.filter((item) => item.highImpact && item.unsupportedClaimRisk === "review_required").length,
+    completionRate: items.length ? Number((items.filter((item) => item.completed).length / items.length).toFixed(3)) : 0,
+    actionSuccessRate: actionItems.length ? Number((actionItems.filter((item) => item.actionSuccess).length / actionItems.length).toFixed(3)) : null,
     executionAuthority: "observe_recommend_prepare",
     certificationStatus: "not_certified"
   };

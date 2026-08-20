@@ -24,12 +24,18 @@ export function deterministicToolPlan(input = "") {
   if (!text) return [];
   const emailSend=parseExplicitEmailSend(text); if(emailSend) return [emailSend];
   const ref = referenceFrom(text);
+  if (/\b(smartlead|campaigns?|deliverability)\b/.test(lower) && /\b(status|health|metrics|provider|check|show|list)\b/.test(lower)) return [{ tool: "campaigns.smartlead", args: {} }];
+  if (/\b(georgie|intelligence)\b/.test(lower) && /\b(score|evaluation|accuracy|latency|performance)\b/.test(lower)) return [{ tool: "system.evaluations", args: { limit: 200 } }];
   if (/\b(sierra|system|crm)\b/.test(lower) && /\b(health|healthy|status|diagnos|failure|failing|broken|stuck)\b/.test(lower)) return [{ tool: "sierra.health", args: {} }];
   if (/\b(sierra|crm|our)\b/.test(lower) && /\b(portfolio|active deals|pipeline|deals)\b/.test(lower) && !ref) return [{ tool: "sierra.portfolio", args: { limit: 25 } }];
   if (/\b(strategy|strategic|priorities|next priorities|what next|next move)\b/.test(lower) && /\b(sierra|company|business|system|technology|tech|crm|capitalmatch)\b/.test(lower)) return [{ tool: "sierra.strategy", args: {} }];
   if (/\b(network|lender network|coverage gap|product gap|lender gap)\b/.test(lower) && /\b(sierra|lender|capital|funding|network)\b/.test(lower)) return [{ tool: "sierra.network_gaps", args: {} }];
   if (ref && /\b(offer|offers|approval|approvals|terms|pricing)\b/.test(lower)) return [{ tool: "sierra.offers", args: { reference: ref } }];
   if (ref && /\b(lender|lenders|submission|response|follow up|follow-up)\b/.test(lower)) return [{ tool: "sierra.lenders", args: { reference: ref } }];
+  if (ref && /\b(end.to.end|evidence chain|full evidence|reconstruct|timeline)\b/.test(lower)) return [{ tool: "sierra.evidence_chain", args: { reference: ref } }];
+  if (ref && /\b(reprocess|re-read|reread|process again)\b/.test(lower) && /\b(document|application|statement)\b/.test(lower)) return [{ tool: "sierra.reprocess_documents", args: { reference: ref, reason: text.slice(0, 1000) } }];
+  if (ref && /\b(reconcile|reconciliation|sync evidence)\b/.test(lower)) return [{ tool: "sierra.reconcile_deal", args: { reference: ref, reason: text.slice(0, 1000) } }];
+  if (ref && /\b(verify|confirm|check)\b/.test(lower) && /\b(lender delivery|submission delivery|delivered to lender)\b/.test(lower)) return [{ tool: "sierra.verify_lender_delivery", args: { reference: ref, reason: text.slice(0, 1000) } }];
   if (ref && /\b(deal|file|status|underwriting|capitalmatch|application|evidence)\b/.test(lower)) return [{ tool: "sierra.deal", args: { reference: ref } }];
   if (ref && /\b(refresh|recompute|rerun|re-run|re-evaluate|reevaluate)\b/.test(lower)) return [{ tool: "sierra.refresh_pipeline", args: { reference: ref, reason: text.slice(0, 1000) } }];
   return [];

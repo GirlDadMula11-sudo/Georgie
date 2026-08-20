@@ -1,5 +1,6 @@
 import { runtimePolicy, shouldRunMemoryExtraction } from "./runtime-policy.js";
 import { intelligenceRoute } from "./intelligence-gateway.js";
+import { withModelPermit } from "./resource-governor.js";
 
 const OPENAI_BASE_URL = "https://api.openai.com/v1";
 
@@ -90,12 +91,12 @@ function fastMacAction(input){
 }
 
 function requireApiKey() { if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured"); return process.env.OPENAI_API_KEY; }
-async function openAI(path, options = {}) { const response = await fetch(`${OPENAI_BASE_URL}${path}`, { ...options, headers: { Authorization: `Bearer ${requireApiKey()}`, ...(options.headers || {}) } }); if (!response.ok) { const body = await response.text(); throw new Error(`OpenAI request failed (${response.status}): ${body.slice(0, 500)}`); } return response; }
+async function openAI(path, options = {}) { const response = await fetch(`${OPENAI_BASE_URL}${path}`, { ...options, signal:options.signal||AbortSignal.timeout(Math.max(5000,Number(process.env.GEORGIE_OPENAI_TIMEOUT_MS||90000))), headers: { Authorization: `Bearer ${requireApiKey()}`, ...(options.headers || {}) } }); if (!response.ok) { const body = await response.text(); throw new Error(`OpenAI request failed (${response.status}): ${body.slice(0, 500)}`); } return response; }
 function extractResponseText(payload) { if (payload.output_text) return payload.output_text; for (const item of payload.output || []) for (const content of item.content || []) if (content.type === "output_text" && content.text) return content.text; return ""; }
 function reasoning(effort = "medium") { return { effort, context: "all_turns" }; }
-async function jsonResponse({ model, instructions, input, effort = "medium" }) { const response = await openAI("/responses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, instructions, input, reasoning: reasoning(effort), text: { verbosity: "low" } }) }); const payload = await response.json(); const raw = extractResponseText(payload).trim(); return JSON.parse(raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim()); }
+async function jsonResponse({ model, instructions, input, effort = "medium" }) { return withModelPermit(async()=>{const response = await openAI("/responses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, instructions, input, reasoning: reasoning(effort), text: { verbosity: "low" } }) }); const payload = await response.json(); const raw = extractResponseText(payload).trim(); return JSON.parse(raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim());}); }
 
-export async function askGeorgie(input, history = [], context = "") {
+async function askGeorgieCore(input, history = [], context = "", { onTextDelta } = {}) {
   if (!input?.trim()) throw new Error("Input is required");
   const fast=fastMacAction(input);
   if(fast){return {text:`Command sent to your Mac: ${fast[0].args.app}.`,responseId:null,webSearches:0,model:"deterministic-fast-path"};}
@@ -103,12 +104,41 @@ export async function askGeorgie(input, history = [], context = "") {
   const route = intelligenceRoute(input);
   const safeHistory = Array.isArray(history) ? history.slice(-12).filter((item) => item && ["user", "assistant"].includes(item.role) && typeof item.content === "string") : [];
   const instructions = context ? `${SYSTEM_PROMPT}\n\nCURRENT OPERATING CONTEXT\n${context}` : SYSTEM_PROMPT;
-  const body = { model: route.model, instructions, input: [...safeHistory, { role: "user", content: input.trim() }], reasoning: reasoning(process.env.OPENAI_REASONING_EFFORT || route.reasoningEffort), text: { verbosity: process.env.OPENAI_VERBOSITY || route.responseVerbosity } };
+  const streaming = typeof onTextDelta === "function";
+  const body = { model: route.model, instructions, input: [...safeHistory, { role: "user", content: input.trim() }], reasoning: reasoning(process.env.OPENAI_REASONING_EFFORT || route.reasoningEffort), text: { verbosity: process.env.OPENAI_VERBOSITY || route.responseVerbosity }, ...(streaming ? { stream: true } : {}) };
   if (process.env.GEORGIE_WEB_ENABLED !== "false" && route.allowWebTool) body.tools = [{ type: "web_search" }];
   const response = await openAI("/responses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (streaming) {
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("Georgie streaming response was unavailable");
+    const decoder = new TextDecoder();
+    let buffer = "", text = "", responseId = null, webSearches = 0;
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() || "";
+      for (const frame of frames) {
+        for (const line of frame.split("\n")) {
+          if (!line.startsWith("data:")) continue;
+          const raw = line.slice(5).trim();
+          if (!raw || raw === "[DONE]") continue;
+          let event; try { event = JSON.parse(raw); } catch { continue; }
+          if (event.type === "response.output_text.delta" && event.delta) { text += event.delta; onTextDelta(event.delta, text); }
+          if (event.type === "response.web_search_call.in_progress" || event.type === "response.web_search_call.completed") webSearches += event.type.endsWith("completed") ? 1 : 0;
+          if (event.type === "response.completed") responseId = event.response?.id || responseId;
+          if (event.type === "response.failed") throw new Error(event.response?.error?.message || "Georgie streaming response failed");
+        }
+      }
+      if (done) break;
+    }
+    if (!text.trim()) throw new Error("Georgie returned an empty response");
+    return { text, responseId, webSearches, model: body.model, route };
+  }
   const payload = await response.json(); const text = extractResponseText(payload); if (!text) throw new Error("Georgie returned an empty response");
   return { text, responseId: payload.id, webSearches: (payload.output || []).filter((item) => item.type === "web_search_call").length, model: body.model, route };
 }
+export async function askGeorgie(input,history=[],context="",options={}){return withModelPermit(()=>askGeorgieCore(input,history,context,options));}
 
 const SPOKEN_DETAIL_REQUEST = /\b(?:explain|elaborate|expand|walk me through|break (?:it|that) down|more detail|full detail|all (?:the )?details|in depth|deep dive|tell me more|read (?:it|that|the whole|the full)|say (?:it|that|the whole|the full))\b/i;
 const SPOKEN_WORD_LIMIT = Math.max(18, Math.min(60, Number(process.env.GEORGIE_SPOKEN_WORD_LIMIT || 28)));

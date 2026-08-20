@@ -53,7 +53,7 @@ function appendMessage(role, text) {
     copy.type = "button";
     copy.textContent = "Copy full response";
     copy.addEventListener("click", async () => {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(body.textContent || text);
       copy.textContent = "Copied";
       setTimeout(() => { copy.textContent = "Copy full response"; }, 1400);
     });
@@ -61,6 +61,12 @@ function appendMessage(role, text) {
   }
   conversationEl.append(item);
   item.scrollIntoView({ behavior: "smooth", block: "end" });
+  return item;
+}
+
+function updateMessage(item, text) {
+  const body = item?.querySelector("p");
+  if (body) body.textContent = text;
 }
 
 function pushHistory(role, content) {
@@ -151,9 +157,9 @@ async function speak(text) {
   await playAudioBlob(await response.blob());
 }
 
-async function sendTextTurn(input, { display = true, speakResponse = true } = {}) {
+async function sendTextTurn(input, { display = true, speakResponse = true, allowBusy = false } = {}) {
   const clean = String(input || "").trim();
-  if (!clean || isBusy) return;
+  if (!clean || (isBusy && !allowBusy)) return;
   isBusy = true;
   const priorHistory = history.slice();
   if (display) appendMessage("user", clean);
@@ -161,15 +167,33 @@ async function sendTextTurn(input, { display = true, speakResponse = true } = {}
   setStatus("Thinking…");
 
   try {
-    const response = await fetch("/api/mobile/respond", {
+    const response = await fetch("/api/mobile/respond/stream", {
       method: "POST",
       headers: requestHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ input: clean, history: priorHistory, userId, sessionId })
     });
-    const payload = await response.json();
-    if (!response.ok || !payload.ok) throw new Error(payload.error || "Request failed");
-
-    appendMessage("assistant", payload.text);
+    if (!response.ok || !response.body) throw new Error("Streaming response unavailable");
+    const assistantItem = appendMessage("assistant", "Working…");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "", streamedText = "", payload = null;
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const event = JSON.parse(line);
+        if (event.type === "status") setStatus(event.message || "Working…");
+        if (event.type === "delta") { streamedText = event.text || `${streamedText}${event.delta || ""}`; updateMessage(assistantItem, streamedText); }
+        if (event.type === "final") payload = { ok: event.ok, ...event.result, spokenText: event.spokenText };
+        if (event.type === "error") throw new Error(event.error || "Request failed");
+      }
+      if (done) break;
+    }
+    if (!payload?.ok) throw new Error("Georgie did not complete the response");
+    updateMessage(assistantItem, payload.text);
     pushHistory("assistant", payload.text);
     setStatus(payload.remembered ? `Speaking… remembered ${payload.remembered} new detail${payload.remembered === 1 ? "" : "s"}.` : "Speaking…");
     if (speakResponse) await speak(payload.spokenText || payload.text);
@@ -296,7 +320,7 @@ async function runVoiceTurn(audioBlob) {
     const transcript = await transcribeBlob(audioBlob);
     appendMessage("user", transcript);
     setStatus("Understood — responding…");
-    await sendTextTurn(transcript, { display: false, speakResponse: true });
+    await sendTextTurn(transcript, { display: false, speakResponse: true, allowBusy: true });
   } catch (error) {
     console.error(error);
     setStatus(error.message || "Something went wrong.");
