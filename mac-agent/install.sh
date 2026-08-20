@@ -120,7 +120,9 @@ printf '%s\n' "NEXT: macOS must approve Georgie's local permissions." \
   "2. Allow the Terminal app / Node runtime used to launch Georgie" \
   "3. System Settings > Privacy & Security > Screen Recording" \
   "4. Allow the Terminal app / Node runtime used to launch Georgie" \
-  "5. If macOS asks, quit/reopen Terminal and run the bootstrap command once more."
+  "5. Safari: Develop > Allow JavaScript from Apple Events" \
+  "6. Chrome: View > Developer > Allow JavaScript from Apple Events" \
+  "7. If macOS asks, quit/reopen the browser and Terminal, then run this installer once more."
 
 echo
 printf 'Logs: %s\n' "$LOG_DIR/georgie-mac-agent.log"

@@ -36,6 +36,62 @@ async function runAppleScript(script) {
   return stdout.trim();
 }
 
+async function runJxa(script) {
+  const { stdout } = await execFileAsync("osascript", ["-l", "JavaScript", "-e", script], { timeout: 45000, maxBuffer: 8 * 1024 * 1024 });
+  return stdout.trim();
+}
+
+function approvedBrowserDomains() {
+  const defaults = ["sierramarketinginc.com","smartlead.ai","render.com","vercel.com","supabase.com","github.com","neo.space"];
+  const configured = String(process.env.GEORGIE_MAC_APPROVED_BROWSER_DOMAINS || "").split(",").map(value => value.trim().toLowerCase()).filter(Boolean);
+  return [...new Set([...defaults, ...configured])];
+}
+
+async function inspectBrowserTabs({ includeContent = true } = {}) {
+  const domains = approvedBrowserDomains();
+  const script = `
+const includeContent = ${includeContent ? "true" : "false"};
+const approved = ${JSON.stringify(domains)};
+const maxPerTab = 12000;
+const result = { observedAt: new Date().toISOString(), tabs: [], browserErrors: [] };
+function clean(value, max) { return String(value || '').replace(/\\u0000/g, '').slice(0, max); }
+function approvedUrl(raw) { const match = String(raw || '').match(/^https?:\\/\\/([^\\/?#]+)/i); if (!match) return false; const host = match[1].split(':')[0].toLowerCase(); return approved.some(d => host === d || host.endsWith('.' + d)); }
+function safeUrl(raw) { return clean(String(raw || '').replace(/([?&#](?:api[_-]?key|token|secret|password|code|session|auth)=)[^&#]*/ig, '$1[REDACTED]').replace(/#.*$/, ''), 4000); }
+function redact(value) { return clean(String(value || '').replace(/(?:api[_ -]?key|password|secret|access[_ -]?token|refresh[_ -]?token|authorization)\\s*[:=]?\\s*[^\\n]{1,240}/ig, '[REDACTED SENSITIVE VALUE]').replace(/\\b(?:sk|sb_secret|rnd|ghp|github_pat)_[A-Za-z0-9_-]{8,}\\b/g, '[REDACTED CREDENTIAL]'), maxPerTab); }
+function safeTextScript() { return "(() => { const c = document.body ? document.body.innerText : ''; return String(c || '').slice(0, " + maxPerTab + "); })()"; }
+try {
+  const safari = Application('Safari');
+  if (safari.running()) safari.windows().forEach((win, wi) => {
+    const activeUrl = safeUrl(win.currentTab().url());
+    win.tabs().forEach((tab, ti) => {
+      const rawUrl = clean(tab.url(), 4000), url = safeUrl(rawUrl), allowed = approvedUrl(rawUrl);
+      const item = { browser: 'Safari', window: wi + 1, tab: ti + 1, active: url === activeUrl, title: clean(tab.name(), 1000), url, contentApproved: allowed, content: null, contentError: null };
+      if (includeContent && allowed) { try { item.content = redact(tab.doJavaScript(safeTextScript())); } catch (e) { item.contentError = clean(e.message || e, 1000); } }
+      result.tabs.push(item);
+    });
+  });
+} catch (e) { result.browserErrors.push({ browser: 'Safari', error: clean(e.message || e, 1000) }); }
+try {
+  const chrome = Application('Google Chrome');
+  if (chrome.running()) chrome.windows().forEach((win, wi) => {
+    const active = Number(win.activeTabIndex());
+    win.tabs().forEach((tab, ti) => {
+      const rawUrl = clean(tab.url(), 4000), url = safeUrl(rawUrl), allowed = approvedUrl(rawUrl);
+      const item = { browser: 'Google Chrome', window: wi + 1, tab: ti + 1, active: (ti + 1) === active, title: clean(tab.title(), 1000), url, contentApproved: allowed, content: null, contentError: null };
+      if (includeContent && allowed) { try { item.content = redact(tab.execute({ javascript: safeTextScript() })); } catch (e) { item.contentError = clean(e.message || e, 1000); } }
+      result.tabs.push(item);
+    });
+  });
+} catch (e) { result.browserErrors.push({ browser: 'Google Chrome', error: clean(e.message || e, 1000) }); }
+result.tabCount = result.tabs.length;
+result.contentInspectedCount = result.tabs.filter(t => t.content !== null).length;
+result.metadataOnlyCount = result.tabs.filter(t => t.content === null).length;
+JSON.stringify(result);
+`;
+  const parsed = JSON.parse(await runJxa(script) || "{}");
+  return { ...parsed, approvedDomains: domains, credentialRedactionApplied: true, formValuesCaptured: false };
+}
+
 async function waitForAppProcess(app, timeoutMs = 8000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -104,6 +160,14 @@ async function execute(job) {
       const bytes = await fs.readFile(target);
       await fs.unlink(target).catch(() => {});
       return { mimeType: "image/png", base64: bytes.toString("base64").slice(0, 8_000_000) };
+    }
+    case "browser.inspect_tabs":
+      return inspectBrowserTabs({ includeContent: a.includeContent !== false });
+    case "ui.click": {
+      const x = Math.max(0, Math.min(10000, Math.round(Number(a.x) || 0)));
+      const y = Math.max(0, Math.min(10000, Math.round(Number(a.y) || 0)));
+      await runAppleScript(`tell application "System Events" to click at {${x}, ${y}}`);
+      return { clicked: { x, y }, verifiedBy: "system_events_accepted" };
     }
     case "ui.type_text": {
       const text = String(a.text || "").slice(0, 10000);

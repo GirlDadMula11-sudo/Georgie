@@ -38,7 +38,8 @@ GEORGIE_MAC_POLL_MS=5000
 3. Test with `npm run mac-agent`.
 4. For screen capture, enable **System Settings → Privacy & Security → Screen Recording** for the terminal/runtime that launches Georgie.
 5. For typing/key automation, enable **System Settings → Privacy & Security → Accessibility** for the runtime.
-6. Once tested, install the LaunchAgent described below so Georgie starts automatically when the user logs in.
+6. For approved page-content inspection, enable **Develop → Allow JavaScript from Apple Events** in Safari and **View → Developer → Allow JavaScript from Apple Events** in Chrome. Georgie inventories every tab's title/URL, but extracts page text only from the approved Sierra operating domains. URL credentials, displayed credential patterns, password fields, and form values are excluded or redacted.
+7. Once tested, install the LaunchAgent described below so Georgie starts automatically when the user logs in.
 
 ## LaunchAgent
 
