@@ -1,18 +1,23 @@
 const TOOL_INTENT = /\b(open|launch|start|show|read|check|inspect|diagnose|health|status|deal|portfolio|lender|offer|pipeline|refresh|task|remind|email|mail|send|reply|search|find|clipboard|screen|screenshot|type|press|calendar|strategy|network)\b/i;
 const CURRENT_INFO = /\b(today|tonight|current|currently|latest|recent|right now|news|weather|price|stock|market|score|schedule|law|rule|regulation|availability)\b/i;
 const DURABLE_MEMORY = /\b(remember|my preference|my goal|my daughter|my family|my company|we decided|previously|last time|our plan)\b/i;
-const DEEP_REASONING = /\b(architect|architecture|root cause|diagnos|strategy|strategic|compare|tradeoff|optimi[sz]|design|plan|why|risk|forecast|underwrit|capitalmatch|system-wide)\b/i;
+const DEEP_REASONING = /\b(architect|architecture|root cause|diagnos|strategy|strategic|compare|tradeoff|optimi[sz]|design|plan|why|risk|forecast|underwrit|capitalmatch|system-wide|reconcile|regression|data integrity|evidence|contradiction|infrastructure|deployment|database|worker|queue|latency|performance)\b/i;
+const EXECUTIVE_REASONING = /\b(chief of staff|company direction|business direction|technology direction|tech direction|priorities|what next|next move|evolve|evolution|improve|enhance|maintain|monitor)\b/i;
+const SIMPLE_LOCAL = /^(?:please\s+)?(?:open|launch|start|switch to|activate)\s+[^\n]{1,80}$/i;
 
 export function runtimePolicy(input = "") {
   const text = String(input || "").trim();
   const words = text ? text.split(/\s+/).length : 0;
+  const deep = DEEP_REASONING.test(text) || EXECUTIVE_REASONING.test(text);
+  const simple = SIMPLE_LOCAL.test(text);
   return {
-    needsToolRouter: TOOL_INTENT.test(text),
+    needsToolRouter: !simple && TOOL_INTENT.test(text),
     allowWebTool: CURRENT_INFO.test(text),
     needsMemoryExtraction: words >= 8 && !/^(thanks|thank you|ok|okay|great|perfect|yes|no|done|got it)[.! ]*$/i.test(text),
     memoryLikelyUseful: DURABLE_MEMORY.test(text),
-    reasoningEffort: DEEP_REASONING.test(text) ? "medium" : "low",
-    responseVerbosity: words <= 12 ? "low" : "medium"
+    reasoningEffort: simple ? "low" : deep ? "high" : "medium",
+    responseVerbosity: deep ? "medium" : words <= 12 ? "low" : "medium",
+    latencyClass: simple ? "instant" : deep ? "deep" : "standard"
   };
 }
 
