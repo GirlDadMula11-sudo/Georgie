@@ -62,6 +62,16 @@ export function deterministicToolPlan(input = "") {
   const emailSend=parseExplicitEmailSend(text); if(emailSend) return [emailSend];
   const macApp=parseMacOpen(text); if(macApp) return [{tool:"mac.devices",args:{}},{tool:"mac.open_app",args:{app:macApp}}];
   const ref = referenceFrom(text);
+  const sierraWorkflowDomain = /\b(?:sierra|crm|intake|capital\s*match|capitalmatch|underwriting|submission)\b/.test(lower);
+  const sierraWorkflowScope = /\b(?:intake|processing|capital\s*match|capitalmatch|underwriting|submission|pipeline|workflow|flow)\b/.test(lower);
+  const sierraWorkflowIntent = /\b(?:align(?:ment|ed)?|diagnos\w*|inspect|review|audit|trace|map|broken|issue|problem|what(?:'s| is) going on|help us)\b/.test(lower);
+  if (sierraWorkflowDomain && sierraWorkflowScope && sierraWorkflowIntent) return [
+    {tool:"sierra.health",args:{}},
+    {tool:"sierra.infrastructure",args:{}},
+    {tool:"sierra.apply_inventory",args:{limit:100,status:"all"}},
+    {tool:"sierra.reconciliation_invariant",args:{limit:250}},
+    {tool:"sierra.portfolio",args:{limit:25}}
+  ];
   if (/\b(governed[- ]access|access map|rpc contracts?|rpc tools?|live read capabilities|minimum viable access)\b/.test(lower) && /\b(sierra|apply|capitalapply|rpc|capabilit(?:y|ies)|access)\b/.test(lower)) return [{tool:"sierra.governed_access",args:{}}];
   if (/\b(apply|capitalapply)\b/.test(lower) && /\b(inventory|submissions?|statuses|export|event history)\b/.test(lower)) return [{tool:"sierra.apply_inventory",args:{limit:100,status:"all"}}];
   if (/\b(audit|provenance)\b/.test(lower) && /\b(events?|history|records?|trail)\b/.test(lower)) return [{tool:"sierra.audit_events",args:{reference:ref,limit:100}}];

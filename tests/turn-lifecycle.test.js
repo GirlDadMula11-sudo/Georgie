@@ -21,3 +21,13 @@ test("terminal partial language never claims execution",()=>{
   assert.doesNotMatch(result.text,/successfully completed|repair completed|fixed/i);
   assert.equal(result.terminalReason,"turn_deadline");
 });
+
+test("provider timeout returns a durable terminal recovery result",()=>{
+  const result=terminalPartialResult({startedAt:Date.now()-24,reason:"provider_timeout",detail:"The operation was aborted due to timeout"});
+  assert.equal(result.completed,false);
+  assert.equal(result.terminal,true);
+  assert.equal(result.terminalReason,"provider_timeout");
+  assert.match(result.text,/accepted and preserved/i);
+  assert.match(result.text,/without restating/i);
+  assert.doesNotMatch(result.text,/completed successfully/i);
+});

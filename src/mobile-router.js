@@ -11,7 +11,7 @@ import { buildCommandCenter } from "./command-layer.js";
 import { certificationStatus, certifyRunbook, executeCertifiedRepair, listRepairRunbooks } from "./repair-runbooks.js";
 import { maintenanceStatus } from "./maintenance-sentinel.js";
 import { completeTurnV2 } from "./v2-turn-engine.js";
-import { recordClientTelemetry, recordOutcomeFeedback } from "./evaluation.js";
+import { recordClientTelemetry, recordOutcomeFeedback, recordTurnEvaluation } from "./evaluation.js";
 import { terminalPartialResult, withTurnDeadline } from "./turn-lifecycle.js";
 import { appendSessionTurn } from "./memory.js";
 import { enhanceOutcomeResponse } from "./outcome-lifecycle.js";
@@ -25,7 +25,9 @@ const sessionIdFor=req=>String(req.headers["x-georgie-session"]||"native").slice
 async function complete(userId, sessionId, input, options = {}) {
   const startedAt = Date.now();
   let expired = false;
-  const response = await withTurnDeadline(
+  let response;
+  try {
+    response = await withTurnDeadline(
     () => completeTurnV2({
       userId,
       sessionId,
@@ -66,7 +68,28 @@ async function complete(userId, sessionId, input, options = {}) {
         return result;
       },
     },
-  );
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || "Turn execution failed");
+    const timedOut = /abort|timeout|deadline/i.test(message);
+    response = terminalPartialResult({ startedAt, reason: timedOut ? "provider_timeout" : "turn_execution_failure", detail: message });
+    options.onProgress?.({
+      type: "status",
+      stage: "terminal_partial",
+      message: timedOut
+        ? "The intelligence provider reached its bounded timeout. I preserved this request for recovery and will not claim unfinished work as complete."
+        : "The active execution path failed safely. I preserved this request for recovery and will not claim unfinished work as complete.",
+      elapsedMs: response.latencyMs,
+    });
+    await Promise.race([
+      Promise.all([
+        appendSessionTurn({ userId, sessionId, role: "user", content: input }),
+        appendSessionTurn({ userId, sessionId, role: "assistant", content: response.text }),
+        recordTurnEvaluation(userId, { route: response.route, model: response.model, latencyMs: response.latencyMs, firstResponseMs: response.firstResponseMs, contextReadyMs: response.contextReadyMs, toolCount: 0, evidence: [], responseCharacters: response.text.length, completed: false, actionSuccess: false }),
+      ]),
+      new Promise((resolve) => setTimeout(resolve, 2500)),
+    ]).catch((persistenceError) => console.warn("Georgie failure-state persistence delayed:", persistenceError instanceof Error ? persistenceError.message : persistenceError));
+  }
   const enhanced = enhanceOutcomeResponse(response);
   if (enhanced.outcome.requiresFollowUp || enhanced.outcome.requiresRecovery) {
     setImmediate(() => retainTurnContinuation(userId, sessionId, input, enhanced).catch((error) => console.warn("Turn continuity persistence delayed:", error instanceof Error ? error.message : error)));

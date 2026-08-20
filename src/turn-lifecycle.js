@@ -1,8 +1,11 @@
 export const TURN_DEADLINE_MS=Math.max(20000,Math.min(55000,Number(process.env.GEORGIE_TURN_DEADLINE_MS||52000)));
 
-export function terminalPartialResult({startedAt,firstResponseMs=0,reason="turn_deadline"}={}){
+export function terminalPartialResult({startedAt,firstResponseMs=0,reason="turn_deadline",detail=""}={}){
   const latencyMs=Math.max(0,Date.now()-Number(startedAt||Date.now()));
-  const text="I reached the bounded response deadline before every requested check finished. Any accepted tool work remains durable, but I have not treated it as completed. Open the recent Mac jobs to verify the remaining result, or ask me to continue from the available evidence.";
+  const providerTimedOut=reason==="provider_timeout";
+  const text=providerTimedOut
+    ? "I accepted and preserved this request, but the intelligence provider timed out before I could finish the verified response. I have not treated any unfinished check or action as completed. The work is retained for recovery, so you can ask me to continue without restating the objective."
+    : "I reached the bounded response deadline before every requested check finished. Any accepted tool work remains durable, but I have not treated it as completed. The work is retained for recovery, so you can ask me to continue from the available evidence.";
   return {
     text,
     responseId:null,
@@ -21,7 +24,8 @@ export function terminalPartialResult({startedAt,firstResponseMs=0,reason="turn_
     contextReadyMs:latencyMs,
     completed:false,
     terminal:true,
-    terminalReason:reason
+    terminalReason:reason,
+    failureDetail:String(detail||"").slice(0,300)
   };
 }
 
