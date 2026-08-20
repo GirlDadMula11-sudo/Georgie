@@ -3,44 +3,34 @@ function referenceFrom(text = "") {
   return explicit ? explicit[1] : null;
 }
 
+function parseExplicitEmailSend(text = "") {
+  const raw=String(text||"").trim(); const lower=raw.toLowerCase();
+  if(!/\b(send|email|e-mail|reply|forward)\b/.test(lower)) return null;
+  const email=(raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)||[])[0];
+  if(!email) return null;
+  const quoted=[...raw.matchAll(/[“\"]([^”\"]+)[”\"]/g)].map(m=>m[1]).filter(Boolean);
+  let body=quoted[quoted.length-1]||"";
+  const saying=raw.match(/\b(?:saying|say|message|body)\s*[:,-]?\s*(.+)$/i); if(!body&&saying) body=saying[1].trim();
+  if(!body) return null;
+  const subjectMatch=raw.match(/\bsubject\s*[:,-]?\s*([^,.]+)(?:[,.]|$)/i);
+  const subject=subjectMatch?subjectMatch[1].trim():"";
+  const mailboxId=/\b(submissions|submission)\b/i.test(raw)?"submissions":"work";
+  return {tool:"email.send",args:{mailboxId,to:email,subject:subject||"",text:body}};
+}
+
 export function deterministicToolPlan(input = "") {
   const text = String(input || "").trim();
   const lower = text.toLowerCase();
   if (!text) return [];
-
+  const emailSend=parseExplicitEmailSend(text); if(emailSend) return [emailSend];
   const ref = referenceFrom(text);
-
-  if (/\b(sierra|system|crm)\b/.test(lower) && /\b(health|healthy|status|diagnos|failure|failing|broken|stuck)\b/.test(lower)) {
-    return [{ tool: "sierra.health", args: {} }];
-  }
-
-  if (/\b(sierra|crm|our)\b/.test(lower) && /\b(portfolio|active deals|pipeline|deals)\b/.test(lower) && !ref) {
-    return [{ tool: "sierra.portfolio", args: { limit: 25 } }];
-  }
-
-  if (/\b(strategy|strategic|priorities|next priorities|what next|next move)\b/.test(lower) && /\b(sierra|company|business|system|technology|tech|crm|capitalmatch)\b/.test(lower)) {
-    return [{ tool: "sierra.strategy", args: {} }];
-  }
-
-  if (/\b(network|lender network|coverage gap|product gap|lender gap)\b/.test(lower) && /\b(sierra|lender|capital|funding|network)\b/.test(lower)) {
-    return [{ tool: "sierra.network_gaps", args: {} }];
-  }
-
-  if (ref && /\b(offer|offers|approval|approvals|terms|pricing)\b/.test(lower)) {
-    return [{ tool: "sierra.offers", args: { reference: ref } }];
-  }
-
-  if (ref && /\b(lender|lenders|submission|response|follow up|follow-up)\b/.test(lower)) {
-    return [{ tool: "sierra.lenders", args: { reference: ref } }];
-  }
-
-  if (ref && /\b(deal|file|status|underwriting|capitalmatch|application|evidence)\b/.test(lower)) {
-    return [{ tool: "sierra.deal", args: { reference: ref } }];
-  }
-
-  if (ref && /\b(refresh|recompute|rerun|re-run|re-evaluate|reevaluate)\b/.test(lower)) {
-    return [{ tool: "sierra.refresh_pipeline", args: { reference: ref, reason: text.slice(0, 1000) } }];
-  }
-
+  if (/\b(sierra|system|crm)\b/.test(lower) && /\b(health|healthy|status|diagnos|failure|failing|broken|stuck)\b/.test(lower)) return [{ tool: "sierra.health", args: {} }];
+  if (/\b(sierra|crm|our)\b/.test(lower) && /\b(portfolio|active deals|pipeline|deals)\b/.test(lower) && !ref) return [{ tool: "sierra.portfolio", args: { limit: 25 } }];
+  if (/\b(strategy|strategic|priorities|next priorities|what next|next move)\b/.test(lower) && /\b(sierra|company|business|system|technology|tech|crm|capitalmatch)\b/.test(lower)) return [{ tool: "sierra.strategy", args: {} }];
+  if (/\b(network|lender network|coverage gap|product gap|lender gap)\b/.test(lower) && /\b(sierra|lender|capital|funding|network)\b/.test(lower)) return [{ tool: "sierra.network_gaps", args: {} }];
+  if (ref && /\b(offer|offers|approval|approvals|terms|pricing)\b/.test(lower)) return [{ tool: "sierra.offers", args: { reference: ref } }];
+  if (ref && /\b(lender|lenders|submission|response|follow up|follow-up)\b/.test(lower)) return [{ tool: "sierra.lenders", args: { reference: ref } }];
+  if (ref && /\b(deal|file|status|underwriting|capitalmatch|application|evidence)\b/.test(lower)) return [{ tool: "sierra.deal", args: { reference: ref } }];
+  if (ref && /\b(refresh|recompute|rerun|re-run|re-evaluate|reevaluate)\b/.test(lower)) return [{ tool: "sierra.refresh_pipeline", args: { reference: ref, reason: text.slice(0, 1000) } }];
   return [];
 }
