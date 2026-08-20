@@ -46,6 +46,13 @@ export function deterministicToolPlan(input = "") {
   const lower = text.toLowerCase();
   if (!text) return [];
   if (/\b(?:create|generate|get|give|issue|need|show)\b/.test(lower) && /\b(?:one[- ]time\s+)?enrollment code\b/.test(lower)) return [{tool:"system.create_enrollment_code",args:{}}];
+  if (/\b(?:probe|test|inspect|verify|report)\b/.test(lower) && /\b(?:governed|rpc|contracts?|read access)\b/.test(lower) && /\b(?:lender[- ]activity|guarded|conflicts?|audit|infrastructure)\b/.test(lower)) return [
+    {tool:"sierra.guarded_lender_conflicts",args:{reference:null,limit:50}},
+    {tool:"sierra.governed_access",args:{}},
+    {tool:"sierra.infrastructure",args:{}},
+    {tool:"sierra.audit_events",args:{reference:null,limit:100}}
+  ];
+  if (/\b(?:inspect|show|identify|diagnose|explain|list)\b/.test(lower) && /\bguarded\b/.test(lower) && /\b(?:lender[- ]activity|evidence)\b/.test(lower) && /\bconflicts?\b/.test(lower)) return [{tool:"sierra.guarded_lender_conflicts",args:{reference:null,limit:50}}];
   if (/\b(?:analy[sz]e|audit|diagnose|review|inspect)\b/.test(lower) && /\b(?:georgie|repo|repository|codebase|architecture)\b/.test(lower) && /\b(?:reliability|silent|working|tool|continuity|completion|failure|weakness|crash)\b/.test(lower)) return [{tool:"developer.search",args:{repo:null,query:"completeTurnV2|respond/stream|sendTextTurn|isBusy|appendSessionTurn|executePlannedActions|verifiedDirectResponse|planActions|queueMacAndWait|recordTurnEvaluation|restoreSession|backgroundLearn"}}];
   if (/\b(?:inspect|review|check)\b/.test(lower) && /\b(?:repo|repository|codebase|working tree|git status)\b/.test(lower)) return [{tool:"developer.repo_inspect",args:{repo:null}}];
   if (/\b(?:review|inspect|check|scan|go through|look through|summarize)\b/.test(lower) && /\b(?:open\s+)?tabs?\b/.test(lower) && /\b(?:mac|safari|chrome|browser)\b/.test(lower)) return [{tool:"mac.browser_inspect",args:{includeContent:true,scope:"sierra"}}];
