@@ -14,9 +14,21 @@ final class AssistantStore: ObservableObject {
     @Published var isEnrolled = KeychainStore.read(account: GeorgieConfig.deviceTokenKey) != nil
     @Published var enrollmentCode = ""
     @Published var textInput = ""
+    @Published var handsFreeMode = false
     @Published var errorMessage: String?
     let audio = AudioEngine()
     private let pendingVoiceKey = "georgie:startVoiceOnLaunch"
+    private var endOfSpeechTask: Task<Void, Never>?
+
+    init() {
+        audio.onPlaybackFinished = { [weak self] in
+            guard let self, self.handsFreeMode, self.isEnrolled else { return }
+            Task {
+                try? await Task.sleep(for: .milliseconds(250))
+                await self.startVoice(continueConversation: true)
+            }
+        }
+    }
 
     func enroll() async {
         let code = enrollmentCode.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -98,18 +110,22 @@ final class AssistantStore: ObservableObject {
         }
     }
 
-    func startVoice() async {
+    func startVoice(continueConversation: Bool = false) async {
         guard isEnrolled else { errorMessage = "Activate this iPhone to use Georgie."; return }
         guard !isBusy, !audio.isRecording else { return }
         do {
+            handsFreeMode = true
             try await audio.startRecording()
-            status = "Listening"
+            status = continueConversation ? "Listening for your next request" : "Listening"
+            monitorEndOfSpeech()
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
     func finishVoice() async {
+        endOfSpeechTask?.cancel()
+        endOfSpeechTask = nil
         guard let url = audio.stopRecording() else { return }
         isBusy = true
         status = "Thinking"
@@ -119,13 +135,58 @@ final class AssistantStore: ObservableObject {
             try? FileManager.default.removeItem(at: url)
         }
         do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            guard (attributes[.size] as? NSNumber)?.intValue ?? 0 > 512 else {
+                throw NSError(domain: "GeorgieAudio", code: 3, userInfo: [NSLocalizedDescriptionKey: "No voice was recorded. Tap once, speak, then tap again to send."])
+            }
             let response = try await GeorgieAPI.shared.voiceTurn(fileURL: url)
             messages.append(GeorgieMessage(role: "user", content: response.transcript))
             messages.append(GeorgieMessage(role: "assistant", content: response.text))
             try audio.play(base64: response.audioBase64)
         } catch {
+            handsFreeMode = false
             isEnrolled = KeychainStore.read(account: GeorgieConfig.deviceTokenKey) != nil
             errorMessage = error.localizedDescription
+        }
+    }
+
+    func endHandsFree() {
+        handsFreeMode = false
+        endOfSpeechTask?.cancel()
+        endOfSpeechTask = nil
+        _ = audio.stopRecording()
+        audio.stopPlayback()
+        status = "Online"
+    }
+
+    private func monitorEndOfSpeech() {
+        endOfSpeechTask?.cancel()
+        endOfSpeechTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            var heardVoice = false
+            var lastVoiceAt = Date()
+            while !Task.isCancelled, self.audio.isRecording {
+                let level = self.audio.voiceLevel()
+                let duration = self.audio.recordingDuration
+                if level > -38 {
+                    heardVoice = true
+                    lastVoiceAt = Date()
+                }
+                if heardVoice, duration > 0.7, Date().timeIntervalSince(lastVoiceAt) > 1.15 {
+                    await self.finishVoice()
+                    return
+                }
+                if duration > 25 {
+                    await self.finishVoice()
+                    return
+                }
+                if !heardVoice, duration > 12 {
+                    self.endHandsFree()
+                    self.errorMessage = "I didn’t hear anything. Call Georgie again when you’re ready."
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 150_000_000)
+            }
         }
     }
 
@@ -137,6 +198,7 @@ final class AssistantStore: ObservableObject {
             errorMessage = "Activate this iPhone before using the Georgie voice shortcut."
             return
         }
+        handsFreeMode = true
         await startVoice()
     }
 

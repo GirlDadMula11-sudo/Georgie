@@ -40,7 +40,7 @@ struct GeorgiePrioritiesIntent: AppIntent {
 struct GeorgieShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(intent: AskGeorgieIntent(), phrases: ["Ask \(.applicationName)", "Talk to \(.applicationName)"], shortTitle: "Ask Georgie", systemImageName: "bubble.left.and.waveform")
-        AppShortcut(intent: OpenGeorgieVoiceIntent(), phrases: ["Open \(.applicationName) voice", "Wake \(.applicationName)"], shortTitle: "Talk to Georgie", systemImageName: "mic.fill")
+        AppShortcut(intent: OpenGeorgieVoiceIntent(), phrases: ["Open \(.applicationName) voice", "Wake \(.applicationName)", "Start talking to \(.applicationName)", "Call \(.applicationName)"], shortTitle: "Talk to Georgie", systemImageName: "mic.fill")
         AppShortcut(intent: GeorgiePrioritiesIntent(), phrases: ["What are my \(.applicationName) priorities", "Ask \(.applicationName) what needs attention"], shortTitle: "Priorities", systemImageName: "checklist")
     }
 }

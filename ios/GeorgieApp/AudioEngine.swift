@@ -7,6 +7,7 @@ final class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published private(set) var isSpeaking = false
     private var recorder: AVAudioRecorder?
     private var player: AVAudioPlayer?
+    var onPlaybackFinished: (() -> Void)?
 
     func requestPermission() async -> Bool {
         await withCheckedContinuation { continuation in
@@ -27,11 +28,22 @@ final class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
             AVNumberOfChannelsKey: 1,
             AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
         ]
-        recorder = try AVAudioRecorder(url: url, settings: settings)
-        recorder?.prepareToRecord()
-        recorder?.record()
+        let nextRecorder = try AVAudioRecorder(url: url, settings: settings)
+        nextRecorder.isMeteringEnabled = true
+        guard nextRecorder.prepareToRecord(), nextRecorder.record() else {
+            throw NSError(domain: "GeorgieAudio", code: 2, userInfo: [NSLocalizedDescriptionKey: "Georgie could not start the microphone."])
+        }
+        recorder = nextRecorder
         isRecording = true
     }
+
+    func voiceLevel() -> Float {
+        guard let recorder, recorder.isRecording else { return -160 }
+        recorder.updateMeters()
+        return recorder.averagePower(forChannel: 0)
+    }
+
+    var recordingDuration: TimeInterval { recorder?.currentTime ?? 0 }
 
     func stopRecording() -> URL? {
         guard let recorder else { return nil }
@@ -61,6 +73,9 @@ final class AudioEngine: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        Task { @MainActor in self.isSpeaking = false }
+        Task { @MainActor in
+            self.isSpeaking = false
+            if flag { self.onPlaybackFinished?() }
+        }
     }
 }

@@ -30,6 +30,8 @@ struct GeorgieApp: App {
                     await store.refreshDashboard()
                     await store.consumePendingVoiceLaunch()
                 }
+            } else {
+                store.endHandsFree()
             }
         }
     }

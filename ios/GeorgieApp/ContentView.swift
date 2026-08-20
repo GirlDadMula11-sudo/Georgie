@@ -162,9 +162,17 @@ struct ContentView: View {
     }
 
     private var voiceControl: some View {
-        Button { if store.audio.isRecording { Task { await store.finishVoice() } } else { Task { await store.startVoice() } } } label: {
-            HStack(spacing: 12) { Image(systemName: store.audio.isRecording ? "waveform" : "mic.fill").font(.title2); Text(store.audio.isRecording ? "RELEASE TO SEND" : "TAP TO TALK").font(.headline) }.frame(maxWidth: .infinity).padding(.vertical, 19).foregroundStyle(.black).background(gold, in: Capsule()).shadow(color: gold.opacity(0.25), radius: 20)
-        }.disabled(store.isBusy && !store.audio.isRecording).accessibilityLabel("Talk to Georgie")
+        VStack(spacing: 8) {
+            Button { if store.audio.isRecording { Task { await store.finishVoice() } } else { Task { await store.startVoice() } } } label: {
+                HStack(spacing: 12) { Image(systemName: store.audio.isRecording ? "waveform" : "mic.fill").font(.title2); Text(store.audio.isRecording ? "LISTENING…" : "TAP TO TALK").font(.headline) }.frame(maxWidth: .infinity).padding(.vertical, 19).foregroundStyle(.black).background(gold, in: Capsule()).shadow(color: gold.opacity(0.25), radius: 20)
+            }.disabled(store.isBusy && !store.audio.isRecording).accessibilityLabel(store.audio.isRecording ? "Send voice command" : "Talk to Georgie")
+            Text(store.audio.isRecording ? "Speak naturally. Georgie sends when you stop." : "Tap once, or say “Hey Siri, wake Georgie.”")
+                .font(.caption2).foregroundStyle(store.audio.isRecording ? .green : .secondary)
+            if store.handsFreeMode {
+                Button("END HANDS-FREE") { store.endHandsFree() }
+                    .font(.caption.bold()).foregroundStyle(.red)
+            }
+        }
     }
 }
 
