@@ -69,6 +69,21 @@ function updateMessage(item, text) {
   if (body) body.textContent = text;
 }
 
+function outcomeDomain(input, payload) {
+  if (payload?.route?.domain === "sierra") return "sierra";
+  if (payload?.route?.domain === "personal") return "personal";
+  if (/\b(research|latest|source|evidence|find out)\b/i.test(input)) return "research";
+  if (/\b(write|creative|concept|story|song|design)\b/i.test(input)) return "creative";
+  if (Array.isArray(payload?.actions) && payload.actions.length) return "execution";
+  return "general";
+}
+
+function attachOutcomeFeedback(item, input, payload) {
+  const controls=document.createElement("div");controls.className="outcome-feedback";
+  for(const [label,useful] of [["Helpful",true],["Needs work",false]]){const button=document.createElement("button");button.type="button";button.textContent=label;button.addEventListener("click",async()=>{for(const child of controls.children)child.disabled=true;await fetch("/api/mobile/feedback",{method:"POST",headers:requestHeaders({"Content-Type":"application/json"}),body:JSON.stringify({responseId:payload.responseId,domain:outcomeDomain(input,payload),useful})});button.textContent=useful?"Helpful ✓":"Recorded ✓";});controls.append(button);}
+  item.append(controls);
+}
+
 function pushHistory(role, content) {
   history.push({ role, content });
   history = history.slice(-16);
@@ -165,6 +180,8 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
   if (display) appendMessage("user", clean);
   pushHistory("user", clean);
   setStatus("Thinking…");
+  const requestStarted = performance.now();
+  let headersAt = 0, firstEventAt = 0, firstDeltaAt = 0;
 
   try {
     const response = await fetch("/api/mobile/respond/stream", {
@@ -172,6 +189,7 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
       headers: requestHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ input: clean, history: priorHistory, userId, sessionId })
     });
+    headersAt = performance.now();
     if (!response.ok || !response.body) throw new Error("Streaming response unavailable");
     const assistantItem = appendMessage("assistant", "Working…");
     const reader = response.body.getReader();
@@ -185,8 +203,9 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
       for (const line of lines) {
         if (!line.trim()) continue;
         const event = JSON.parse(line);
+        if (!firstEventAt) firstEventAt = performance.now();
         if (event.type === "status") setStatus(event.message || "Working…");
-        if (event.type === "delta") { streamedText = event.text || `${streamedText}${event.delta || ""}`; updateMessage(assistantItem, streamedText); }
+        if (event.type === "delta") { if (!firstDeltaAt) firstDeltaAt = performance.now(); streamedText = event.text || `${streamedText}${event.delta || ""}`; updateMessage(assistantItem, streamedText); }
         if (event.type === "final") payload = { ok: event.ok, ...event.result, spokenText: event.spokenText };
         if (event.type === "error") throw new Error(event.error || "Request failed");
       }
@@ -194,6 +213,8 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
     }
     if (!payload?.ok) throw new Error("Georgie did not complete the response");
     updateMessage(assistantItem, payload.text);
+    attachOutcomeFeedback(assistantItem, clean, payload);
+    void fetch("/api/mobile/telemetry", { method:"POST", headers:requestHeaders({"Content-Type":"application/json"}), body:JSON.stringify({ platform:"web", route:"respond_stream", headersMs:headersAt-requestStarted, firstEventMs:(firstEventAt||headersAt)-requestStarted, firstDeltaMs:(firstDeltaAt||performance.now())-requestStarted, completeMs:performance.now()-requestStarted }) }).catch(()=>{});
     pushHistory("assistant", payload.text);
     setStatus(payload.remembered ? `Speaking… remembered ${payload.remembered} new detail${payload.remembered === 1 ? "" : "s"}.` : "Speaking…");
     if (speakResponse) await speak(payload.spokenText || payload.text);
