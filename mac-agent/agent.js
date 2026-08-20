@@ -209,10 +209,17 @@ async function execute(job) {
       const repo = assertDeveloperRoot(a.repo);
       const query = String(a.query || "").slice(0, 500);
       if (!query) throw new Error("Search query is required");
-      let result;
+      let result, engine = "ripgrep";
       try { result = await runDeveloper("rg", ["-n", "--hidden", "--glob", "!.git/**", "--glob", "!node_modules/**", "--glob", "!.env*", "--", query, repo]); }
-      catch (error) { if (error?.code === 1) result = { stdout: "", stderr: "" }; else throw error; }
-      return { repo, query, matches: result.stdout.slice(0, 200000), readOnly: true };
+      catch (error) {
+        if (error?.code === 1) result = { stdout: "", stderr: "" };
+        else if (error?.code === "ENOENT") {
+          engine = "git-grep";
+          try { result = await runDeveloper("git", ["-C", repo, "grep", "-n", "-E", "--", query]); }
+          catch (fallbackError) { if (fallbackError?.code === 1) result = { stdout: "", stderr: "" }; else throw fallbackError; }
+        } else throw error;
+      }
+      return { repo, query, engine, matches: result.stdout.slice(0, 200000), readOnly: true };
     }
     case "developer.file_read": {
       const target = assertDeveloperFile(a.repo, a.path);
