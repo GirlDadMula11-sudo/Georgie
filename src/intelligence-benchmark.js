@@ -12,6 +12,7 @@ export const BENCHMARK_SCENARIOS = Object.freeze([
   { id: "decision", prompt: "Evaluate this decision, challenge my assumptions, and show the strongest counterargument.", expectedTier: "frontier" },
   { id: "fast", prompt: "Hello Georgie", expectedTier: "fast" },
   { id: "world_state", prompt: "What are we working on and what remains unfinished?", expectedTool: "system.world_state" }
+  ,{ id: "sierra_governed_access", prompt: "Run the Sierra governed-access probe and show which RPC contracts are live.", expectedDomain: "sierra", expectedTool: "sierra.governed_access" }
 ]);
 
 export function runStaticBenchmark() {

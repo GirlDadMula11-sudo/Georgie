@@ -51,6 +51,11 @@ export function deterministicToolPlan(input = "") {
   const emailSend=parseExplicitEmailSend(text); if(emailSend) return [emailSend];
   const macApp=parseMacOpen(text); if(macApp) return [{tool:"mac.devices",args:{}},{tool:"mac.open_app",args:{app:macApp}}];
   const ref = referenceFrom(text);
+  if (/\b(governed[- ]access|access map|rpc contracts?|rpc tools?|live read capabilities|minimum viable access)\b/.test(lower) && /\b(sierra|apply|capitalapply|rpc|capabilit(?:y|ies)|access)\b/.test(lower)) return [{tool:"sierra.governed_access",args:{}}];
+  if (/\b(apply|capitalapply)\b/.test(lower) && /\b(inventory|submissions?|statuses|export|event history)\b/.test(lower)) return [{tool:"sierra.apply_inventory",args:{limit:100,status:"all"}}];
+  if (/\b(audit|provenance)\b/.test(lower) && /\b(events?|history|records?|trail)\b/.test(lower)) return [{tool:"sierra.audit_events",args:{reference:ref,limit:100}}];
+  if (/\b(document|storage|object storage)\b/.test(lower) && /\b(manifest|hash|permissions?|preservation|links?|locate|inventory)\b/.test(lower)) return [{tool:"sierra.document_manifest",args:{reference:ref}}];
+  if (/\b(invariant|exactly one|duplicate|quarantine|reconciliation coverage)\b/.test(lower) && /\b(apply|submission|sierra|deal|record)\b/.test(lower)) return [{tool:"sierra.reconciliation_invariant",args:{limit:250}}];
   if (/\b(what|which|current|show|check|verify|do you|georgie)\b/.test(lower) && /\b(access|connections?|connected|configured|capabilit(?:y|ies)|current blockers?)\b/.test(lower)) return [{ tool: "system.status", args: {} }];
   if (/\b(neo|email|e-mail|mail)\b/.test(lower) && /\b(configured|connected|working|available|send|outbound|status|verify)\b/.test(lower)) return [{ tool: "email.accounts", args: {} }];
   if (/\b(smartlead|campaigns?|deliverability)\b/.test(lower) && /\b(status|health|metrics|provider|check|show|list)\b/.test(lower)) return [{ tool: "campaigns.smartlead", args: {} }];
