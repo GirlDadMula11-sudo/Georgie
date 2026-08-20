@@ -9,6 +9,9 @@ const textForm = document.querySelector("#textForm");
 const textInput = document.querySelector("#textInput");
 const handsFreeToggle = document.querySelector("#handsFreeToggle");
 const presenceState = document.querySelector("#presenceState");
+const voiceOutputToggle = document.querySelector("#voiceOutputToggle");
+const voiceOutputState = document.querySelector("#voiceOutputState");
+const continuityState = document.querySelector("#continuityState");
 
 let mediaRecorder;
 let mediaStream;
@@ -19,6 +22,7 @@ let activeAudioUrl;
 let isBusy = false;
 let handsFreeBusy = false;
 let manualSuspendedHandsFree = false;
+let voiceOutputEnabled = localStorage.getItem("georgie:voiceOutput") !== "off";
 
 const userId = "primary";
 const sessionId = localStorage.getItem("georgie:sessionId") || crypto.randomUUID();
@@ -86,20 +90,21 @@ function attachOutcomeFeedback(item, input, payload) {
 
 function pushHistory(role, content) {
   history.push({ role, content });
-  history = history.slice(-16);
+  history = history.slice(-80);
 }
 
 async function restoreSession() {
   try {
     await georgieDeviceReady;
-    const response = await fetch("/api/mobile/session?limit=16", { headers: requestHeaders() });
+    const response = await fetch("/api/mobile/session?limit=80&scope=continuous", { headers: requestHeaders() });
     const payload = await response.json();
     if (!response.ok || !payload.ok || !Array.isArray(payload.history)) return;
-    history = payload.history.slice(-16);
+    history = payload.history.slice(-80);
     for (const turn of history) {
       if (["user", "assistant"].includes(turn.role) && turn.content) appendMessage(turn.role, turn.content);
     }
-    if (history.length) setStatus("Memory restored. Ready when you are.");
+    if (continuityState) continuityState.textContent = history.length ? `${history.length} recent turns available` : "Conversation ready";
+    if (history.length) setStatus("Full conversation restored. Ready when you are.");
   } catch (error) {
     console.warn("Session restore unavailable", error);
   }
@@ -163,14 +168,52 @@ async function playAudioBlob(blob) {
 }
 
 async function speak(text) {
+  if (!voiceOutputEnabled) return;
   const response = await fetch("/api/mobile/speak", {
     method: "POST",
     headers: requestHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ text })
   });
-  if (!response.ok) throw new Error("Speech synthesis failed");
-  await playAudioBlob(await response.blob());
+  if (!response.ok) return browserVoiceFallback(text);
+  try { await playAudioBlob(await response.blob()); } catch { await browserVoiceFallback(text); }
 }
+
+function browserVoiceFallback(text) {
+  return new Promise((resolve, reject) => {
+    if (!window.speechSynthesis) return reject(new Error("Browser speech unavailable"));
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(String(text || "").slice(0, 1800));
+    utterance.lang = "en-US";
+    utterance.rate = 1.03;
+    utterance.pitch = 0.82;
+    utterance.volume = 1;
+    const voices = window.speechSynthesis.getVoices();
+    utterance.voice = voices.find((voice) => /daniel|aaron|evan|reed|male/i.test(voice.name) && /^en/i.test(voice.lang)) || voices.find((voice) => /^en-US/i.test(voice.lang)) || null;
+    utterance.onend = () => resolve();
+    utterance.onerror = (event) => reject(new Error(event.error || "Browser speech failed"));
+    window.speechSynthesis.speak(utterance);
+  });
+}
+
+function syncVoiceOutput() {
+  voiceOutputToggle?.setAttribute("aria-pressed", String(voiceOutputEnabled));
+  voiceOutputToggle?.classList.toggle("active", voiceOutputEnabled);
+  if (voiceOutputState) voiceOutputState.textContent = voiceOutputEnabled ? "Voice on" : "Voice muted";
+}
+
+voiceOutputToggle?.addEventListener("click", async () => {
+  voiceOutputEnabled = !voiceOutputEnabled;
+  localStorage.setItem("georgie:voiceOutput", voiceOutputEnabled ? "on" : "off");
+  syncVoiceOutput();
+  if (!voiceOutputEnabled) {
+    stopActiveAudio();
+    window.speechSynthesis?.cancel();
+    setStatus("Voice muted. Full responses remain on screen.");
+  } else {
+    setStatus("Voice is on. Georgie will speak brief answers.");
+    await browserVoiceFallback("Voice is on. I’m here.").catch(() => {});
+  }
+});
 
 function attachHearResponse(item, text) {
   const button=document.createElement("button");button.className="hear-response";button.type="button";button.textContent="Hear response";
@@ -443,6 +486,7 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("beforeunload", () => handsFree.disable());
 
 setPresence("off", "Manual mode");
+syncVoiceOutput();
 restoreSession();
 if (localStorage.getItem("georgie:handsFree") === "on") {
   setStatus("Tap Hands-free to resume microphone access.");
