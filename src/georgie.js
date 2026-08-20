@@ -1,4 +1,5 @@
 import { runtimePolicy, shouldRunMemoryExtraction } from "./runtime-policy.js";
+import { intelligenceRoute } from "./intelligence-gateway.js";
 
 const OPENAI_BASE_URL = "https://api.openai.com/v1";
 
@@ -94,25 +95,19 @@ function extractResponseText(payload) { if (payload.output_text) return payload.
 function reasoning(effort = "medium") { return { effort, context: "all_turns" }; }
 async function jsonResponse({ model, instructions, input, effort = "medium" }) { const response = await openAI("/responses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, instructions, input, reasoning: reasoning(effort), text: { verbosity: "low" } }) }); const payload = await response.json(); const raw = extractResponseText(payload).trim(); return JSON.parse(raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim()); }
 
-function chooseReasoningModel(policy) {
-  if (policy.reasoningEffort === "high") return process.env.OPENAI_MODEL || "gpt-5.6-sol";
-  if (policy.reasoningEffort === "medium") return process.env.OPENAI_BALANCED_MODEL || "gpt-5.6-terra";
-  return process.env.OPENAI_FAST_MODEL || "gpt-5.6-luna";
-}
-
 export async function askGeorgie(input, history = [], context = "") {
   if (!input?.trim()) throw new Error("Input is required");
   const fast=fastMacAction(input);
   if(fast){return {text:`Command sent to your Mac: ${fast[0].args.app}.`,responseId:null,webSearches:0,model:"deterministic-fast-path"};}
   const policy = runtimePolicy(input);
+  const route = intelligenceRoute(input);
   const safeHistory = Array.isArray(history) ? history.slice(-12).filter((item) => item && ["user", "assistant"].includes(item.role) && typeof item.content === "string") : [];
   const instructions = context ? `${SYSTEM_PROMPT}\n\nCURRENT OPERATING CONTEXT\n${context}` : SYSTEM_PROMPT;
-  const model = chooseReasoningModel(policy);
-  const body = { model, instructions, input: [...safeHistory, { role: "user", content: input.trim() }], reasoning: reasoning(process.env.OPENAI_REASONING_EFFORT || policy.reasoningEffort), text: { verbosity: process.env.OPENAI_VERBOSITY || policy.responseVerbosity } };
-  if (process.env.GEORGIE_WEB_ENABLED !== "false" && policy.allowWebTool) body.tools = [{ type: "web_search" }];
+  const body = { model: route.model, instructions, input: [...safeHistory, { role: "user", content: input.trim() }], reasoning: reasoning(process.env.OPENAI_REASONING_EFFORT || route.reasoningEffort), text: { verbosity: process.env.OPENAI_VERBOSITY || route.responseVerbosity } };
+  if (process.env.GEORGIE_WEB_ENABLED !== "false" && route.allowWebTool) body.tools = [{ type: "web_search" }];
   const response = await openAI("/responses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const payload = await response.json(); const text = extractResponseText(payload); if (!text) throw new Error("Georgie returned an empty response");
-  return { text, responseId: payload.id, webSearches: (payload.output || []).filter((item) => item.type === "web_search_call").length, model: body.model };
+  return { text, responseId: payload.id, webSearches: (payload.output || []).filter((item) => item.type === "web_search_call").length, model: body.model, route };
 }
 
 const SPOKEN_DETAIL_REQUEST = /\b(?:explain|elaborate|expand|walk me through|break (?:it|that) down|more detail|full detail|all (?:the )?details|in depth|deep dive|tell me more|read (?:it|that|the whole|the full)|say (?:it|that|the whole|the full))\b/i;

@@ -3,6 +3,7 @@ import { readCloudState, writeCloudState } from "./cloud-state.js";
 import { listEvents } from "./events.js";
 import { listTasks } from "./tasks.js";
 import { getSierraHealth, getSierraInfrastructure, getSierraStrategy, sierraWorkforceConfigured } from "./integrations/sierra-workforce.js";
+import { evaluationScorecard } from "./evaluation.js";
 
 const DECISIONS_NS = "decision_journal";
 const APPROVALS_NS = "approval_control";
@@ -138,12 +139,13 @@ export async function collectSierraEvidence(userId) {
 
 export async function buildCommandCenter(userId, { refreshSierra = false } = {}) {
   const uid = String(userId || "primary");
-  const [tasks, events, approvals, decisions, previousSierra] = await Promise.all([
+  const [tasks, events, approvals, decisions, previousSierra, intelligence] = await Promise.all([
     listTasks(uid, { status: "open", limit: 200 }),
     listEvents(uid, { status: "pending", limit: 200 }),
     listApprovals(uid, { status: "pending", limit: 100 }),
     listDecisions(uid, { limit: 20 }),
-    readCloudState(uid, SNAPSHOT_NS, null)
+    readCloudState(uid, SNAPSHOT_NS, null),
+    evaluationScorecard(uid)
   ]);
   const priorities = [...tasks.map((item) => rankItem(item, "task")), ...events.map((item) => rankItem(item, "event"))]
     .sort((a, b) => b.score - a.score || String(a.dueAt || "9999").localeCompare(String(b.dueAt || "9999")))
@@ -157,6 +159,7 @@ export async function buildCommandCenter(userId, { refreshSierra = false } = {})
     priorities,
     approvals: approvals.slice(0, 10),
     recentDecisions: decisions.slice(0, 10),
+    intelligence,
     sierra,
     boundaries: { personalBusinessSeparated: true, approvalRecordsDoNotExecuteActions: true, spendingAuthority: false, externalCommunicationAuthority: false }
   };
