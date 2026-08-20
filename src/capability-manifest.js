@@ -63,6 +63,7 @@ export function getCapabilityManifest() {
       knowledgeWork: ["web_research", "document_reasoning", "technical_assistance", "learning_and_explanation", "writing", "creative_development"],
       personalAssistance: ["durable_preferences", "commitment_tracking", "task_coordination", "communication_preparation", "travel_and_purchase_research", "household_planning"],
       operation: ["typed_tool_planning", "approval_gates", "verification", "action_journal", "bounded_retries", "kill_switch", "fallback_channels"],
+      technologyDevelopment: ["repository_inspection", "bounded_code_search", "source_reading", "patch_preparation", "hash_bound_approval", "patch_application", "allowlisted_checks"],
       economics: { deterministicFirst: true, cachedEvidencePreferred: true, tieredModelRouting: true, frontierOnlyWhenJustified: true }
     },
     connections: {
@@ -96,7 +97,15 @@ export function getCapabilityManifest() {
         serverCredentialConfigured: Boolean(process.env.GEORGIE_MAC_AGENT_TOKEN),
         callableInChat: Boolean(process.env.GEORGIE_MAC_AGENT_TOKEN),
         devices: macDevices,
-        onlineDeviceCount: macDevices.filter(device => device.online).length
+        onlineDeviceCount: macDevices.filter(device => device.online).length,
+        developerWorkspace: {
+          serverToolsAttached: true,
+          macWorkspaceConfigured: "verify_on_device_with_developer.repo_inspect",
+          arbitraryShellAllowed: false,
+          secretFilesReadable: false,
+          patchExecution: "exact_hash_approval_gated",
+          commitPushDeploy: "not_enabled_in_this_release"
+        }
       },
       notifications: configured(process.env.GEORGIE_NOTIFICATIONS_ENABLED === "true"),
       webResearch: configured(process.env.GEORGIE_WEB_ENABLED !== "false")
