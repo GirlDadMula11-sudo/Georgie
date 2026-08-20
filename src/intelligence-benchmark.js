@@ -14,6 +14,8 @@ export const BENCHMARK_SCENARIOS = Object.freeze([
   { id: "fast", prompt: "Hello Georgie", expectedTier: "fast" },
   { id: "world_state", prompt: "What are we working on and what remains unfinished?", expectedTool: "system.world_state" }
   ,{ id: "sierra_governed_access", prompt: "Run the Sierra governed-access probe and show which RPC contracts are live.", expectedDomain: "sierra", expectedTool: "sierra.governed_access" }
+  ,{ id: "sierra_guarded_conflict", prompt: "Inspect the guarded lender-activity evidence conflict read-only and identify the affected deal, provenance, authority, and impact.", expectedDomain: "sierra", expectedTool: "sierra.guarded_lender_conflicts" }
+  ,{ id: "sierra_multi_contract_probe", prompt: "Probe Sierra governed read access across lender-activity conflicts, audit events, and infrastructure contracts. Do not modify anything.", expectedDomain: "sierra", expectedTools: ["sierra.governed_access","sierra.infrastructure","sierra.guarded_lender_conflicts","sierra.audit_events"] }
   ,{ id: "developer_inspect", prompt: "Inspect my Georgie repository and report the branch and uncommitted changes.", expectedDomain: "technical", expectedTool: "developer.repo_inspect" }
   ,{ id: "developer_architecture", prompt: "Analyze the Georgie codebase architecture for reliability weaknesses, silent turns, lost continuity, and false completion claims. Do not modify anything.", expectedDomain: "technical", expectedTool: "developer.search" }
 ]);
@@ -21,7 +23,7 @@ export const BENCHMARK_SCENARIOS = Object.freeze([
 export function runStaticBenchmark() {
   const cases = BENCHMARK_SCENARIOS.map((scenario) => {
     const route = intelligenceRoute(scenario.prompt), policy = runtimePolicy(scenario.prompt), tools = deterministicToolPlan(scenario.prompt);
-    const checks = [scenario.expectedDomain ? route.domain === scenario.expectedDomain : true, scenario.expectedTier ? route.tier === scenario.expectedTier : true, scenario.expectedWeb !== undefined ? route.allowWebTool === scenario.expectedWeb : true, scenario.expectedTool ? tools.some((item) => item.tool === scenario.expectedTool) : true];
+    const checks = [scenario.expectedDomain ? route.domain === scenario.expectedDomain : true, scenario.expectedTier ? route.tier === scenario.expectedTier : true, scenario.expectedWeb !== undefined ? route.allowWebTool === scenario.expectedWeb : true, scenario.expectedTool ? tools.some((item) => item.tool === scenario.expectedTool) : true, scenario.expectedTools ? scenario.expectedTools.every((name)=>tools.some((item)=>item.tool===name)) : true];
     return { id: scenario.id, passed: checks.every(Boolean), route, policy, tools };
   });
   return { version: "2026-08-20.2", targets: BENCHMARK_TARGETS, reliabilityTargets: RELIABILITY_TARGETS, certificationRule:"Static routing success is not evidence of comparative model superiority. Certification requires measured held-out outcomes and the minimum sample size.", total: cases.length, passed: cases.filter((item) => item.passed).length, failed: cases.filter((item) => !item.passed).map((item) => item.id), cases };
