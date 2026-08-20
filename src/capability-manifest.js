@@ -29,6 +29,15 @@ export function getCapabilityManifest() {
       neverInferMissingAccessFromConversationMemory: true,
       rawCredentialsExposedToModel: false
     },
+    sessionRuntime: {
+      persistentToolRouter: true,
+      toolsAttachedToEveryTurn: true,
+      planningFailureDegradesToTruthfulAdvisory: true,
+      actionJournal: "durable",
+      approvalGates: true,
+      killSwitchActive: process.env.GEORGIE_AUTOMATION_KILL_SWITCH === "true",
+      fallbackChannels: ["web", "native_ios", "mac_agent", "push_notifications", "neo_mail"]
+    },
     core: {
       voice: true,
       wakeName: true,
@@ -42,12 +51,14 @@ export function getCapabilityManifest() {
     connections: {
       neoMail: {
         state: configured(neoMail),
+        callableInChat: neoMail,
         outboundAvailable: neoMail,
         mailboxes: listNeoMailboxes().map(({ id, email, role }) => ({ id, email, role })),
         liveHealth: "verify_with_email.verify"
       },
       sierraWorkforce: {
         state: configured(sierraWorkforce),
+        callableInChat: sierraWorkforce,
         access: sierraWorkforce ? "governed_production_rpc" : "none",
         coverage: sierraWorkforce ? ["portfolio", "deals", "health", "infrastructure", "strategy", "lenders", "offers", "evidence", "bounded_repairs"] : [],
         liveHealth: "verify_with_sierra.health_and_sierra.infrastructure"
@@ -66,6 +77,7 @@ export function getCapabilityManifest() {
       durableOperationalState: operationalStorage,
       macAgent: {
         serverCredentialConfigured: Boolean(process.env.GEORGIE_MAC_AGENT_TOKEN),
+        callableInChat: Boolean(process.env.GEORGIE_MAC_AGENT_TOKEN),
         devices: macDevices,
         onlineDeviceCount: macDevices.filter(device => device.online).length
       },
