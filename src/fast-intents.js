@@ -63,8 +63,8 @@ export function deterministicToolPlan(input = "") {
   const macApp=parseMacOpen(text); if(macApp) return [{tool:"mac.devices",args:{}},{tool:"mac.open_app",args:{app:macApp}}];
   const ref = referenceFrom(text);
   const sierraWorkflowDomain = /\b(?:sierra|crm|intake|capital\s*match|capitalmatch|underwriting|submission)\b/.test(lower);
-  const sierraWorkflowScope = /\b(?:intake|processing|capital\s*match|capitalmatch|underwriting|submission|pipeline|workflow|flow)\b/.test(lower);
-  const sierraWorkflowIntent = /\b(?:align(?:ment|ed)?|diagnos\w*|inspect|review|audit|trace|map|broken|issue|problem|what(?:'s| is) going on|help us)\b/.test(lower);
+  const sierraWorkflowScope = /\b(?:entire|overall|end[- ]to[- ]end|intake|processing|capital\s*match|capitalmatch|underwriting|submission|pipeline|workflow|flow|transition|system)\b/.test(lower);
+  const sierraWorkflowIntent = /\b(?:align(?:ment|ed)?|diagnos\w*|evaluate|inspect|review|audit|trace|map|disconnects?|gaps?|permanent solution|smooth transition|broken|issue|problem|what(?:'s| is) going on|help us)\b/.test(lower);
   if (sierraWorkflowDomain && sierraWorkflowScope && sierraWorkflowIntent) return [
     {tool:"sierra.health",args:{}},
     {tool:"sierra.infrastructure",args:{}},
