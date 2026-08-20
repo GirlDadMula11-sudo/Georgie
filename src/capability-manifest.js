@@ -35,6 +35,8 @@ export function getCapabilityManifest() {
       toolsAttachedToEveryTurn: true,
       planningFailureDegradesToTruthfulAdvisory: true,
       actionJournal: "durable",
+      objectiveGraph: "durable",
+      unfinishedWorkRecovery: true,
       approvalGates: true,
       killSwitchActive: process.env.GEORGIE_AUTOMATION_KILL_SWITCH === "true",
       fallbackChannels: ["web", "native_ios", "mac_agent", "push_notifications", "neo_mail"]
@@ -62,7 +64,7 @@ export function getCapabilityManifest() {
       reasoning: ["analysis", "planning", "comparison", "scenario_testing", "counterargument", "uncertainty_calibration", "decision_support"],
       knowledgeWork: ["web_research", "document_reasoning", "technical_assistance", "learning_and_explanation", "writing", "creative_development"],
       personalAssistance: ["durable_preferences", "commitment_tracking", "task_coordination", "communication_preparation", "travel_and_purchase_research", "household_planning"],
-      operation: ["typed_tool_planning", "approval_gates", "verification", "action_journal", "bounded_retries", "kill_switch", "fallback_channels"],
+      operation: ["typed_tool_planning", "approval_gates", "verification", "action_journal", "durable_objective_graph", "unfinished_work_recovery", "ranked_next_actions", "bounded_retries", "kill_switch", "fallback_channels"],
       technologyDevelopment: ["repository_inspection", "bounded_code_search", "source_reading", "patch_preparation", "hash_bound_approval", "patch_application", "allowlisted_checks"],
       economics: { deterministicFirst: true, cachedEvidencePreferred: true, tieredModelRouting: true, frontierOnlyWhenJustified: true }
     },

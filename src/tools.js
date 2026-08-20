@@ -19,6 +19,7 @@ import { readWorldStateSnapshot, refreshWorldState } from "./world-state-sentine
 import { runStaticBenchmark } from "./intelligence-benchmark.js";
 import { createApprovalRequest, getApprovalRequest } from "./command-layer.js";
 import { createEnrollmentCode } from "./mobile-auth.js";
+import { operatingContinuity, transitionOperatingNode, upsertOperatingNode } from "./operating-graph.js";
 import crypto from "crypto";
 
 const LEVELS={read:0,low_risk_write:1,sensitive_write:2,external_side_effect:3};const registry=new Map();function defineTool(definition){registry.set(definition.name,definition)}
@@ -100,6 +101,9 @@ defineTool({name:"system.action_journal",description:"Read Georgie's durable jou
 defineTool({name:"system.reconciliation_status",description:"Read the durable state of Georgie's scheduled intake-transfer, missing-date, funding-evidence, and health-reconciliation workers.",risk:"read",async run({userId}){return reconciliationStatus(userId)}});
 defineTool({name:"system.reconciliation_check",description:"Run one bounded scheduled-reconciliation cycle. Shadow mode only observes; bounded mode queues idempotent Sierra workforce actions.",risk:"low_risk_write",async run(){return runReconciliationCycle()}});
 defineTool({name:"system.world_state",description:"Read Georgie's compact cross-session world state: active commitments, unresolved events, pending approvals, recent decisions, active specialization packs, and governing boundaries.",risk:"read",async run({userId,args}){return buildWorldState(userId,args?.context||"",{domain:args?.domain||"general"})}});
+defineTool({name:"system.continuity",description:"Read Georgie's durable objective graph, unfinished engineering and execution work, recoverable Mac jobs, and ranked next actions across sessions.",risk:"read",async run({userId,args}){return operatingContinuity(userId,{limit:args?.limit||50})}});
+defineTool({name:"system.objective_upsert",description:"Create or update a durable objective, commitment, engineering effort, investigation, execution, or follow-up. This records operating intent but performs no external action.",risk:"low_risk_write",async run({userId,args}){return upsertOperatingNode(userId,args||{})}});
+defineTool({name:"system.objective_transition",description:"Advance a durable operating node through planned, active, waiting, blocked, recovering, verified, or cancelled state with verification and recovery evidence. This does not perform the underlying external action.",risk:"low_risk_write",async run({userId,args}){return transitionOperatingNode(userId,args?.nodeId,args||{})}});
 defineTool({name:"system.domain_packs",description:"List Georgie's universal core and installed specialization packs without mixing their credentials or authority boundaries.",risk:"read",async run(){return listDomainPacks()}});
 defineTool({name:"system.world_state_snapshot",description:"Read Georgie's continuously refreshed durable world-state snapshot without rebuilding it inside the current turn.",risk:"read",async run({userId}){return readWorldStateSnapshot(userId)}});
 defineTool({name:"system.world_state_refresh",description:"Refresh Georgie's universal world-state snapshot from current tasks, events, approvals, and decisions.",risk:"low_risk_write",async run({userId}){return refreshWorldState(userId)}});

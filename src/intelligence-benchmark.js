@@ -13,6 +13,7 @@ export const BENCHMARK_SCENARIOS = Object.freeze([
   { id: "decision", prompt: "Evaluate this decision, challenge my assumptions, and show the strongest counterargument.", expectedTier: "frontier" },
   { id: "fast", prompt: "Hello Georgie", expectedTier: "fast" },
   { id: "world_state", prompt: "What are we working on and what remains unfinished?", expectedTool: "system.world_state" }
+  ,{ id: "continuity", prompt: "Show my durable objectives, unfinished engineering work, blocked actions, and the next actions to resume across sessions.", expectedTool: "system.continuity" }
   ,{ id: "sierra_governed_access", prompt: "Run the Sierra governed-access probe and show which RPC contracts are live.", expectedDomain: "sierra", expectedTool: "sierra.governed_access" }
   ,{ id: "sierra_guarded_conflict", prompt: "Inspect the guarded lender-activity evidence conflict read-only and identify the affected deal, provenance, authority, and impact.", expectedDomain: "sierra", expectedTool: "sierra.guarded_lender_conflicts" }
   ,{ id: "sierra_multi_contract_probe", prompt: "Probe Sierra governed read access across lender-activity conflicts, audit events, and infrastructure contracts. Do not modify anything.", expectedDomain: "sierra", expectedTools: ["sierra.governed_access","sierra.infrastructure","sierra.guarded_lender_conflicts","sierra.audit_events"] }

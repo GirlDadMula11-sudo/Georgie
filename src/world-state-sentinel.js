@@ -12,5 +12,5 @@ export async function refreshWorldState(userId = USER()) {
   try { const state = await buildWorldState(userId, "continuous operating context", { domain: "general" }); await writeCloudState(String(userId), NS, state); return state; }
   finally { running = false; }
 }
-export async function readWorldStateSnapshot(userId = USER()) { return readCloudState(String(userId), NS, { version: "2026-08-20.1", generatedAt: null, commitments: [], recentDecisions: [], counts: {}, status: "not_yet_observed" }); }
+export async function readWorldStateSnapshot(userId = USER()) { return readCloudState(String(userId), NS, { version: "2026-08-20.2", generatedAt: null, commitments: [], continuity: { activeNodes: [], unfinishedJobs: [], nextActions: [], counts: {} }, recentDecisions: [], counts: {}, status: "not_yet_observed" }); }
 export function startWorldStateSentinel() { if (process.env.GEORGIE_WORLD_STATE_ENABLED === "false" || timer) return; void refreshWorldState().catch((error) => console.warn("World-state refresh failed:", error instanceof Error ? error.message : error)); timer = setInterval(() => void refreshWorldState().catch((error) => console.warn("World-state refresh failed:", error instanceof Error ? error.message : error)), INTERVAL); timer.unref?.(); }
