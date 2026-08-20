@@ -23,6 +23,7 @@ import { createCommandRouter } from "./command-router.js";
 import { completeTurnV2 } from "./v2-turn-engine.js";
 import { attachRealtimeRelay } from "./realtime-relay.js";
 import { startMaintenanceSentinel } from "./maintenance-sentinel.js";
+import { startReconciliationWorkers } from "./reconciliation-workers.js";
 import { authenticateNativeRequest } from "./mobile-auth.js";
 
 const app=express();const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:20*1024*1024}});const __dirname=path.dirname(fileURLToPath(import.meta.url));const publicDir=path.resolve(__dirname,"../public");
@@ -59,6 +60,7 @@ app.post("/api/transcribe",upload.single("audio"),async(req,res)=>{try{if(!req.f
 startProactiveEngine();
 startEmailIntelligence();
 startMaintenanceSentinel();
+startReconciliationWorkers();
 const PORT=Number(process.env.PORT||10000);
 const server=app.listen(PORT,()=>console.log(`Georgie listening on port ${PORT}`));
 attachRealtimeRelay(server);
