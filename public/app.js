@@ -172,6 +172,12 @@ async function speak(text) {
   await playAudioBlob(await response.blob());
 }
 
+function attachHearResponse(item, text) {
+  const button=document.createElement("button");button.className="hear-response";button.type="button";button.textContent="Hear response";
+  button.addEventListener("click",async()=>{button.disabled=true;button.textContent="Speaking…";try{await speak(text);}catch(error){setStatus("Audio could not play. Check media volume and try again.");button.disabled=false;button.textContent="Try audio again";}});
+  item.append(button);
+}
+
 async function sendTextTurn(input, { display = true, speakResponse = true, allowBusy = false } = {}) {
   const clean = String(input || "").trim();
   if (!clean || (isBusy && !allowBusy)) return;
@@ -214,10 +220,11 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
     if (!payload?.ok) throw new Error("Georgie did not complete the response");
     updateMessage(assistantItem, payload.text);
     attachOutcomeFeedback(assistantItem, clean, payload);
+    attachHearResponse(assistantItem, payload.spokenText || payload.text);
     void fetch("/api/mobile/telemetry", { method:"POST", headers:requestHeaders({"Content-Type":"application/json"}), body:JSON.stringify({ platform:"web", route:"respond_stream", headersMs:headersAt-requestStarted, firstEventMs:(firstEventAt||headersAt)-requestStarted, firstDeltaMs:(firstDeltaAt||performance.now())-requestStarted, completeMs:performance.now()-requestStarted }) }).catch(()=>{});
     pushHistory("assistant", payload.text);
     setStatus(payload.remembered ? `Speaking… remembered ${payload.remembered} new detail${payload.remembered === 1 ? "" : "s"}.` : "Speaking…");
-    if (speakResponse) await speak(payload.spokenText || payload.text);
+    if (speakResponse) { try { await speak(payload.spokenText || payload.text); } catch (error) { console.warn("Automatic voice playback blocked",error); setStatus("Response ready — tap Hear response for audio."); } }
     return payload;
   } catch (error) {
     console.error(error);
