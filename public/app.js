@@ -288,17 +288,16 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
   const requestStarted = performance.now();
   let headersAt = 0, firstEventAt = 0, firstDeltaAt = 0;
   let assistantItem = null;
-  const controller = new AbortController();
-  const deepWork = /\b(?:analy[sz]e|audit|architecture|root cause|deep dive|reliability|codebase|research)\b/i.test(clean);
-  const responseDeadlineMs = deepWork ? 60000 : 30000;
-  const deadline = setTimeout(() => controller.abort(new DOMException(`Georgie exceeded the ${responseDeadlineMs / 1000}-second response deadline`, "TimeoutError")), responseDeadlineMs);
+  // The server owns the bounded turn lifecycle. A browser timer must never
+  // cancel durable tool work or discard a terminal result that is still arriving.
+  const progressDeadlineMs = 20000;
+  const deadline = setTimeout(() => setStatus("Still working safely — any long-running tool remains durable and Georgie will return a terminal result."), progressDeadlineMs);
 
   try {
     const response = await fetch("/api/mobile/respond/stream", {
       method: "POST",
       headers: requestHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ input: clean, history: priorHistory, userId, sessionId }),
-      signal: controller.signal
+      body: JSON.stringify({ input: clean, history: priorHistory, userId, sessionId })
     });
     headersAt = performance.now();
     if (!response.ok || !response.body) throw new Error("Streaming response unavailable");
@@ -333,7 +332,7 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
     return payload;
   } catch (error) {
     console.error(error);
-    const timedOut = error?.name === "AbortError" || error?.name === "TimeoutError" || controller.signal.aborted;
+    const timedOut = error?.name === "AbortError" || error?.name === "TimeoutError";
     const failureText = timedOut ? "That request exceeded Georgie’s response deadline and was stopped. I did not verify completion, and nothing should be treated as completed." : `I could not complete that request: ${String(error?.message || "the response pipeline failed").slice(0,300)}. Nothing should be treated as completed.`;
     if (assistantItem) updateMessage(assistantItem, failureText); else assistantItem = appendMessage("assistant", failureText);
     attachHearResponse(assistantItem, failureText);
