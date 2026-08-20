@@ -1,15 +1,16 @@
 import { searchMemories } from "./memory.js";
 import { createTask, listTasks, updateTask } from "./tasks.js";
 import { enqueueMacJob, listMacJobs } from "./mac/queue.js";
-import { listNeoMailboxes, listRecentMessages, neoMailConfigured, readMessage, searchMessages, sendMessage, verifyNeoMailbox } from "./integrations/neo-mail.js";
+import { listNeoMailboxes, listRecentMessages, readMessage, searchMessages, sendMessage, verifyNeoMailbox } from "./integrations/neo-mail.js";
 import { getSierraDeal, getSierraHealth, getSierraInfrastructure, getSierraLenderResponses, getSierraNetworkGaps, getSierraOffers, getSierraPortfolio, getSierraStrategy, queueSierraAction, sierraWorkforceConfigured } from "./integrations/sierra-workforce.js";
-import { getProviderObservability, getRenderObservability, getVercelObservability, renderObservabilityConfigured, vercelObservabilityConfigured } from "./integrations/provider-observability.js";
+import { getProviderObservability, getRenderObservability, getVercelObservability } from "./integrations/provider-observability.js";
 import { maintenanceStatus, runMaintenanceCycle } from "./maintenance-sentinel.js";
-import { getSmartleadCampaigns, smartleadConfigured } from "./integrations/smartlead.js";
+import { getSmartleadCampaigns } from "./integrations/smartlead.js";
 import { evaluationScorecard } from "./evaluation.js";
 import { listDecisions, recordDecision } from "./command-layer.js";
 import { getMacDeviceStatus } from "./mac/router.js";
 import { resourceGovernorStatus } from "./resource-governor.js";
+import { getCapabilityManifest } from "./capability-manifest.js";
 
 const LEVELS={read:0,low_risk_write:1,sensitive_write:2,external_side_effect:3};const registry=new Map();function defineTool(definition){registry.set(definition.name,definition)}
 defineTool({name:"memory.search",description:"Search Georgie's durable memory for relevant user context.",risk:"read",async run({userId,args}){return searchMemories(userId,String(args?.query||""),Number(args?.limit||8))}});
@@ -62,7 +63,7 @@ defineTool({name:"system.evaluations",description:"Read Georgie's measured intel
 defineTool({name:"system.resource_governor",description:"Read Georgie's live bounded-concurrency, queue-pressure, and saturation state to verify that intelligence workloads remain balanced.",risk:"read",async run(){return resourceGovernorStatus()}});
 defineTool({name:"decisions.list",description:"Read the verified decision journal so Georgie can learn the user's approvals, rejections, corrections, rationale, and outcomes.",risk:"read",async run({userId,args}){return listDecisions(userId,{limit:args?.limit||30,domain:args?.domain||"all"})}});
 defineTool({name:"decisions.record",description:"Record an explicit user decision, correction, rationale, verification, or outcome in the durable decision journal.",risk:"low_risk_write",async run({userId,args}){return recordDecision(userId,args||{})}});
-defineTool({name:"system.status",description:"Inspect currently configured Georgie capabilities.",risk:"read",async run(){return{voice:true,memory:true,handsFree:true,tasks:true,proactive:true,streaming:true,evidenceLifecycle:true,macAgent:Boolean(process.env.GEORGIE_MAC_AGENT_TOKEN),externalConnectors:{neoMail:neoMailConfigured(),sierraWorkforce:sierraWorkforceConfigured(),smartlead:smartleadConfigured(),vercelObservability:vercelObservabilityConfigured(),renderObservability:renderObservabilityConfigured(),calendar:Boolean(process.env.GEORGIE_CALENDAR_ENABLED==="true"),web:Boolean(process.env.GEORGIE_WEB_ENABLED==="true"),notifications:Boolean(process.env.GEORGIE_NOTIFICATIONS_ENABLED==="true")}}}});
+defineTool({name:"system.status",description:"Inspect Georgie's live capability manifest, connection states, verification paths, platform constraints, and resource balance without exposing credentials.",risk:"read",async run(){return getCapabilityManifest()}});
 export function listToolDefinitions({workforce=sierraWorkforceConfigured()}={}){return[...registry.values()].filter(tool=>workforce||!tool.workforceOnly).map(({name,description,risk})=>({name,description,risk}))}
 export function canAutoExecute(risk,policy="low_risk_write"){return LEVELS[risk]<=LEVELS[policy]}
 export async function executeTool({name,args,userId,policy="low_risk_write",workforce=sierraWorkforceConfigured()}){const tool=registry.get(name);if(!tool)return{ok:false,error:`Unknown tool: ${name}`};if(tool.workforceOnly&&!workforce)return{ok:false,tool:name,error:"Secure Sierra workforce authorization required"};if(!canAutoExecute(tool.risk,policy))return{ok:false,approvalRequired:true,tool:name,risk:tool.risk,args};try{return{ok:true,tool:name,risk:tool.risk,result:await tool.run({userId,args})}}catch(error){return{ok:false,tool:name,error:error instanceof Error?error.message:"Tool execution failed"}}}

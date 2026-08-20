@@ -24,6 +24,8 @@ export function deterministicToolPlan(input = "") {
   if (!text) return [];
   const emailSend=parseExplicitEmailSend(text); if(emailSend) return [emailSend];
   const ref = referenceFrom(text);
+  if (/\b(what|which|current|show|check|verify|do you|georgie)\b/.test(lower) && /\b(access|connections?|connected|configured|capabilit(?:y|ies)|current blockers?)\b/.test(lower)) return [{ tool: "system.status", args: {} }];
+  if (/\b(neo|email|e-mail|mail)\b/.test(lower) && /\b(configured|connected|working|available|send|outbound|status|verify)\b/.test(lower)) return [{ tool: "email.accounts", args: {} }];
   if (/\b(smartlead|campaigns?|deliverability)\b/.test(lower) && /\b(status|health|metrics|provider|check|show|list)\b/.test(lower)) return [{ tool: "campaigns.smartlead", args: {} }];
   if (/\b(georgie|intelligence)\b/.test(lower) && /\b(score|evaluation|accuracy|latency|performance)\b/.test(lower)) return [{ tool: "system.evaluations", args: { limit: 200 } }];
   if (/\b(sierra|system|crm)\b/.test(lower) && /\b(health|healthy|status|diagnos|failure|failing|broken|stuck)\b/.test(lower)) return [{ tool: "sierra.health", args: {} }];
