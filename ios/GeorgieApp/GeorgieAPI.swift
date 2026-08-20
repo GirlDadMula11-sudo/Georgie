@@ -50,6 +50,35 @@ struct SierraHealth: Codable {
     enum CodingKeys: String, CodingKey { case healthStatus = "health_status" }
 }
 
+struct CommandSummary: Codable {
+    let openTasks: Int
+    let pendingEvents: Int
+    let pendingApprovals: Int
+    let recordedDecisions: Int
+    let urgentPriorities: Int
+}
+
+struct CommandPriority: Codable, Identifiable {
+    let id: String
+    let kind: String
+    let title: String
+    let detail: String?
+    let priority: String
+    let domain: String
+    let dueAt: String?
+    let source: String?
+    let createdAt: String?
+    let score: Int
+}
+
+struct CommandCenter: Codable {
+    let generatedAt: String
+    let authority: String
+    let executionEnabled: Bool
+    let summary: CommandSummary
+    let priorities: [CommandPriority]
+}
+
 struct ReadinessEnvelope: Codable { let ok: Bool; let ready: Bool?; let activationState: String?; let blockers: [String]? }
 struct TasksEnvelope: Codable { let ok: Bool; let tasks: [GeorgieTask] }
 struct EnrollmentEnvelope: Codable { let ok: Bool; let token: String }
@@ -58,6 +87,7 @@ struct TextTurnEnvelope: Codable { let ok: Bool; let text: String; let responseI
 struct VoiceTurnEnvelope: Codable { let ok: Bool; let transcript: String; let text: String; let responseId: String?; let audioBase64: String?; let audioMimeType: String? }
 struct SierraPortfolioEnvelope: Codable { let ok: Bool; let deals: [SierraDealSummary] }
 struct SierraHealthEnvelope: Codable { let ok: Bool; let health: SierraHealth }
+struct CommandCenterEnvelope: Codable { let ok: Bool; let commandCenter: CommandCenter }
 
 enum GeorgieAPIError: LocalizedError {
     case invalidResponse
@@ -148,6 +178,12 @@ actor GeorgieAPI {
         guard isEnrolled else { throw GeorgieAPIError.unauthorized }
         let envelope = try await run(request(path: "api/sierra/health", contentType: nil), as: SierraHealthEnvelope.self)
         return envelope.health
+    }
+
+    func commandCenter() async throws -> CommandCenter {
+        guard isEnrolled else { throw GeorgieAPIError.unauthorized }
+        let envelope = try await run(request(path: "api/command-center", contentType: nil), as: CommandCenterEnvelope.self)
+        return envelope.commandCenter
     }
 
     func respond(_ input: String) async throws -> TextTurnEnvelope {

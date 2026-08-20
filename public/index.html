@@ -38,7 +38,12 @@
     </section>
 
     <section class="conversation" id="conversation" aria-live="polite"></section>
-    <section class="priority-card"><div class="section-title"><strong>TODAY’S COMMAND CENTER</strong><span>Live</span></div><p>Ask Georgie what needs your attention, create tasks, research anything, or manage connected tools.</p></section>
+    <section class="priority-card command-card" id="commandCenter" aria-live="polite">
+      <div class="section-title"><strong>TODAY’S COMMAND CENTER</strong><button id="commandRefresh" type="button">Refresh</button></div>
+      <div class="command-metrics"><span><strong id="commandUrgent">—</strong> urgent</span><span><strong id="commandTasks">—</strong> tasks</span><span><strong id="commandApprovals">—</strong> approvals</span></div>
+      <div id="commandPriorities"><p>Building your evidence-backed priorities…</p></div>
+      <p class="command-boundary">Observe, recommend, and prepare only. No automatic spending, external messages, or consequential execution.</p>
+    </section>
     <section class="sierra-desk" id="sierraDesk" aria-live="polite">
       <div class="sierra-desk-head"><div><strong>SIERRA CAPITAL DESK</strong><span id="sierraHealth">Connecting…</span></div><button id="sierraRefresh" type="button">Refresh</button></div>
       <div class="sierra-metrics"><article><small>Active</small><strong id="sierraActive">—</strong></article><article><small>Needs attention</small><strong id="sierraAttention">—</strong></article><article><small>At lenders</small><strong id="sierraLenders">—</strong></article><article><small>Offers</small><strong id="sierraOffers">—</strong></article></div>
@@ -54,6 +59,7 @@
   </main>
   <script type="module" src="/app.js"></script>
   <script type="module" src="/sierra-desk.js"></script>
+  <script type="module" src="/command-center.js"></script>
   <script type="module" src="/proactive.js"></script>
   <script type="module" src="/pwa.js"></script>
 </body>

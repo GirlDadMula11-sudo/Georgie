@@ -6,6 +6,7 @@ final class AssistantStore: ObservableObject {
     @Published var messages: [GeorgieMessage] = []
     @Published var tasks: [GeorgieTask] = []
     @Published var sierraDeals: [SierraDealSummary] = []
+    @Published var commandCenter: CommandCenter?
     @Published var sierraHealthStatus = "Connecting"
     @Published var status = "Online"
     @Published var isBusy = false
@@ -46,14 +47,17 @@ final class AssistantStore: ObservableObject {
                 async let taskRequest = GeorgieAPI.shared.tasks()
                 async let sierraRequest = GeorgieAPI.shared.sierraPortfolio()
                 async let healthRequest = GeorgieAPI.shared.sierraHealth()
+                async let commandRequest = GeorgieAPI.shared.commandCenter()
                 tasks = try await taskRequest
                 sierraDeals = try await sierraRequest
                 let health = try await healthRequest
+                commandCenter = try await commandRequest
                 sierraHealthStatus = (health.healthStatus ?? "Connected").replacingOccurrences(of: "_", with: " ").capitalized
             } else {
                 isEnrolled = false
                 tasks = []
                 sierraDeals = []
+                commandCenter = nil
                 sierraHealthStatus = "Secure activation required"
             }
             status = !isEnrolled ? "Activation needed" : (isReady ? "Online" : "Connecting")
@@ -62,6 +66,7 @@ final class AssistantStore: ObservableObject {
             if !isEnrolled {
                 tasks = []
                 sierraDeals = []
+                commandCenter = nil
                 sierraHealthStatus = "Secure activation required"
             } else {
                 sierraHealthStatus = "Limited"

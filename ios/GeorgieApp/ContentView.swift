@@ -15,7 +15,7 @@ struct ContentView: View {
                         if store.isEnrolled {
                             capabilityGrid
                             if !store.messages.isEmpty { conversation }
-                            priorities
+                            commandCenter
                             sierraDesk
                             composer
                             voiceControl
@@ -82,11 +82,38 @@ struct ContentView: View {
         VStack(spacing: 9) { ForEach(store.messages.suffix(8)) { message in HStack { if message.role == "user" { Spacer(minLength: 40) }; Text(message.content).font(.subheadline).padding(12).background(message.role == "user" ? gold.opacity(0.16) : Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(message.role == "user" ? gold.opacity(0.35) : .white.opacity(0.08))); if message.role != "user" { Spacer(minLength: 40) } } } }
     }
 
-    private var priorities: some View {
+    private var commandCenter: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack { Text("TODAY’S PRIORITIES").font(.caption.bold()).foregroundStyle(gold); Spacer(); Text("\(store.tasks.count) open").font(.caption2).foregroundStyle(.secondary) }
-            if store.tasks.isEmpty { Text("No open tasks right now.").foregroundStyle(.secondary).font(.subheadline) }
-            else { ForEach(store.tasks.prefix(4)) { task in HStack(alignment: .top, spacing: 10) { Image(systemName: "circle").foregroundStyle(gold); VStack(alignment: .leading, spacing: 2) { Text(task.title).font(.subheadline.weight(.medium)); if let due = task.dueAt { Text(due).font(.caption2).foregroundStyle(.secondary) } }; Spacer() } } }
+            HStack {
+                Text("COMMAND CENTER").font(.caption.bold()).foregroundStyle(gold)
+                Spacer()
+                Text(store.commandCenter?.authority.replacingOccurrences(of: "_", with: " ").uppercased() ?? "READ ONLY").font(.caption2).foregroundStyle(.secondary)
+            }
+            if let command = store.commandCenter {
+                HStack(spacing: 8) {
+                    CommandMetric(value: command.summary.openTasks, label: "Tasks")
+                    CommandMetric(value: command.summary.pendingApprovals, label: "Approvals")
+                    CommandMetric(value: command.summary.recordedDecisions, label: "Decisions")
+                }
+                if command.priorities.isEmpty {
+                    Text("No open priorities right now.").foregroundStyle(.secondary).font(.subheadline)
+                } else {
+                    ForEach(command.priorities.prefix(5)) { item in
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: item.domain == "sierra" ? "building.2" : "person.crop.circle").foregroundStyle(gold)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.title).font(.subheadline.weight(.medium))
+                                Text("\(item.domain.capitalized) · \(item.priority.capitalized)").font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                        }
+                    }
+                }
+                Label(command.executionEnabled ? "Execution enabled" : "Observe, recommend, and prepare only", systemImage: "lock.shield")
+                    .font(.caption2).foregroundStyle(command.executionEnabled ? .orange : .green)
+            } else {
+                Text("Loading secure priorities…").foregroundStyle(.secondary).font(.subheadline)
+            }
         }.padding(15).background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(gold.opacity(0.24)))
     }
 
@@ -144,4 +171,18 @@ struct ContentView: View {
 private struct CapabilityTile: View {
     let icon: String; let title: String; let value: String
     var body: some View { VStack(spacing: 5) { Image(systemName: icon).font(.title3).foregroundStyle(Color(red: 0.86, green: 0.70, blue: 0.32)); Text(title).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8); Text(value).font(.caption2).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7) }.frame(maxWidth: .infinity, minHeight: 74).background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 15)).overlay(RoundedRectangle(cornerRadius: 15).stroke(Color(red: 0.86, green: 0.70, blue: 0.32).opacity(0.25))) }
+}
+
+private struct CommandMetric: View {
+    let value: Int
+    let label: String
+    var body: some View {
+        VStack(spacing: 2) {
+            Text("\(value)").font(.headline)
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+    }
 }
