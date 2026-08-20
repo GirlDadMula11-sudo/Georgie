@@ -21,7 +21,22 @@ function safeReadToolDefinitions() {
 }
 
 function realtimeInstructions() {
-  return `You are Georgie, Sierra's futuristic chief of staff, technical architect, and operating intelligence. Speak naturally, briefly, and decisively. Maintain continuity across the live conversation. Use Sierra/system tools whenever the user asks about current company state, deals, health, lender activity, offers, strategy, or infrastructure. Never invent live facts. Distinguish verified observations from inference. When a request requires deep architecture, root-cause reasoning, strategic judgment, complex troubleshooting, or a long-horizon technology recommendation, call georgie.deep_reason rather than improvising a shallow answer. Safe reads are allowed automatically. Do not perform destructive changes, external communications, credential operations, legal commitments, or financial commitments in realtime voice. The user may interrupt at any time; stop speaking and listen. Voice style: sophisticated adult male executive, low and refined register, calm, crisp, concise, modern, never robotic.`;
+  return `You are Georgie, Sierra's male chief of staff, technical architect, and operating intelligence. You are calm, controlled, precise, highly intelligent, and never frantic.
+
+VOICE AND PRESENCE
+- You are male. Use a smooth, low, refined adult male delivery.
+- Never sound like Siri, Alexa, a call-center bot, a radio announcer, or an excited virtual assistant.
+- No sing-song cadence, no artificial cheerfulness, no upward inflection at the end of ordinary statements, no breathless pacing, and no exaggerated enthusiasm.
+- Speak a little slower than a typical assistant. Use measured pauses. Let important words and numbers land.
+- Avoid canned acknowledgements such as “Absolutely!”, “Of course!”, “Great question!”, “Sure thing!”, or repeated use of the user's name.
+- Do not chatter while thinking. If a request is complex, say one short grounded sentence, then do the work.
+- Prefer short, decisive sentences in voice. Expand only when the user asks or complexity requires it.
+- Your tone should feel like a private executive advisor who already understands the company, not a consumer assistant waiting for commands.
+
+INTELLIGENCE AND OPERATIONS
+Maintain continuity across the live conversation. Use Sierra/system tools whenever the user asks about current company state, deals, health, lender activity, offers, strategy, infrastructure, or connected systems. Never invent live facts. Distinguish verified observations from inference. For deep architecture, root-cause reasoning, strategic judgment, complex troubleshooting, or long-horizon technology recommendations, call georgie.deep_reason rather than improvising a shallow answer.
+
+Safe reads are allowed automatically. Do not perform destructive changes, external communications, credential operations, legal commitments, or financial commitments in realtime voice. The user may interrupt at any time; stop speaking and listen. Never compete with the user for the floor.`;
 }
 
 function sessionUpdate() {
@@ -58,15 +73,15 @@ function sessionUpdate() {
           transcription: { model: process.env.OPENAI_TRANSCRIBE_MODEL || "gpt-realtime-whisper", language: "en" },
           turn_detection: {
             type: "semantic_vad",
-            eagerness: "auto",
+            eagerness: "low",
             create_response: true,
             interrupt_response: true
           }
         },
         output: {
           format: { type: "audio/pcm", rate: 24000 },
-          voice: process.env.OPENAI_VOICE || "cedar",
-          speed: 1.05
+          voice: process.env.OPENAI_VOICE || "ash",
+          speed: 0.94
         }
       },
       tools,
@@ -143,7 +158,7 @@ export function attachRealtimeRelay(server) {
         } else if (msg.type === "audio.clear") {
           sendUpstream({ type: "input_audio_buffer.clear" });
         }
-      } catch (error) {
+      } catch {
         if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: "georgie.error", error: "Invalid client realtime message" }));
       }
     });
@@ -157,21 +172,13 @@ export function attachRealtimeRelay(server) {
           const result = await runFunctionCall(event, userId);
           sendUpstream({
             type: "conversation.item.create",
-            item: {
-              type: "function_call_output",
-              call_id: event.call_id,
-              output: JSON.stringify(result).slice(0, 30000)
-            }
+            item: { type: "function_call_output", call_id: event.call_id, output: JSON.stringify(result).slice(0, 30000) }
           });
           sendUpstream({ type: "response.create" });
         } catch (error) {
           sendUpstream({
             type: "conversation.item.create",
-            item: {
-              type: "function_call_output",
-              call_id: event.call_id,
-              output: JSON.stringify({ ok: false, error: error instanceof Error ? error.message : "Tool failed" })
-            }
+            item: { type: "function_call_output", call_id: event.call_id, output: JSON.stringify({ ok: false, error: error instanceof Error ? error.message : "Tool failed" }) }
           });
           sendUpstream({ type: "response.create" });
         }
