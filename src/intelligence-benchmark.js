@@ -15,6 +15,7 @@ export const BENCHMARK_SCENARIOS = Object.freeze([
   { id: "world_state", prompt: "What are we working on and what remains unfinished?", expectedTool: "system.world_state" }
   ,{ id: "sierra_governed_access", prompt: "Run the Sierra governed-access probe and show which RPC contracts are live.", expectedDomain: "sierra", expectedTool: "sierra.governed_access" }
   ,{ id: "developer_inspect", prompt: "Inspect my Georgie repository and report the branch and uncommitted changes.", expectedDomain: "technical", expectedTool: "developer.repo_inspect" }
+  ,{ id: "developer_architecture", prompt: "Analyze the Georgie codebase architecture for reliability weaknesses, silent turns, lost continuity, and false completion claims. Do not modify anything.", expectedDomain: "technical", expectedTool: "developer.search" }
 ]);
 
 export function runStaticBenchmark() {
