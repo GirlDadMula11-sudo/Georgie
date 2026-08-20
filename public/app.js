@@ -7,6 +7,9 @@ const statusEl = document.querySelector("#status");
 const conversationEl = document.querySelector("#conversation");
 const textForm = document.querySelector("#textForm");
 const textInput = document.querySelector("#textInput");
+const attachmentInput = document.querySelector("#attachmentInput");
+const attachmentButton = document.querySelector("#attachmentButton");
+const attachmentTray = document.querySelector("#attachmentTray");
 const handsFreeToggle = document.querySelector("#handsFreeToggle");
 const presenceState = document.querySelector("#presenceState");
 const voiceOutputToggle = document.querySelector("#voiceOutputToggle");
@@ -23,6 +26,7 @@ let isBusy = false;
 let handsFreeBusy = false;
 let manualSuspendedHandsFree = false;
 let voiceOutputEnabled = localStorage.getItem("georgie:voiceOutput") !== "off";
+let selectedAttachments = [];
 
 const userId = "primary";
 const sessionId = localStorage.getItem("georgie:sessionId") || crypto.randomUUID();
@@ -42,7 +46,7 @@ function setPresence(state, label) {
   presenceState.textContent = label;
 }
 
-function appendMessage(role, text) {
+function appendMessage(role, text, attachments = []) {
   const item = document.createElement("article");
   item.className = `message ${role}`;
   const label = document.createElement("div");
@@ -51,6 +55,11 @@ function appendMessage(role, text) {
   const body = document.createElement("p");
   body.textContent = text;
   item.append(label, body);
+  if (attachments.length) {
+    const list=document.createElement("div");list.className="message-attachments";
+    for(const file of attachments){const chip=document.createElement("span");chip.className="message-attachment";chip.textContent=`▧ ${file.name}`;list.append(chip);}
+    item.append(list);
+  }
   if (role === "assistant") {
     const copy = document.createElement("button");
     copy.className = "copy-response";
@@ -277,13 +286,14 @@ function attachHearResponse(item, text) {
   item.append(button);
 }
 
-async function sendTextTurn(input, { display = true, speakResponse = true, allowBusy = false } = {}) {
+async function sendTextTurn(input, { display = true, speakResponse = true, allowBusy = false, attachments = [] } = {}) {
   const clean = String(input || "").trim();
-  if (!clean || (isBusy && !allowBusy)) return;
+  if ((!clean && !attachments.length) || (isBusy && !allowBusy)) return;
+  const effectiveInput=clean||"Analyze the attached files.";
   isBusy = true;
   const priorHistory = history.slice();
-  if (display) appendMessage("user", clean);
-  pushHistory("user", clean);
+  if (display) appendMessage("user", effectiveInput, attachments);
+  pushHistory("user", attachments.length?`${effectiveInput}\n\n[Attached files: ${attachments.map(file=>file.name).join(", ")}]`:effectiveInput);
   setStatus("Thinking…");
   const requestStarted = performance.now();
   let headersAt = 0, firstEventAt = 0, firstDeltaAt = 0;
@@ -294,11 +304,10 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
   const deadline = setTimeout(() => setStatus("Still working safely — any long-running tool remains durable and Georgie will return a terminal result."), progressDeadlineMs);
 
   try {
-    const response = await fetch("/api/mobile/respond/stream", {
-      method: "POST",
-      headers: requestHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ input: clean, history: priorHistory, userId, sessionId })
-    });
+    let endpoint="/api/mobile/respond/stream",headers,body;
+    if(attachments.length){const form=new FormData();form.append("input",effectiveInput);form.append("history",JSON.stringify(priorHistory));for(const file of attachments)form.append("files",file,file.name);endpoint="/api/mobile/respond/stream-with-files";headers=requestHeaders();body=form;}
+    else{headers=requestHeaders({"Content-Type":"application/json"});body=JSON.stringify({input:effectiveInput,history:priorHistory,userId,sessionId});}
+    const response = await fetch(endpoint, { method: "POST", headers, body });
     headersAt = performance.now();
     if (!response.ok || !response.body) throw new Error("Streaming response unavailable");
     assistantItem = appendMessage("assistant", "Working…");
@@ -323,7 +332,7 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
     }
     if (!payload?.ok) throw new Error("Georgie did not complete the response");
     updateMessage(assistantItem, payload.text);
-    attachOutcomeFeedback(assistantItem, clean, payload);
+    attachOutcomeFeedback(assistantItem, effectiveInput, payload);
     attachHearResponse(assistantItem, payload.spokenText || payload.text);
     void fetch("/api/mobile/telemetry", { method:"POST", headers:requestHeaders({"Content-Type":"application/json"}), body:JSON.stringify({ platform:"web", route:"respond_stream", headersMs:headersAt-requestStarted, firstEventMs:(firstEventAt||headersAt)-requestStarted, firstDeltaMs:(firstDeltaAt||performance.now())-requestStarted, completeMs:performance.now()-requestStarted }) }).catch(()=>{});
     pushHistory("assistant", payload.text);
@@ -532,12 +541,17 @@ voiceButton.addEventListener("pointerleave", (event) => {
   if (mediaRecorder?.state === "recording") stopRecording(event);
 });
 
+function renderAttachmentTray(){attachmentTray.replaceChildren();selectedAttachments.forEach((file,index)=>{const chip=document.createElement("div");chip.className="attachment-chip";const name=document.createElement("span");name.textContent=`${file.name} · ${(file.size/1024/1024).toFixed(file.size>1024*1024?1:2)} MB`;const remove=document.createElement("button");remove.type="button";remove.setAttribute("aria-label",`Remove ${file.name}`);remove.textContent="×";remove.addEventListener("click",()=>{selectedAttachments.splice(index,1);renderAttachmentTray();});chip.append(name,remove);attachmentTray.append(chip);});}
+attachmentButton.addEventListener("click",()=>attachmentInput.click());
+attachmentInput.addEventListener("change",()=>{const incoming=[...(attachmentInput.files||[])];const combined=[...selectedAttachments,...incoming];if(combined.length>5){setStatus("Attach up to 5 files at once.");selectedAttachments=combined.slice(0,5);}else selectedAttachments=combined;attachmentInput.value="";renderAttachmentTray();});
+
 textForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const input = textInput.value.trim();
-  if (!input || isBusy) return;
+  if ((!input && !selectedAttachments.length) || isBusy) return;
+  const attachments=[...selectedAttachments];selectedAttachments=[];renderAttachmentTray();
   textInput.value = "";
-  await sendTextTurn(input).catch(() => {});
+  await sendTextTurn(input,{attachments}).catch(() => {});
 });
 
 document.addEventListener("visibilitychange", () => {

@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="/styles.css" />
   <link rel="stylesheet" href="/sierra.css" />
   <link rel="stylesheet" href="/enrollment.css" />
+  <link rel="stylesheet" href="/attachments.css" />
   <link rel="stylesheet" href="/workspace.css" />
 </head>
 <body>
@@ -35,7 +36,8 @@
 
     <section class="conversation" id="conversation" aria-live="polite"></section>
     <section class="controls chat-composer">
-      <form id="textForm" class="text-form"><input id="textInput" autocomplete="off" placeholder="Message Georgie…" aria-label="Message Georgie" /><button type="submit" aria-label="Send message">↑</button></form>
+      <div id="attachmentTray" class="attachment-tray" aria-live="polite"></div>
+      <form id="textForm" class="text-form"><input id="attachmentInput" type="file" multiple hidden accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.rtf,.json,.jpg,.jpeg,.png,.webp,.gif" /><button id="attachmentButton" class="attachment-button" type="button" aria-label="Attach photos or documents">＋</button><input id="textInput" autocomplete="off" placeholder="Message Georgie…" aria-label="Message Georgie" /><button type="submit" aria-label="Send message">↑</button></form>
       <button id="voiceButton" class="voice-button" type="button" aria-label="Talk to Georgie"><span class="wave">▥</span><span class="voice-core">●</span><span id="voiceLabel">HOLD TO TALK</span><span class="wave">▥</span></button>
       <div class="handsfree-panel"><div><strong>Hands-free</strong><span>Say “Georgie” to wake me</span></div><button id="handsFreeToggle" class="mode-toggle" type="button" role="switch" aria-checked="false"><span class="toggle-knob"></span></button></div>
       <p class="privacy-note"><span id="voiceOutputState">Voice on</span> • full conversation preserved • full response on screen</p>

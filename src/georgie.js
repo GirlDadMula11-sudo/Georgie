@@ -102,7 +102,7 @@ function extractResponseText(payload) { if (payload.output_text) return payload.
 function reasoning(effort = "medium") { return { effort, context: "all_turns" }; }
 async function jsonResponse({ model, instructions, input, effort = "medium" }) { return withModelPermit(async()=>{const response = await openAI("/responses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, instructions, input, reasoning: reasoning(effort), text: { verbosity: "low" } }) }); const payload = await response.json(); const raw = extractResponseText(payload).trim(); return JSON.parse(raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim());}); }
 
-async function askGeorgieCore(input, history = [], context = "", { onTextDelta, modelOverride = null } = {}) {
+async function askGeorgieCore(input, history = [], context = "", { onTextDelta, modelOverride = null, attachmentParts = [] } = {}) {
   if (!input?.trim()) throw new Error("Input is required");
   const fast=fastMacAction(input);
   if(fast){return {text:`Command sent to your Mac: ${fast[0].args.app}.`,responseId:null,webSearches:0,model:"deterministic-fast-path"};}
@@ -111,7 +111,8 @@ async function askGeorgieCore(input, history = [], context = "", { onTextDelta, 
   const safeHistory = Array.isArray(history) ? history.slice(-12).filter((item) => item && ["user", "assistant"].includes(item.role) && typeof item.content === "string").map((item)=>({role:item.role,content:item.content})) : [];
   const instructions = context ? `${SYSTEM_PROMPT}\n\nCURRENT OPERATING CONTEXT\n${context}` : SYSTEM_PROMPT;
   const streaming = typeof onTextDelta === "function";
-  const body = { model: modelOverride||route.model, instructions, input: [...safeHistory, { role: "user", content: input.trim() }], reasoning: reasoning(modelOverride?"low":process.env.OPENAI_REASONING_EFFORT || route.reasoningEffort), text: { verbosity: process.env.OPENAI_VERBOSITY || route.responseVerbosity }, ...(streaming ? { stream: true } : {}) };
+  const userContent = attachmentParts.length ? [{ type: "input_text", text: input.trim() }, ...attachmentParts] : input.trim();
+  const body = { model: modelOverride||route.model, instructions, input: [...safeHistory, { role: "user", content: userContent }], reasoning: reasoning(modelOverride?"low":process.env.OPENAI_REASONING_EFFORT || route.reasoningEffort), text: { verbosity: process.env.OPENAI_VERBOSITY || route.responseVerbosity }, ...(streaming ? { stream: true } : {}) };
   if (process.env.GEORGIE_WEB_ENABLED !== "false" && route.allowWebTool) body.tools = [{ type: "web_search" }];
   const intelligenceTimeoutMs = modelOverride ? 18000 : route.latencyClass === "deep" ? 36000 : 24000;
   const response = await openAI("/responses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(intelligenceTimeoutMs) });

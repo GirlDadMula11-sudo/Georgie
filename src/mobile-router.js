@@ -10,7 +10,8 @@ import { pushStatus, removePushSubscription, savePushSubscription } from "./push
 import { buildCommandCenter } from "./command-layer.js";
 import { certificationStatus, certifyRunbook, executeCertifiedRepair, listRepairRunbooks } from "./repair-runbooks.js";
 import { maintenanceStatus } from "./maintenance-sentinel.js";
-import { completeTurnV2 } from "./v2-turn-engine.js";
+import { completeAttachmentTurnV2, completeTurnV2 } from "./v2-turn-engine.js";
+import { MAX_ATTACHMENTS_PER_TURN, persistAttachments, publicAttachmentManifest } from "./attachments.js";
 import { recordClientTelemetry, recordOutcomeFeedback, recordTurnEvaluation } from "./evaluation.js";
 import { terminalPartialResult, withTurnDeadline } from "./turn-lifecycle.js";
 import { appendSessionTurn } from "./memory.js";
@@ -28,11 +29,12 @@ async function complete(userId, sessionId, input, options = {}) {
   let response;
   try {
     response = await withTurnDeadline(
-    () => completeTurnV2({
+    () => (options.attachments?.length ? completeAttachmentTurnV2 : completeTurnV2)({
       userId,
       sessionId,
       input,
       history: options.history || [],
+      attachments: options.attachments || [],
       onProgress: options.onProgress,
       shouldFinalize: () => !expired,
     }),
@@ -115,6 +117,23 @@ router.post("/repairs/:id/certify",async(req,res)=>{try{res.json({ok:true,result
 router.post("/repairs/:id/execute",async(req,res)=>{try{const maintenance=await maintenanceStatus(userIdFor()),cert=await certificationStatus(userIdFor(),maintenance);if(!cert.certified)return res.status(409).json({ok:false,error:"Bounded repair mode is not certified"});res.json(await executeCertifiedRepair(userIdFor(),req.params.id))}catch(error){res.status(400).json({ok:false,error:error instanceof Error?error.message:"Repair failed"})}});
 router.post("/respond",async(req,res)=>{try{const input=String(req.body?.input||"").trim();if(!input)return res.status(400).json({ok:false,error:"Input is required"});const response=await complete(userIdFor(req),sessionIdFor(req),input);res.json({ok:true,...response,spokenText:spokenResponseFor(input,response.text)})}catch(error){res.status(500).json({ok:false,error:error instanceof Error?error.message:"Response failed"})}});
 router.post("/respond/stream",async(req,res)=>{const input=String(req.body?.input||"").trim();if(!input)return res.status(400).json({ok:false,error:"Input is required"});const requestId=crypto.randomUUID(),started=Date.now();console.log(`[Georgie] turn accepted ${JSON.stringify({requestId,inputLength:input.length})}`);res.status(200);res.setHeader("Content-Type","application/x-ndjson; charset=utf-8");res.setHeader("Cache-Control","no-cache, no-transform");res.setHeader("X-Accel-Buffering","no");res.flushHeaders?.();const send=event=>{if(!res.writableEnded&&!res.destroyed)res.write(`${JSON.stringify(event)}\n`);};send({type:"status",stage:"accepted",message:"I heard you. I’m starting the bounded work now.",requestId,elapsedMs:0});try{const response=await complete(userIdFor(req),sessionIdFor(req),input,{history:Array.isArray(req.body?.history)?req.body.history:[],onProgress:send});send({type:"final",ok:true,spokenText:spokenResponseFor(input,response.text),result:response});console.log(`[Georgie] turn terminal ${JSON.stringify({requestId,elapsedMs:Date.now()-started,completed:response.completed!==false,terminalReason:response.terminalReason||"completed",actionCount:response.actions?.length||0})}`);}catch(error){console.error(`[Georgie] turn failed ${JSON.stringify({requestId,elapsedMs:Date.now()-started,error:error instanceof Error?error.message:"Streaming response failed"})}`);send({type:"error",ok:false,error:error instanceof Error?error.message:"Streaming response failed"});}finally{if(!res.writableEnded)res.end();}});
+router.post("/respond/stream-with-files",upload.array("files",MAX_ATTACHMENTS_PER_TURN),async(req,res)=>{
+  const input=String(req.body?.input||"Analyze the attached files.").trim();
+  if(!req.files?.length)return res.status(400).json({ok:false,error:"At least one attachment is required"});
+  let history=[];try{history=JSON.parse(req.body?.history||"[]");}catch{}
+  const requestId=crypto.randomUUID(),started=Date.now();
+  res.status(200);res.setHeader("Content-Type","application/x-ndjson; charset=utf-8");res.setHeader("Cache-Control","no-cache, no-transform");res.setHeader("X-Accel-Buffering","no");res.flushHeaders?.();
+  const send=event=>{if(!res.writableEnded&&!res.destroyed)res.write(`${JSON.stringify(event)}\n`);};
+  send({type:"status",stage:"uploading",message:`Securing ${req.files.length} attachment${req.files.length===1?"":"s"}…`,requestId,elapsedMs:0});
+  try{
+    const attachments=await persistAttachments({userId:userIdFor(req),sessionId:sessionIdFor(req),files:req.files});
+    send({type:"attachments",attachments:publicAttachmentManifest(attachments)});
+    const response=await complete(userIdFor(req),sessionIdFor(req),input,{history:Array.isArray(history)?history:[],attachments,onProgress:send});
+    send({type:"final",ok:true,spokenText:spokenResponseFor(input,response.text),result:response});
+    console.log(`[Georgie] attachment turn terminal ${JSON.stringify({requestId,elapsedMs:Date.now()-started,fileCount:attachments.length,completed:response.completed!==false})}`);
+  }catch(error){console.error(`[Georgie] attachment turn failed ${JSON.stringify({requestId,error:error instanceof Error?error.message:"Attachment response failed"})}`);send({type:"error",ok:false,error:error instanceof Error?error.message:"Attachment response failed"});}
+  finally{if(!res.writableEnded)res.end();}
+});
 router.post("/telemetry",async(req,res)=>{try{res.status(202).json({ok:true,telemetry:await recordClientTelemetry(userIdFor(req),req.body||{})});}catch(error){res.status(500).json({ok:false,error:"Telemetry unavailable"});}});
 router.post("/feedback",async(req,res)=>{try{res.status(201).json({ok:true,feedback:await recordOutcomeFeedback(userIdFor(req),req.body||{})});}catch(error){res.status(500).json({ok:false,error:"Feedback unavailable"});}});
 router.post("/transcribe",upload.single("audio"),async(req,res)=>{try{if(!req.file)return res.status(400).json({ok:false,error:"Audio is required"});res.json({ok:true,text:await transcribeAudio({buffer:req.file.buffer,mimeType:req.file.mimetype,filename:req.file.originalname})})}catch(error){res.status(500).json({ok:false,error:error instanceof Error?error.message:"Transcription failed"})}});
