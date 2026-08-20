@@ -121,6 +121,47 @@ function assertUserFile(target) {
   return resolved;
 }
 
+const DEV_EXCLUDED_SEGMENTS = new Set([".git", "node_modules", ".env", ".ssh", ".aws", ".config"]);
+function developerRoots() {
+  return String(process.env.GEORGIE_DEV_WORKSPACE_ROOTS || "")
+    .split(",").map(value => path.resolve(value.trim())).filter(Boolean);
+}
+function assertDeveloperRoot(target) {
+  const roots = developerRoots();
+  if (!roots.length) throw new Error("Developer workspace is not configured on this Mac");
+  const resolved = target ? path.resolve(String(target)) : roots[0];
+  if (!roots.some(root => resolved === root || resolved.startsWith(root + path.sep))) throw new Error("Repository is outside configured developer workspaces");
+  return resolved;
+}
+function assertDeveloperFile(root, target) {
+  const repo = assertDeveloperRoot(root);
+  const resolved = path.resolve(repo, String(target || ""));
+  if (!(resolved === repo || resolved.startsWith(repo + path.sep))) throw new Error("File is outside the repository");
+  const relative = path.relative(repo, resolved);
+  if (relative.split(path.sep).some(segment => DEV_EXCLUDED_SEGMENTS.has(segment) || segment.startsWith(".env"))) throw new Error("Secret and generated paths are not available to the developer workspace");
+  return { repo, resolved, relative };
+}
+async function runDeveloper(command, args, options = {}) {
+  const { stdout = "", stderr = "" } = await execFileAsync(command, args, { timeout: options.timeout || 30000, maxBuffer: 4 * 1024 * 1024, cwd: options.cwd });
+  return { stdout: String(stdout).slice(0, 250000), stderr: String(stderr).slice(0, 50000) };
+}
+function patchPaths(patchText) {
+  const paths = [];
+  for (const match of String(patchText || "").matchAll(/^\+\+\+\s+(?:b\/)?(.+)$/gm)) {
+    const candidate = match[1].trim();
+    if (candidate !== "/dev/null") paths.push(candidate);
+  }
+  return paths;
+}
+function validateDeveloperPatch(repo, patchText) {
+  const patch = String(patchText || "");
+  if (!patch || patch.length > 100000) throw new Error("Patch must contain between 1 and 100,000 characters");
+  const paths = patchPaths(patch);
+  if (!paths.length) throw new Error("Patch does not contain a target file");
+  for (const target of paths) assertDeveloperFile(repo, target);
+  return patch;
+}
+
 async function execute(job) {
   const a = job.args || {};
   switch (job.action) {
@@ -153,6 +194,60 @@ async function execute(job) {
       const target = assertUserFile(a.path);
       const text = await fs.readFile(target, "utf8");
       return { path: target, text: text.slice(0, 100000) };
+    }
+    case "developer.repo_inspect": {
+      const repo = assertDeveloperRoot(a.repo);
+      const [status, branch, commits, files] = await Promise.all([
+        runDeveloper("git", ["-C", repo, "status", "--short"]),
+        runDeveloper("git", ["-C", repo, "branch", "--show-current"]),
+        runDeveloper("git", ["-C", repo, "log", "-5", "--pretty=format:%h %s"]),
+        runDeveloper("git", ["-C", repo, "ls-files"])
+      ]);
+      return { repo, branch: branch.stdout.trim(), status: status.stdout, recentCommits: commits.stdout, trackedFiles: files.stdout.split("\n").filter(Boolean).slice(0, 5000), readOnly: true };
+    }
+    case "developer.search": {
+      const repo = assertDeveloperRoot(a.repo);
+      const query = String(a.query || "").slice(0, 500);
+      if (!query) throw new Error("Search query is required");
+      let result;
+      try { result = await runDeveloper("rg", ["-n", "--hidden", "--glob", "!.git/**", "--glob", "!node_modules/**", "--glob", "!.env*", "--", query, repo]); }
+      catch (error) { if (error?.code === 1) result = { stdout: "", stderr: "" }; else throw error; }
+      return { repo, query, matches: result.stdout.slice(0, 200000), readOnly: true };
+    }
+    case "developer.file_read": {
+      const target = assertDeveloperFile(a.repo, a.path);
+      const text = await fs.readFile(target.resolved, "utf8");
+      return { repo: target.repo, path: target.relative, text: text.slice(0, 200000), truncated: text.length > 200000, readOnly: true };
+    }
+    case "developer.run_checks": {
+      const repo = assertDeveloperRoot(a.repo);
+      const script = String(a.script || "check");
+      if (!["check", "test", "benchmark"].includes(script)) throw new Error("Developer check script is not allowlisted");
+      const result = await runDeveloper("npm", ["run", script, "--if-present"], { cwd: repo, timeout: 120000 });
+      return { repo, script, ...result, verified: true };
+    }
+    case "developer.apply_patch": {
+      const repo = assertDeveloperRoot(a.repo);
+      const patch = validateDeveloperPatch(repo, a.patch);
+      const target = path.join(os.tmpdir(), `georgie-patch-${Date.now()}.diff`);
+      await fs.writeFile(target, patch, { mode: 0o600 });
+      let applied = false;
+      try {
+        await runDeveloper("git", ["-C", repo, "apply", "--check", target]);
+        await runDeveloper("git", ["-C", repo, "apply", target]);
+        applied = true;
+        const [check, stat, status] = await Promise.all([
+          runDeveloper("git", ["-C", repo, "diff", "--check"]),
+          runDeveloper("git", ["-C", repo, "diff", "--stat"]),
+          runDeveloper("git", ["-C", repo, "status", "--short"])
+        ]);
+        return { repo, applied: true, patchHash: String(a.patchHash || ""), diffCheck: check.stdout || check.stderr || "clean", diffStat: stat.stdout, status: status.stdout, committed: false, pushed: false };
+      } catch (error) {
+        if (applied) await runDeveloper("git", ["-C", repo, "apply", "--reverse", target]).catch(() => {});
+        throw error;
+      } finally {
+        await fs.unlink(target).catch(() => {});
+      }
     }
     case "screen.capture": {
       const target = path.join(os.tmpdir(), `georgie-screen-${Date.now()}.png`);
