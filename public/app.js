@@ -289,7 +289,9 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
   let headersAt = 0, firstEventAt = 0, firstDeltaAt = 0;
   let assistantItem = null;
   const controller = new AbortController();
-  const deadline = setTimeout(() => controller.abort(new DOMException("Georgie exceeded the 30-second response deadline", "TimeoutError")), 30000);
+  const deepWork = /\b(?:analy[sz]e|audit|architecture|root cause|deep dive|reliability|codebase|research)\b/i.test(clean);
+  const responseDeadlineMs = deepWork ? 60000 : 30000;
+  const deadline = setTimeout(() => controller.abort(new DOMException(`Georgie exceeded the ${responseDeadlineMs / 1000}-second response deadline`, "TimeoutError")), responseDeadlineMs);
 
   try {
     const response = await fetch("/api/mobile/respond/stream", {
