@@ -50,6 +50,18 @@ function appendMessage(role, text) {
   const body = document.createElement("p");
   body.textContent = text;
   item.append(label, body);
+  if (role === "assistant") {
+    const copy = document.createElement("button");
+    copy.className = "copy-response";
+    copy.type = "button";
+    copy.textContent = "Copy full response";
+    copy.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(text);
+      copy.textContent = "Copied";
+      setTimeout(() => { copy.textContent = "Copy full response"; }, 1400);
+    });
+    item.append(copy);
+  }
   conversationEl.append(item);
   item.scrollIntoView({ behavior: "smooth", block: "end" });
 }
@@ -162,7 +174,7 @@ async function sendTextTurn(input, { display = true, speakResponse = true } = {}
     appendMessage("assistant", payload.text);
     pushHistory("assistant", payload.text);
     setStatus(payload.remembered ? `Speaking… remembered ${payload.remembered} new detail${payload.remembered === 1 ? "" : "s"}.` : "Speaking…");
-    if (speakResponse) await speak(payload.text);
+    if (speakResponse) await speak(payload.spokenText || payload.text);
     return payload;
   } catch (error) {
     console.error(error);

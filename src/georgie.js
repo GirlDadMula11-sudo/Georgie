@@ -87,6 +87,36 @@ export async function askGeorgie(input, history = [], context = "") {
   return { text, responseId: payload.id, webSearches: (payload.output || []).filter((item) => item.type === "web_search_call").length, model: body.model };
 }
 
+const SPOKEN_DETAIL_REQUEST = /\b(?:explain|elaborate|expand|walk me through|break (?:it|that) down|more detail|full detail|all (?:the )?details|in depth|deep dive|tell me more|read (?:it|that|the whole|the full)|say (?:it|that|the whole|the full))\b/i;
+const SPOKEN_WORD_LIMIT = Math.max(20, Math.min(60, Number(process.env.GEORGIE_SPOKEN_WORD_LIMIT || 38)));
+
+function speechPlainText(text) {
+  return String(text || "")
+    .replace(/```[\s\S]*?```/g, " The technical detail is available on screen. ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/^\s*\d+[.)]\s+/gm, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/[*_~>|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function spokenResponseFor(input, fullText) {
+  const plain = speechPlainText(fullText);
+  if (!plain || SPOKEN_DETAIL_REQUEST.test(String(input || ""))) return plain;
+  const words = plain.split(/\s+/);
+  if (words.length <= SPOKEN_WORD_LIMIT) return plain;
+  const sentenceEnds = [...plain.matchAll(/[.!?](?=\s|$)/g)]
+    .map((match) => match.index + 1)
+    .filter((index) => plain.slice(0, index).trim().split(/\s+/).length <= SPOKEN_WORD_LIMIT);
+  let brief;
+  if (sentenceEnds.length) brief = plain.slice(0, sentenceEnds[Math.min(1, sentenceEnds.length - 1)]).trim();
+  else brief = `${words.slice(0, SPOKEN_WORD_LIMIT).join(" ").replace(/[,;:]?$/, "")}.`;
+  return `${brief} The full response is on screen.`;
+}
+
 export async function planActions(input, toolDefinitions = []) {
   if (!input?.trim() || !toolDefinitions.length) return [];
   const fast=fastMacAction(input); if(fast)return fast;
