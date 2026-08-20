@@ -271,12 +271,15 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
   setStatus("Thinking…");
   const requestStarted = performance.now();
   let headersAt = 0, firstEventAt = 0, firstDeltaAt = 0;
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(new DOMException("Georgie exceeded the 30-second response deadline", "TimeoutError")), 30000);
 
   try {
     const response = await fetch("/api/mobile/respond/stream", {
       method: "POST",
       headers: requestHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ input: clean, history: priorHistory, userId, sessionId })
+      body: JSON.stringify({ input: clean, history: priorHistory, userId, sessionId }),
+      signal: controller.signal
     });
     headersAt = performance.now();
     if (!response.ok || !response.body) throw new Error("Streaming response unavailable");
@@ -311,9 +314,11 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
     return payload;
   } catch (error) {
     console.error(error);
-    setStatus(error.message || "Something went wrong.");
+    const timedOut = error?.name === "AbortError" || error?.name === "TimeoutError" || controller.signal.aborted;
+    setStatus(timedOut ? "That request stalled and was stopped. Nothing was changed — retry or ask for a narrower check." : (error.message || "Something went wrong."));
     throw error;
   } finally {
+    clearTimeout(deadline);
     isBusy = false;
   }
 }
