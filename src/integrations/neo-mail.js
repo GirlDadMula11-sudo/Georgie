@@ -7,14 +7,37 @@ const DEFAULT_IMAP_PORT = Number(process.env.GEORGIE_NEO_IMAP_PORT || 993);
 const DEFAULT_SMTP_HOST = process.env.GEORGIE_NEO_SMTP_HOST || "smtp0001.neo.space";
 const DEFAULT_SMTP_PORT = Number(process.env.GEORGIE_NEO_SMTP_PORT || 465);
 
+function dedicatedMailboxes() {
+  const defs = [
+    {
+      id: "work",
+      email: process.env.GEORGIE_NEO_WORK_EMAIL,
+      password: process.env.GEORGIE_NEO_WORK_PASSWORD,
+      label: "Sierra Work",
+      role: "executive_work"
+    },
+    {
+      id: "submissions",
+      email: process.env.GEORGIE_NEO_SUBMISSIONS_EMAIL,
+      password: process.env.GEORGIE_NEO_SUBMISSIONS_PASSWORD,
+      label: "Sierra Submissions",
+      role: "lender_submissions"
+    }
+  ];
+  return defs.filter((item) => item.email && item.password);
+}
+
 function parseMailboxes() {
+  const dedicated = dedicatedMailboxes();
   const raw = process.env.GEORGIE_NEO_MAILBOXES_JSON;
-  if (!raw) return [];
-  let parsed;
-  try { parsed = JSON.parse(raw); }
-  catch { throw new Error("GEORGIE_NEO_MAILBOXES_JSON must be valid JSON"); }
-  if (!Array.isArray(parsed)) throw new Error("GEORGIE_NEO_MAILBOXES_JSON must be an array");
-  return parsed
+  let parsed = [];
+  if (raw) {
+    try { parsed = JSON.parse(raw); }
+    catch { throw new Error("GEORGIE_NEO_MAILBOXES_JSON must be valid JSON"); }
+    if (!Array.isArray(parsed)) throw new Error("GEORGIE_NEO_MAILBOXES_JSON must be an array");
+  }
+
+  const combined = [...dedicated, ...parsed]
     .filter((item) => item && item.id && item.email && item.password)
     .map((item) => ({
       id: String(item.id).slice(0, 80),
@@ -27,6 +50,14 @@ function parseMailboxes() {
       smtpHost: String(item.smtpHost || DEFAULT_SMTP_HOST),
       smtpPort: Number(item.smtpPort || DEFAULT_SMTP_PORT)
     }));
+
+  const seen = new Set();
+  return combined.filter((item) => {
+    const key = item.email.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function publicMailbox(mailbox) {
