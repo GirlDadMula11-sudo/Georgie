@@ -105,6 +105,10 @@ export async function listApprovals(userId, { status = "pending", limit = 50 } =
   const approvals = await readList(String(userId || "primary"), APPROVALS_NS, "approvals");
   return approvals.filter((item) => status === "all" || item.status === status).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, Math.max(1, Math.min(Number(limit) || 50, 200)));
 }
+export async function getApprovalRequest(userId, approvalId) {
+  const approvals=await readList(String(userId||"primary"),APPROVALS_NS,"approvals");
+  return approvals.find((item)=>item.userId===String(userId||"primary")&&item.id===String(approvalId||""))||null;
+}
 export async function decideApproval(userId, approvalId, { decision, note = "" } = {}) {
   const uid = String(userId || "primary");
   if (!["approved", "rejected", "deferred"].includes(decision)) throw new Error("Decision must be approved, rejected, or deferred");
