@@ -1,43 +1,6 @@
-const userId = localStorage.getItem("georgie:userId");
-const sessionId = localStorage.getItem("georgie:sessionId");
-const headers = () => ({ "X-Georgie-User": userId || "primary", "X-Georgie-Session": sessionId || "default" });
-let seen = new Set();
-
-function surfaceEvent(event) {
-  if (!event || seen.has(event.id)) return;
-  seen.add(event.id);
-
-  const card = document.createElement("aside");
-  card.className = "proactive-alert";
-  card.innerHTML = `<div><strong></strong><p></p></div><button type="button" aria-label="Dismiss notification">×</button>`;
-  card.querySelector("strong").textContent = event.title;
-  card.querySelector("p").textContent = event.body || "Georgie noticed something that needs your attention.";
-  card.querySelector("button").addEventListener("click", () => card.remove());
-  document.querySelector(".shell")?.prepend(card);
-
-  if ("Notification" in window && Notification.permission === "granted") {
-    new Notification(event.title, { body: event.body || "Georgie has an update for you.", icon: "/georgie-icon.svg", tag: event.id });
-  }
-}
-
-async function acknowledge(id) {
-  await fetch(`/api/events/${encodeURIComponent(id)}/ack`, { method: "POST", headers: headers() }).catch(() => {});
-}
-
-async function poll() {
-  try {
-    if (!userId) return;
-    const response = await fetch("/api/events?status=pending&limit=10", { headers: headers() });
-    const payload = await response.json();
-    if (!response.ok || !payload.ok || !Array.isArray(payload.events)) return;
-    for (const event of payload.events.reverse()) {
-      surfaceEvent(event);
-      await acknowledge(event.id);
-    }
-  } catch (error) {
-    console.warn("Proactive event polling unavailable", error);
-  }
-}
-
-poll();
-setInterval(poll, 30_000);
+import {authHeaders,georgieDeviceReady} from "./device-auth.js";
+const root=document.querySelector("#inboxItems"),refresh=document.querySelector("#inboxRefresh");
+function esc(v){return String(v||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);}
+function render(events){root.innerHTML=events.length?events.map(e=>`<article class="inbox-item ${esc(e.priority)}"><div><strong>${esc(e.title)}</strong><span>${esc(e.body||"")}</span><small>${new Date(e.createdAt).toLocaleString()} • ${esc(e.status)}</small></div>${e.status==="pending"?`<button data-ack="${esc(e.id)}">Handled</button>`:""}</article>`).join(""):"<p>No maintenance updates yet.</p>";root.querySelectorAll("[data-ack]").forEach(button=>button.addEventListener("click",async()=>{await fetch(`/api/mobile/inbox/${encodeURIComponent(button.dataset.ack)}/ack`,{method:"POST",headers:authHeaders()});load();}));}
+async function load(){try{await georgieDeviceReady;const response=await fetch("/api/mobile/inbox?status=all&limit=100",{headers:authHeaders()}),payload=await response.json();if(response.ok&&payload.ok)render(payload.events);}catch(error){root.innerHTML=`<p>${esc(error.message||"Inbox unavailable")}</p>`;}}
+refresh?.addEventListener("click",load);load();setInterval(load,30000);

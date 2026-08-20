@@ -22,6 +22,8 @@ export async function enrollNativeDevice({code,deviceId,deviceName="iPhone",plat
  return rawToken;
 }
 
+export const enrollDevice = enrollNativeDevice;
+
 export async function authenticateNativeRequest(req){
  const auth=String(req.headers.authorization||"");if(!auth.startsWith("Bearer "))return null;
  const raw=auth.slice(7).trim();if(raw.length<24)return null;

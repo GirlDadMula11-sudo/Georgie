@@ -3,6 +3,8 @@ import { readCloudState, writeCloudState } from "./cloud-state.js";
 import { enqueueEvent } from "./events.js";
 import { getSierraHealth, getSierraInfrastructure, sierraWorkforceConfigured } from "./integrations/sierra-workforce.js";
 import { getProviderObservability } from "./integrations/provider-observability.js";
+import { getSmartleadCampaigns, smartleadConfigured } from "./integrations/smartlead.js";
+import { certificationStatus } from "./repair-runbooks.js";
 
 const NS = "maintenance_sentinel";
 const USER = () => process.env.GEORGIE_EXECUTIVE_USER_ID || process.env.GEORGIE_PRIMARY_USER_ID || "primary";
@@ -61,10 +63,13 @@ export async function runMaintenanceCycle() {
         ? capture("sierra_infrastructure", () => sierraWorkforceConfigured() ? getSierraInfrastructure(uid) : Promise.reject(new Error("Sierra Workforce is not configured")))
         : Promise.resolve({ ...previousInfrastructure, cached: true, reusedAt: now() }),
       capture("deployment_providers", () => getProviderObservability())
+      ,capture("smartlead_campaigns", () => smartleadConfigured() ? getSmartleadCampaigns() : Promise.reject(new Error("Smartlead API is not configured")))
     ]);
     const signals = sources.flatMap((source) => source.ok ? numericSignals(source.data).map((signal) => ({ ...signal, source: source.name, observedAt: source.observedAt })) : [{ source: source.name, path: "connection", value: 1, observedAt: source.observedAt, error: source.error }]);
     const status = snapshotStatus(sources, signals);
     const healthy = status === "healthy_snapshot";
+    const certification=await certificationStatus(uid,previous);
+    const bounded=MODE()==="bounded"&&certification.certified;
     const state = {
       ...previous,
       mode: MODE(),
@@ -74,8 +79,9 @@ export async function runMaintenanceCycle() {
       verifiedHealthyCycles: healthy ? Number(previous.verifiedHealthyCycles || 0) + 1 : 0,
       sources,
       signals,
-      repairAuthority: { observe: true, diagnose: true, simulate: true, prepare: true, boundedExecution: MODE() === "bounded", consequentialExecution: false, selfModifyingCode: false },
-      campaignCoverage: { providerDirectRequired: true, smartleadDirectConnected: false, status: "connector_required" },
+      repairAuthority: { observe: true, diagnose: true, simulate: true, prepare: true, boundedExecution: bounded, consequentialExecution: false, selfModifyingCode: false },
+      certification,
+      campaignCoverage: { providerDirectRequired: true, smartleadDirectConnected: smartleadConfigured(), status: smartleadConfigured()?"provider_direct":"connector_required" },
       lastCycleId: crypto.randomUUID(),
       updatedAt: now()
     };

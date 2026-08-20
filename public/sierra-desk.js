@@ -1,3 +1,4 @@
+import {authHeaders,georgieDeviceReady} from "./device-auth.js";
 const desk = document.querySelector("#sierraDesk");
 const dealsEl = document.querySelector("#sierraDeals");
 const healthEl = document.querySelector("#sierraHealth");
@@ -11,7 +12,8 @@ async function loadSierraDeskStatus() {
   if (!desk) return;
   refreshButton.disabled = true;
   try {
-    const response = await fetch("/api/sierra/status");
+    await georgieDeviceReady;
+    const response = await fetch("/api/sierra/status",{headers:authHeaders()});
     const payload = await response.json();
     if (!response.ok || !payload.ok) throw new Error(payload.error || "Sierra connection unavailable");
     healthEl.textContent = payload.configured ? "SECURE DEVICE" : "NOT CONFIGURED";

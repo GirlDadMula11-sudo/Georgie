@@ -1,4 +1,5 @@
 import { HandsFreeEngine, parseWakeTranscript } from "./handsfree.js";
+import { authHeaders, georgieDeviceReady } from "./device-auth.js";
 
 const voiceButton = document.querySelector("#voiceButton");
 const voiceLabel = document.querySelector("#voiceLabel");
@@ -19,17 +20,13 @@ let isBusy = false;
 let handsFreeBusy = false;
 let manualSuspendedHandsFree = false;
 
-const userId = localStorage.getItem("georgie:userId") || crypto.randomUUID();
+const userId = "primary";
 const sessionId = localStorage.getItem("georgie:sessionId") || crypto.randomUUID();
 localStorage.setItem("georgie:userId", userId);
 localStorage.setItem("georgie:sessionId", sessionId);
 
 function requestHeaders(extra = {}) {
-  return {
-    "X-Georgie-User": userId,
-    "X-Georgie-Session": sessionId,
-    ...extra
-  };
+  return authHeaders({"X-Georgie-User":userId,"X-Georgie-Session":sessionId,...extra});
 }
 
 function setStatus(text) {
@@ -73,7 +70,8 @@ function pushHistory(role, content) {
 
 async function restoreSession() {
   try {
-    const response = await fetch("/api/session?limit=16", { headers: requestHeaders() });
+    await georgieDeviceReady;
+    const response = await fetch("/api/mobile/session?limit=16", { headers: requestHeaders() });
     const payload = await response.json();
     if (!response.ok || !payload.ok || !Array.isArray(payload.history)) return;
     history = payload.history.slice(-16);
@@ -144,7 +142,7 @@ async function playAudioBlob(blob) {
 }
 
 async function speak(text) {
-  const response = await fetch("/api/speak", {
+  const response = await fetch("/api/mobile/speak", {
     method: "POST",
     headers: requestHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ text })
@@ -163,7 +161,7 @@ async function sendTextTurn(input, { display = true, speakResponse = true } = {}
   setStatus("Thinking…");
 
   try {
-    const response = await fetch("/api/respond", {
+    const response = await fetch("/api/mobile/respond", {
       method: "POST",
       headers: requestHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ input: clean, history: priorHistory, userId, sessionId })
@@ -189,7 +187,7 @@ async function transcribeBlob(audioBlob) {
   const form = new FormData();
   const extension = audioBlob.type.includes("mp4") ? "m4a" : "webm";
   form.append("audio", audioBlob, `voice.${extension}`);
-  const response = await fetch("/api/transcribe", {
+  const response = await fetch("/api/mobile/transcribe", {
     method: "POST",
     headers: requestHeaders(),
     body: form
@@ -301,7 +299,7 @@ async function runVoiceTurn(audioBlob) {
     form.append("sessionId", sessionId);
 
     setStatus("Thinking…");
-    const response = await fetch("/api/voice-turn", { method: "POST", headers: requestHeaders(), body: form });
+    const response = await fetch("/api/mobile/voice-turn", { method: "POST", headers: requestHeaders(), body: form });
     const payload = await response.json();
     if (!response.ok || !payload.ok) throw new Error(payload.error || "Voice request failed");
 

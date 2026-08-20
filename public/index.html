@@ -12,13 +12,15 @@
   <link rel="icon" href="/georgie-icon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/styles.css" />
   <link rel="stylesheet" href="/sierra.css" />
+  <link rel="stylesheet" href="/enrollment.css" />
 </head>
 <body>
+  <section id="enrollmentGate" class="enrollment-gate" hidden><form id="enrollmentForm" class="enrollment-card"><img src="/georgie-icon.svg" alt="" /><h1>Activate Georgie</h1><p>Enter your one-time secure enrollment code. This connects only this device and can be revoked.</p><input id="enrollmentCode" autocomplete="one-time-code" placeholder="Enrollment code" required /><button type="submit">Activate this device</button><small id="enrollmentMessage">Your private Sierra information stays locked until activation.</small></form></section>
   <main class="app-shell">
     <header class="topbar">
       <button class="icon-button" aria-label="Settings">⚙</button>
       <div class="brand"><strong>GEORGIE</strong><span>Your Personal AI Assistant</span></div>
-      <button class="icon-button" aria-label="Notifications">♢</button>
+      <button id="notificationButton" class="icon-button" aria-label="Enable notifications">♢</button>
     </header>
 
     <section class="identity-card">
@@ -38,6 +40,7 @@
     </section>
 
     <section class="conversation" id="conversation" aria-live="polite"></section>
+    <section class="priority-card inbox-card" id="maintenanceInbox" aria-live="polite"><div class="section-title"><strong>GEORGIE MAINTENANCE INBOX</strong><button id="inboxRefresh" type="button">Refresh</button></div><div id="inboxItems"><p>Loading durable maintenance updates…</p></div></section>
     <section class="priority-card command-card" id="commandCenter" aria-live="polite">
       <div class="section-title"><strong>TODAY’S COMMAND CENTER</strong><button id="commandRefresh" type="button">Refresh</button></div>
       <div class="command-metrics"><span><strong id="commandUrgent">—</strong> urgent</span><span><strong id="commandTasks">—</strong> tasks</span><span><strong id="commandApprovals">—</strong> approvals</span></div>
@@ -57,6 +60,7 @@
     </section>
     <nav class="bottom-nav" aria-label="Primary navigation"><button class="active"><span>⌂</span>Home</button><button><span>◌</span>Chat</button><button><span>☑</span>Tasks</button><button><span>✉</span>NEO Mail</button><button><span>•••</span>More</button></nav>
   </main>
+  <script type="module" src="/device-auth.js"></script>
   <script type="module" src="/app.js"></script>
   <script type="module" src="/sierra-desk.js"></script>
   <script type="module" src="/command-center.js"></script>

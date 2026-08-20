@@ -16,6 +16,16 @@ services:
         value: low_risk_write
       - key: OPENAI_API_KEY
         sync: false
+      - key: GEORGIE_SMARTLEAD_API_KEY
+        sync: false
+      - key: GEORGIE_VAPID_PUBLIC_KEY
+        sync: false
+      - key: GEORGIE_VAPID_PRIVATE_KEY
+        sync: false
+      - key: GEORGIE_VAPID_SUBJECT
+        value: mailto:operations@sierracapitalfunding.com
+      - key: GEORGIE_MAINTENANCE_MODE
+        value: shadow
     disk:
       name: georgie-data
       mountPath: /var/data

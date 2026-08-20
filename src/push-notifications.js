@@ -1,0 +1,11 @@
+import webpush from "web-push";
+import { readCloudState, writeCloudState } from "./cloud-state.js";
+
+const NS="push_subscriptions";
+const configured=()=>Boolean(process.env.GEORGIE_VAPID_PUBLIC_KEY&&process.env.GEORGIE_VAPID_PRIVATE_KEY);
+function configure(){if(!configured())return false;webpush.setVapidDetails(process.env.GEORGIE_VAPID_SUBJECT||"mailto:operations@sierracapitalfunding.com",process.env.GEORGIE_VAPID_PUBLIC_KEY,process.env.GEORGIE_VAPID_PRIVATE_KEY);return true;}
+async function store(userId){return readCloudState(userId,NS,{subscriptions:[]});}
+export function pushStatus(){return{configured:configured(),publicKey:configured()?process.env.GEORGIE_VAPID_PUBLIC_KEY:null};}
+export async function savePushSubscription(userId,deviceId,subscription){if(!subscription?.endpoint||!subscription?.keys?.p256dh||!subscription?.keys?.auth)throw new Error("Valid push subscription required");const state=await store(userId);const item={deviceId:String(deviceId),subscription,updatedAt:new Date().toISOString()};state.subscriptions=[...(state.subscriptions||[]).filter(x=>x.deviceId!==item.deviceId&&x.subscription?.endpoint!==subscription.endpoint),item].slice(-20);await writeCloudState(userId,NS,state);return{deviceId:item.deviceId,updatedAt:item.updatedAt};}
+export async function removePushSubscription(userId,deviceId){const state=await store(userId);state.subscriptions=(state.subscriptions||[]).filter(x=>x.deviceId!==String(deviceId));await writeCloudState(userId,NS,state);return true;}
+export async function sendPushToUser(userId,event){if(!configure())return{sent:0,failed:0,configured:false};const state=await store(userId),kept=[];let sent=0,failed=0;for(const item of state.subscriptions||[]){try{await webpush.sendNotification(item.subscription,JSON.stringify({eventId:event.id,title:event.title,body:event.body,priority:event.priority,url:"/?inbox=1"}),{TTL:86400,urgency:event.priority==="urgent"?"high":"normal"});kept.push(item);sent++;}catch(error){failed++;if(![404,410].includes(error?.statusCode))kept.push(item);}}if(kept.length!==(state.subscriptions||[]).length)await writeCloudState(userId,NS,{...state,subscriptions:kept});return{sent,failed,configured:true};}
