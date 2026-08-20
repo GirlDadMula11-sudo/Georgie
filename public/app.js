@@ -167,15 +167,47 @@ async function playAudioBlob(blob) {
   await activeAudio.play();
 }
 
-async function speak(text) {
-  if (!voiceOutputEnabled) return;
-  const response = await fetch("/api/mobile/speak", {
+function recordVoiceTelemetry(event, detail = {}) {
+  void fetch("/api/mobile/telemetry", {
     method: "POST",
     headers: requestHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ text })
-  });
-  if (!response.ok) return browserVoiceFallback(text);
-  try { await playAudioBlob(await response.blob()); } catch { await browserVoiceFallback(text); }
+    body: JSON.stringify({ platform: "web", route: "voice_output", event, ...detail })
+  }).catch(() => {});
+}
+
+async function unlockVoicePlayback() {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return;
+  const context = new AudioContext();
+  try {
+    await context.resume();
+    const buffer = context.createBuffer(1, 1, 22050);
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    source.connect(context.destination);
+    source.start(0);
+    recordVoiceTelemetry("audio_unlocked");
+  } finally {
+    setTimeout(() => context.close().catch(() => {}), 250);
+  }
+}
+
+async function speak(text) {
+  if (!voiceOutputEnabled) return;
+  try {
+    const response = await fetch("/api/mobile/speak", {
+      method: "POST",
+      headers: requestHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ text })
+    });
+    if (!response.ok) throw new Error(`Speech request failed (${response.status})`);
+    await playAudioBlob(await response.blob());
+    recordVoiceTelemetry("server_audio_playing");
+  } catch (error) {
+    recordVoiceTelemetry("server_audio_failed", { error: String(error?.message || error).slice(0, 240) });
+    await browserVoiceFallback(text);
+    recordVoiceTelemetry("browser_fallback_playing");
+  }
 }
 
 function browserVoiceFallback(text) {
@@ -202,6 +234,7 @@ function syncVoiceOutput() {
 }
 
 voiceOutputToggle?.addEventListener("click", async () => {
+  const unlock = unlockVoicePlayback().catch(() => {});
   voiceOutputEnabled = !voiceOutputEnabled;
   localStorage.setItem("georgie:voiceOutput", voiceOutputEnabled ? "on" : "off");
   syncVoiceOutput();
@@ -210,8 +243,15 @@ voiceOutputToggle?.addEventListener("click", async () => {
     window.speechSynthesis?.cancel();
     setStatus("Voice muted. Full responses remain on screen.");
   } else {
-    setStatus("Voice is on. Georgie will speak brief answers.");
-    await browserVoiceFallback("Voice is on. I’m here.").catch(() => {});
+    setStatus("Turning Georgie’s voice on…");
+    await unlock;
+    try {
+      await speak("Voice is on. I’m here.");
+      setStatus("Voice is on. Georgie will speak brief answers.");
+    } catch (error) {
+      recordVoiceTelemetry("all_playback_failed", { error: String(error?.message || error).slice(0, 240) });
+      setStatus("Audio could not play. Check media volume and tap the voice button again.");
+    }
   }
 });
 
