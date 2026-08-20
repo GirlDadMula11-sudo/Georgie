@@ -1,24 +1,22 @@
 import { Router } from "express";
 import multer from "multer";
-import { askGeorgie, extractMemoryCandidates, planActions, spokenResponseFor, synthesizeSpeech, transcribeAudio } from "./georgie.js";
-import { addMemory, appendSessionTurn, buildMemoryContext, getSessionHistory } from "./memory.js";
+import { spokenResponseFor, synthesizeSpeech, transcribeAudio } from "./georgie.js";
+import { getSessionHistory } from "./memory.js";
 import { listTasks } from "./tasks.js";
-import { executeTool, listToolDefinitions } from "./tools.js";
 import { authenticateNativeRequest, enrollNativeDevice, nativeAuthStatus } from "./mobile-auth.js";
-import { recordTurnEvaluation } from "./evaluation.js";
 import { acknowledgeEvent, listEvents } from "./events.js";
 import { pushStatus, removePushSubscription, savePushSubscription } from "./push-notifications.js";
 import { buildCommandCenter } from "./command-layer.js";
 import { certificationStatus, certifyRunbook, executeCertifiedRepair, listRepairRunbooks } from "./repair-runbooks.js";
 import { maintenanceStatus } from "./maintenance-sentinel.js";
+import { completeTurnV2 } from "./v2-turn-engine.js";
 
 const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:20*1024*1024}});
 const router=Router();
 const userIdFor=()=>String(process.env.GEORGIE_PRIMARY_USER_ID||"primary").slice(0,100);
 const sessionIdFor=req=>String(req.headers["x-georgie-session"]||"native").slice(0,150);
 
-async function remember(userId,userText,assistantText){try{const items=await extractMemoryCandidates(userText,assistantText);await Promise.all(items.map(memory=>addMemory({userId,...memory,source:"ios-native"})));return items.length}catch{return 0}}
-async function complete(userId,sessionId,input){const startedAt=Date.now(),history=await getSessionHistory(userId,sessionId,16),memory=await buildMemoryContext(userId,input),policy=process.env.GEORGIE_AUTO_ACTION_POLICY||"low_risk_write",planned=await planActions(input,listToolDefinitions({workforce:true})),actions=[];for(const action of planned)actions.push(await executeTool({name:action.tool,args:action.args||{},userId,policy,workforce:true}));const evidence=actions.map((result,index)=>({source:result?.tool||result?.name||`tool_${index+1}`,observedAt:new Date().toISOString(),status:result?.ok===false?"failed":"observed"}));const tasks=await listTasks(userId,{status:"open",limit:8}),parts=[memory.prompt];if(tasks.length)parts.push(`OPEN TASKS\n${tasks.map(t=>`- ${t.title}${t.dueAt?` (due ${t.dueAt})`:""}`).join("\n")}`);if(actions.length)parts.push(`TOOL EXECUTION RESULTS\n${JSON.stringify(actions).slice(0,10000)}`);const response=await askGeorgie(input,history,parts.filter(Boolean).join("\n\n"));await appendSessionTurn({userId,sessionId,role:"user",content:input});await appendSessionTurn({userId,sessionId,role:"assistant",content:response.text});const remembered=await remember(userId,input,response.text),latencyMs=Date.now()-startedAt;setImmediate(()=>recordTurnEvaluation(userId,{route:response.route,model:response.model,latencyMs,toolCount:actions.length,evidence,responseCharacters:response.text.length}).catch(error=>console.warn("Georgie mobile evaluation persistence delayed:",error instanceof Error?error.message:error)));return{...response,remembered,actions,evidence,evidenceFreshness:evidence.length?"observed_this_turn":"none",confidence:evidence.length?"evidence_backed":"unverified",latencyMs}}
+async function complete(userId,sessionId,input){return completeTurnV2({userId,sessionId,input,history:[]});}
 
 router.get("/status",(_req,res)=>res.json({ok:true,...nativeAuthStatus()}));
 router.post("/enroll",async(req,res)=>{try{const platform=["ios","pwa","macos"].includes(req.body?.platform)?req.body.platform:"pwa";const token=await enrollNativeDevice({code:req.body?.code,deviceId:req.body?.deviceId,deviceName:req.body?.deviceName||"Georgie device",platform});res.json({ok:true,token,platform})}catch(error){res.status(403).json({ok:false,error:error instanceof Error?error.message:"Enrollment failed"})}});
