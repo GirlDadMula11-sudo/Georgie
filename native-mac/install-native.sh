@@ -8,6 +8,7 @@ BUILD_APP="$BUILD_ROOT/Georgie.app"
 CONTENTS="$BUILD_APP/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
+PATCHED_SOURCE="$BUILD_ROOT/GeorgieNative.swift"
 trap 'rm -rf "$BUILD_ROOT"' EXIT
 
 mkdir -p "$MACOS" "$RESOURCES" "$HOME/Library/LaunchAgents" "$HOME/Applications"
@@ -17,8 +18,16 @@ launchctl bootout "gui/$(id -u)/com.georgie.native" >/dev/null 2>&1 || true
 pkill -x Georgie >/dev/null 2>&1 || true
 sleep 1
 
+echo "[Georgie] Preparing low-latency executive voice build..."
+/usr/bin/sed \
+  -e 's/speaker.delegate = self/speaker.delegate = self; configureGeorgieExecutiveVoice(speaker)/' \
+  -e 's/withTimeInterval: 0.85/withTimeInterval: 0.60/' \
+  -e 's/withTimeInterval: 0.7/withTimeInterval: 0.45/' \
+  "$ROOT/native-mac/GeorgieNative.swift" > "$PATCHED_SOURCE"
+/usr/bin/grep -q 'configureGeorgieExecutiveVoice(speaker)' "$PATCHED_SOURCE" || { echo "[Georgie] Voice profile injection failed."; exit 1; }
+
 echo "[Georgie] Building fresh native Mac app with Hey Georgie wake mode..."
-/usr/bin/swiftc "$ROOT/native-mac/GeorgieNative.swift" -o "$MACOS/Georgie" -framework AppKit -framework Carbon -framework Speech -framework AVFoundation
+/usr/bin/swiftc "$PATCHED_SOURCE" "$ROOT/native-mac/VoiceProfile.swift" -o "$MACOS/Georgie" -framework AppKit -framework Carbon -framework Speech -framework AVFoundation
 cp "$ROOT/public/georgie-avatar.jpg" "$RESOURCES/georgie-avatar.jpg"
 cat > "$CONTENTS/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -27,8 +36,8 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>Georgie</string>
 <key>CFBundleDisplayName</key><string>Georgie</string>
 <key>CFBundleIdentifier</key><string>com.georgie.native</string>
-<key>CFBundleVersion</key><string>4</string>
-<key>CFBundleShortVersionString</key><string>1.3</string>
+<key>CFBundleVersion</key><string>5</string>
+<key>CFBundleShortVersionString</key><string>1.4</string>
 <key>CFBundleExecutable</key><string>Georgie</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
@@ -62,6 +71,6 @@ launchctl kickstart -k "gui/$(id -u)/com.georgie.native" >/dev/null 2>&1 || true
 sleep 1
 open "$APP" || true
 
-echo "[Georgie] Fresh native Mac app installed (v1.3)."
-echo "[Georgie] Hey Georgie wake mode starts automatically after Microphone and Speech permissions are granted."
+echo "[Georgie] Fresh native Mac app installed (v1.4)."
+echo "[Georgie] Executive male voice profile enabled with faster command completion."
 echo "[Georgie] Say 'Hey Georgie' or use Option+Space to begin a conversation."
