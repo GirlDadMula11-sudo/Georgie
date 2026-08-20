@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { deriveContinuity } from "../src/operating-graph.js";
+import { continuationRecordForTurn, deriveContinuity } from "../src/operating-graph.js";
 
 test("continuity ranks urgent unfinished objectives and preserves next actions", () => {
   const result = deriveContinuity([
@@ -22,4 +22,24 @@ test("continuity recovers only unfinished durable Mac jobs", () => {
   ]);
   assert.deepEqual(result.unfinishedJobs.map((item) => item.id), ["queued", "claimed"]);
   assert.ok(result.unfinishedJobs.every((item) => item.durable));
+});
+
+test("a pending developer turn automatically becomes resumable engineering work", () => {
+  const record = continuationRecordForTurn("session-1", "Inspect the repository", {
+    route: { domain: "technical" },
+    outcome: { requiresFollowUp: true, requiresRecovery: false, actions: [{ tool: "developer.search" }], pendingJobIds: ["job-1"] },
+  });
+  assert.equal(record.kind, "engineering");
+  assert.equal(record.status, "waiting");
+  assert.ok(record.evidenceRefs.includes("job:job-1"));
+  assert.match(record.nextAction, /Recheck the durable job status/);
+});
+
+test("sensitive enrollment text is never copied into the continuity graph", () => {
+  const record = continuationRecordForTurn("session-2", "Create enrollment code SECRET-123", {
+    route: { domain: "technical" },
+    outcome: { requiresFollowUp: true, requiresRecovery: false, actions: [{ tool: "system.create_enrollment_code" }], pendingJobIds: [] },
+  });
+  assert.equal(record.title, "Resume protected device enrollment work");
+  assert.doesNotMatch(JSON.stringify(record), /SECRET-123/);
 });

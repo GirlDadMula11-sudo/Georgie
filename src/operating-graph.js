@@ -93,3 +93,28 @@ export async function operatingContinuity(userId, { limit = 50 } = {}) {
     authority: "observe_recommend_prepare",
   };
 }
+
+export function continuationRecordForTurn(sessionId, input, response = {}) {
+  const outcome = response.outcome;
+  if (!outcome?.requiresFollowUp && !outcome?.requiresRecovery) return null;
+  const tools = Array.isArray(outcome.actions) ? outcome.actions.map((item) => item.tool).filter(Boolean) : [];
+  const sensitive = tools.includes("system.create_enrollment_code");
+  const fingerprint = crypto.createHash("sha256").update(`${sessionId}:${bounded(input, 1000)}:${tools.join(",")}`).digest("hex").slice(0, 24);
+  return {
+    stableKey: `turn-continuation:${fingerprint}`,
+    kind: tools.some((tool) => tool.startsWith("developer.")) ? "engineering" : "execution",
+    title: sensitive ? "Resume protected device enrollment work" : bounded(input, 240) || "Resume unfinished Georgie work",
+    description: "Automatically retained from a nonterminal tool outcome. Raw tool payloads and sensitive response text are not stored.",
+    domain: response.route?.domain || "general",
+    status: outcome.requiresRecovery ? "recovering" : "waiting",
+    priority: outcome.requiresRecovery ? "high" : "normal",
+    nextAction: outcome.requiresRecovery ? "Inspect the failed action evidence, execute the bounded recovery path, and verify the requested outcome." : "Recheck the durable job status, continue from verified partial evidence, and report the terminal outcome.",
+    recovery: outcome.requiresRecovery ? "Retry only the failed bounded action after confirming authority and current evidence." : "Resume the existing durable job; do not create a duplicate action.",
+    evidenceRefs: [...tools.map((tool) => `tool:${tool}`), ...(outcome.pendingJobIds || []).map((id) => `job:${id}`)],
+  };
+}
+
+export async function retainTurnContinuation(userId, sessionId, input, response = {}) {
+  const record = continuationRecordForTurn(sessionId, input, response);
+  return record ? upsertOperatingNode(userId, record) : null;
+}

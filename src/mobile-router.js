@@ -15,6 +15,7 @@ import { recordClientTelemetry, recordOutcomeFeedback } from "./evaluation.js";
 import { terminalPartialResult, withTurnDeadline } from "./turn-lifecycle.js";
 import { appendSessionTurn } from "./memory.js";
 import { enhanceOutcomeResponse } from "./outcome-lifecycle.js";
+import { retainTurnContinuation } from "./operating-graph.js";
 
 const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:20*1024*1024}});
 const router=Router();
@@ -66,7 +67,11 @@ async function complete(userId, sessionId, input, options = {}) {
       },
     },
   );
-  return enhanceOutcomeResponse(response);
+  const enhanced = enhanceOutcomeResponse(response);
+  if (enhanced.outcome.requiresFollowUp || enhanced.outcome.requiresRecovery) {
+    setImmediate(() => retainTurnContinuation(userId, sessionId, input, enhanced).catch((error) => console.warn("Turn continuity persistence delayed:", error instanceof Error ? error.message : error)));
+  }
+  return enhanced;
 }
 
 router.get("/status",(_req,res)=>res.json({ok:true,...nativeAuthStatus()}));
