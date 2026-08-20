@@ -10,7 +10,7 @@ function headers() {
   };
 }
 
-async function rpc(name, body) {
+async function rpc(name, body = {}) {
   if (!ENABLED) throw new Error("Sierra workforce connection is not configured");
   const response = await fetch(`${SIERRA_URL}/rest/v1/rpc/${name}`, {
     method: "POST",
@@ -45,6 +45,12 @@ export async function getSierraDeal(userId, reference) {
 
 export async function getSierraHealth(userId) {
   return rpc("georgie_workforce_health", {
+    p_user_id: String(userId || "primary")
+  });
+}
+
+export async function getSierraInfrastructure(userId) {
+  return rpc("georgie_workforce_infrastructure", {
     p_user_id: String(userId || "primary")
   });
 }
