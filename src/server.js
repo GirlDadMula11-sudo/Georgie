@@ -22,6 +22,7 @@ import { createSierraRouter } from "./sierra-router.js";
 import { createCommandRouter } from "./command-router.js";
 import { completeTurnV2 } from "./v2-turn-engine.js";
 import { attachRealtimeRelay } from "./realtime-relay.js";
+import { startMaintenanceSentinel } from "./maintenance-sentinel.js";
 
 const app=express();const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:20*1024*1024}});const __dirname=path.dirname(fileURLToPath(import.meta.url));const publicDir=path.resolve(__dirname,"../public");
 app.disable("x-powered-by");app.set("trust proxy",1);app.use(helmet({contentSecurityPolicy:{directives:{defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'"],imgSrc:["'self'","data:","blob:"],mediaSrc:["'self'","blob:","data:"],connectSrc:["'self'"],workerSrc:["'self'","blob:"]}}}));app.use(express.json({limit:"10mb"}));app.use("/api",rateLimit({windowMs:60000,limit:Number(process.env.GEORGIE_RATE_LIMIT||90),standardHeaders:"draft-7",legacyHeaders:false}));app.use("/api/mobile",createMobileRouter());app.use(express.static(publicDir,{maxAge:process.env.NODE_ENV==="production"?"5m":0}));app.get("/",(_req,res)=>res.set("Cache-Control","no-cache").sendFile(path.join(publicDir,"index.html")));
@@ -54,6 +55,7 @@ app.post("/api/transcribe",upload.single("audio"),async(req,res)=>{try{if(!req.f
 
 startProactiveEngine();
 startEmailIntelligence();
+startMaintenanceSentinel();
 const PORT=Number(process.env.PORT||10000);
 const server=app.listen(PORT,()=>console.log(`Georgie listening on port ${PORT}`));
 attachRealtimeRelay(server);

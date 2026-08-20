@@ -47,7 +47,7 @@ async function sweepSierra(now) {
   const backoff = sierraBackoff();
 
   try {
-    if (now - lastSierraHealthAt >= HEALTH_INTERVAL * backoff) {
+    if (process.env.GEORGIE_MAINTENANCE_ENABLED === "false" && now - lastSierraHealthAt >= HEALTH_INTERVAL * backoff) {
       lastSierraHealthAt = now;
       const health = await getSierraHealth(executiveUser);
       sierraFailures = 0;
