@@ -16,7 +16,7 @@ export function intelligenceRoute(input = "") {
       ? process.env.OPENAI_BALANCED_MODEL || "gpt-5.6-terra"
       : process.env.OPENAI_FAST_MODEL || "gpt-5.6-luna";
   return {
-    version: "2026-08-20.1",
+    version: "2026-08-20.2",
     domain,
     tier,
     model,
@@ -25,6 +25,7 @@ export function intelligenceRoute(input = "") {
     requiresCurrentEvidence: highImpact || policy.allowWebTool,
     highImpact,
     allowWebTool: policy.allowWebTool,
-    latencyClass: policy.latencyClass
+    latencyClass: policy.latencyClass,
+    costPolicy: { hierarchy: ["deterministic", "cached_evidence", "fast_model", "balanced_model", "frontier_model"], selectedTier: tier, frontierJustification: tier === "frontier" ? (highImpact ? "high_impact" : "deep_reasoning") : null, downgradeAllowed: !highImpact }
   };
 }
