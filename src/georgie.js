@@ -102,7 +102,7 @@ function extractResponseText(payload) { if (payload.output_text) return payload.
 function reasoning(effort = "medium") { return { effort, context: "all_turns" }; }
 async function jsonResponse({ model, instructions, input, effort = "medium" }) { return withModelPermit(async()=>{const response = await openAI("/responses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, instructions, input, reasoning: reasoning(effort), text: { verbosity: "low" } }) }); const payload = await response.json(); const raw = extractResponseText(payload).trim(); return JSON.parse(raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim());}); }
 
-async function askGeorgieCore(input, history = [], context = "", { onTextDelta } = {}) {
+async function askGeorgieCore(input, history = [], context = "", { onTextDelta, modelOverride = null } = {}) {
   if (!input?.trim()) throw new Error("Input is required");
   const fast=fastMacAction(input);
   if(fast){return {text:`Command sent to your Mac: ${fast[0].args.app}.`,responseId:null,webSearches:0,model:"deterministic-fast-path"};}
@@ -111,7 +111,7 @@ async function askGeorgieCore(input, history = [], context = "", { onTextDelta }
   const safeHistory = Array.isArray(history) ? history.slice(-12).filter((item) => item && ["user", "assistant"].includes(item.role) && typeof item.content === "string").map((item)=>({role:item.role,content:item.content})) : [];
   const instructions = context ? `${SYSTEM_PROMPT}\n\nCURRENT OPERATING CONTEXT\n${context}` : SYSTEM_PROMPT;
   const streaming = typeof onTextDelta === "function";
-  const body = { model: route.model, instructions, input: [...safeHistory, { role: "user", content: input.trim() }], reasoning: reasoning(process.env.OPENAI_REASONING_EFFORT || route.reasoningEffort), text: { verbosity: process.env.OPENAI_VERBOSITY || route.responseVerbosity }, ...(streaming ? { stream: true } : {}) };
+  const body = { model: modelOverride||route.model, instructions, input: [...safeHistory, { role: "user", content: input.trim() }], reasoning: reasoning(modelOverride?"low":process.env.OPENAI_REASONING_EFFORT || route.reasoningEffort), text: { verbosity: process.env.OPENAI_VERBOSITY || route.responseVerbosity }, ...(streaming ? { stream: true } : {}) };
   if (process.env.GEORGIE_WEB_ENABLED !== "false" && route.allowWebTool) body.tools = [{ type: "web_search" }];
   const response = await openAI("/responses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (streaming) {
@@ -144,7 +144,7 @@ async function askGeorgieCore(input, history = [], context = "", { onTextDelta }
   const payload = await response.json(); const text = extractResponseText(payload); if (!text) throw new Error("Georgie returned an empty response");
   return { text, responseId: payload.id, webSearches: (payload.output || []).filter((item) => item.type === "web_search_call").length, model: body.model, route };
 }
-export async function askGeorgie(input,history=[],context="",options={}){return withModelPermit(()=>askGeorgieCore(input,history,context,options));}
+export async function askGeorgie(input,history=[],context="",options={}){return withModelPermit(async()=>{let emitted=false;const onTextDelta=typeof options.onTextDelta==="function"?(delta,text)=>{emitted=true;options.onTextDelta(delta,text);}:undefined;try{return await askGeorgieCore(input,history,context,{...options,onTextDelta});}catch(error){const errorMessage=error instanceof Error?error.message:String(error);if(emitted||/abort|timeout|deadline/i.test(errorMessage))throw error;const fallbackModel=process.env.OPENAI_FALLBACK_MODEL||process.env.OPENAI_FAST_MODEL||"gpt-5.6-luna";console.warn(`[Georgie] primary intelligence failed before output; retrying ${fallbackModel}:`,errorMessage);const result=await askGeorgieCore(input,history,`${context}\n\nRUNTIME RECOVERY: The primary intelligence path failed before producing user-visible text. Complete the request concisely from available evidence. State any limitation precisely and never claim an unverified action.`,{...options,onTextDelta,modelOverride:fallbackModel});return{...result,fallbackUsed:true,primaryError:errorMessage.slice(0,300)};}});}
 
 const SPOKEN_DETAIL_REQUEST = /\b(?:explain|elaborate|expand|walk me through|break (?:it|that) down|more detail|full detail|all (?:the )?details|in depth|deep dive|tell me more|read (?:it|that|the whole|the full)|say (?:it|that|the whole|the full))\b/i;
 const SPOKEN_WORD_LIMIT = Math.max(18, Math.min(60, Number(process.env.GEORGIE_SPOKEN_WORD_LIMIT || 28)));
