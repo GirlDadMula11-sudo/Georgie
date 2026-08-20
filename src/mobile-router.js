@@ -14,13 +14,60 @@ import { completeTurnV2 } from "./v2-turn-engine.js";
 import { recordClientTelemetry, recordOutcomeFeedback } from "./evaluation.js";
 import { terminalPartialResult, withTurnDeadline } from "./turn-lifecycle.js";
 import { appendSessionTurn } from "./memory.js";
+import { enhanceOutcomeResponse } from "./outcome-lifecycle.js";
 
 const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:20*1024*1024}});
 const router=Router();
 const userIdFor=()=>String(process.env.GEORGIE_PRIMARY_USER_ID||"primary").slice(0,100);
 const sessionIdFor=req=>String(req.headers["x-georgie-session"]||"native").slice(0,150);
 
-async function complete(userId,sessionId,input,options={}){const startedAt=Date.now();let expired=false;return withTurnDeadline(()=>completeTurnV2({userId,sessionId,input,history:options.history||[],onProgress:options.onProgress,shouldFinalize:()=>!expired}),{onDeadline:()=>{expired=true;const result=terminalPartialResult({startedAt});options.onProgress?.({type:"status",stage:"terminal_partial",message:"I reached the bounded deadline. Accepted tool work remains durable; nothing unfinished is being claimed as complete.",elapsedMs:result.latencyMs});void Promise.race([Promise.all([appendSessionTurn({userId,sessionId,role:"user",content:input}),appendSessionTurn({userId,sessionId,role:"assistant",content:result.text}),recordTurnEvaluation(userId,{route:result.route,model:result.model,latencyMs:result.latencyMs,firstResponseMs:result.firstResponseMs,contextReadyMs:result.contextReadyMs,toolCount:0,evidence:[],responseCharacters:result.text.length,completed:false,actionSuccess:null})]),new Promise(resolve=>setTimeout(resolve,2500))]).catch(error=>console.warn("Georgie terminal-state persistence delayed:",error instanceof Error?error.message:error));return result;}});}
+async function complete(userId, sessionId, input, options = {}) {
+  const startedAt = Date.now();
+  let expired = false;
+  const response = await withTurnDeadline(
+    () => completeTurnV2({
+      userId,
+      sessionId,
+      input,
+      history: options.history || [],
+      onProgress: options.onProgress,
+      shouldFinalize: () => !expired,
+    }),
+    {
+      onDeadline: () => {
+        expired = true;
+        const result = terminalPartialResult({ startedAt });
+        options.onProgress?.({
+          type: "status",
+          stage: "terminal_partial",
+          message: "I reached the bounded deadline. Accepted tool work remains durable; nothing unfinished is being claimed as complete.",
+          elapsedMs: result.latencyMs,
+        });
+        void Promise.race([
+          Promise.all([
+            appendSessionTurn({ userId, sessionId, role: "user", content: input }),
+            appendSessionTurn({ userId, sessionId, role: "assistant", content: result.text }),
+            recordTurnEvaluation(userId, {
+              route: result.route,
+              model: result.model,
+              latencyMs: result.latencyMs,
+              firstResponseMs: result.firstResponseMs,
+              contextReadyMs: result.contextReadyMs,
+              toolCount: 0,
+              evidence: [],
+              responseCharacters: result.text.length,
+              completed: false,
+              actionSuccess: null,
+            }),
+          ]),
+          new Promise((resolve) => setTimeout(resolve, 2500)),
+        ]).catch((error) => console.warn("Georgie terminal-state persistence delayed:", error instanceof Error ? error.message : error));
+        return result;
+      },
+    },
+  );
+  return enhanceOutcomeResponse(response);
+}
 
 router.get("/status",(_req,res)=>res.json({ok:true,...nativeAuthStatus()}));
 router.post("/enroll",async(req,res)=>{try{const platform=["ios","pwa","macos"].includes(req.body?.platform)?req.body.platform:"pwa";const token=await enrollNativeDevice({code:req.body?.code,deviceId:req.body?.deviceId,deviceName:req.body?.deviceName||"Georgie device",platform});res.json({ok:true,token,platform})}catch(error){res.status(403).json({ok:false,error:error instanceof Error?error.message:"Enrollment failed"})}});
