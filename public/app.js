@@ -271,6 +271,7 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
   setStatus("Thinking…");
   const requestStarted = performance.now();
   let headersAt = 0, firstEventAt = 0, firstDeltaAt = 0;
+  let assistantItem = null;
   const controller = new AbortController();
   const deadline = setTimeout(() => controller.abort(new DOMException("Georgie exceeded the 30-second response deadline", "TimeoutError")), 30000);
 
@@ -283,7 +284,7 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
     });
     headersAt = performance.now();
     if (!response.ok || !response.body) throw new Error("Streaming response unavailable");
-    const assistantItem = appendMessage("assistant", "Working…");
+    assistantItem = appendMessage("assistant", "Working…");
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "", streamedText = "", payload = null;
@@ -315,7 +316,12 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
   } catch (error) {
     console.error(error);
     const timedOut = error?.name === "AbortError" || error?.name === "TimeoutError" || controller.signal.aborted;
-    setStatus(timedOut ? "That request stalled and was stopped. Nothing was changed — retry or ask for a narrower check." : (error.message || "Something went wrong."));
+    const failureText = timedOut ? "That request exceeded Georgie’s response deadline and was stopped. I did not verify completion, and nothing should be treated as completed." : `I could not complete that request: ${String(error?.message || "the response pipeline failed").slice(0,300)}. Nothing should be treated as completed.`;
+    if (assistantItem) updateMessage(assistantItem, failureText); else assistantItem = appendMessage("assistant", failureText);
+    attachHearResponse(assistantItem, failureText);
+    pushHistory("assistant", failureText);
+    setStatus(timedOut ? "Request stopped at the deadline. A failure report is on screen." : "Request failed. A failure report is on screen.");
+    if (speakResponse) void speak(failureText).catch(()=>{});
     throw error;
   } finally {
     clearTimeout(deadline);
