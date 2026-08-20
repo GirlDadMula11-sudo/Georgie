@@ -10,6 +10,14 @@ async function rest(path,options={}){if(!enabled)throw new Error("Native auth st
 
 export function nativeAuthStatus(){return{enabled};}
 
+export async function createEnrollmentCode({ttlMinutes=15}={}){
+ const ttl=Math.max(1,Math.min(30,Number(ttlMinutes)||15));
+ const code=crypto.randomBytes(9).toString("base64url").toUpperCase();
+ const expiresAt=new Date(Date.now()+ttl*60*1000).toISOString();
+ await rest("georgie_mobile_enrollment_codes",{method:"POST",headers:{prefer:"return=minimal"},body:JSON.stringify({code_hash:hash(code),active:true,expires_at:expiresAt})});
+ return{code,expiresAt,oneTime:true};
+}
+
 export async function enrollNativeDevice({code,deviceId,deviceName="iPhone",platform="ios"}){
  if(!code||!deviceId)throw new Error("Enrollment code and device ID are required");
  const codeHash=hash(code),now=new Date().toISOString();
