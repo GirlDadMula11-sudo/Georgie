@@ -1,0 +1,51 @@
+import crypto from "node:crypto";
+import { createApprovalRequest, decideApproval, listApprovals } from "./command-layer.js";
+import { readCloudState, writeCloudState } from "./cloud-state.js";
+
+const NS="approval_continuation";
+const APPROVAL_LANGUAGE=/^\s*(?:yes[,.!]?\s*)?(?:so\s+)?(?:complete|proceed|execute|apply|finish|do)\s+(?:it|that|the plan|the repair)(?:\s+now)?[,.!;:\s-]*(?:you have|with|i give|this is)\s+(?:my\s+)?approval\b|^\s*(?:approved|i approve|you have my approval)\s*(?:it|that|the plan|the repair)?[.!]?\s*$/i;
+
+const clean=value=>String(value||"").trim();
+const now=()=>new Date().toISOString();
+
+export function isConversationalApproval(input){return APPROVAL_LANGUAGE.test(clean(input));}
+
+export function preflightExecution(execution,availableTools=[]){
+  if(!execution||typeof execution!=="object"||!clean(execution.tool))return{ok:false,missingTool:"approval.execution_descriptor",reason:"The approved plan has no exact execution tool and bounded arguments."};
+  const verificationNames=Array.isArray(execution.verificationTools)?execution.verificationTools:Array.isArray(execution.verification)?execution.verification.map(item=>item?.tool):[];
+  const required=[execution.tool,...verificationNames].map(clean).filter(Boolean);
+  const known=new Set(availableTools.map(item=>typeof item==="string"?item:item?.name));
+  const missing=required.find(name=>!known.has(name));
+  return missing?{ok:false,missingTool:missing,reason:`Required tool ${missing} is not attached to this runtime.`}:{ok:true,requiredTools:required};
+}
+
+async function readState(userId){return readCloudState(userId,NS,{version:1,plans:[]});}
+async function saveState(userId,state){const saved=await writeCloudState(userId,NS,{...state,version:1,updatedAt:now(),plans:(state.plans||[]).slice(-500)});if(!saved)throw new Error("Durable approval-continuation storage is unavailable");}
+
+export async function prepareApprovalPlan(userId,{sessionId="native",title,summary,steps=[],execution=null,domain="general",risk="high",reversible=false,verificationMethod="",rollbackPlan=""}={}){
+  const uid=clean(userId)||"primary",state=await readState(uid),stableKey=crypto.createHash("sha256").update(`${clean(title)}\n${clean(summary)}`).digest("hex").slice(0,24);
+  const prior=(state.plans||[]).filter(item=>item.stableKey===stableKey).sort((a,b)=>b.version-a.version)[0];
+  const plan={id:crypto.randomUUID(),stableKey,version:Number(prior?.version||0)+1,userId:uid,sessionId:clean(sessionId).slice(0,150),title:clean(title).slice(0,300),summary:clean(summary).slice(0,3000),steps:steps.map(clean).filter(Boolean).slice(0,20),execution:execution&&typeof execution==="object"?execution:null,status:"awaiting_approval",createdAt:now(),updatedAt:now(),approvalId:null,executionResult:null,verification:null,error:null};
+  const approval=await createApprovalRequest(uid,{domain,actionType:"execute_versioned_plan",title:`${plan.title} · v${plan.version}`,summary:plan.summary,evidence:{planId:plan.id,planVersion:plan.version,stableKey,steps:plan.steps,execution:plan.execution},risk,reversible,verificationMethod,rollbackPlan});
+  plan.approvalId=approval.id;state.plans=[...(state.plans||[]),plan];await saveState(uid,state);return{plan,approval};
+}
+
+export async function resolveConversationalApproval(userId,input,{sessionId="native"}={}){
+  if(!isConversationalApproval(input))return null;
+  const uid=clean(userId)||"primary",pending=await listApprovals(uid,{status:"pending",limit:25});
+  const eligible=pending.filter(item=>item.actionType==="execute_versioned_plan"&&item.evidence?.planId);
+  if(!eligible.length)return{ok:false,status:"no_eligible_plan",missingTool:null,error:"No pending versioned repair plan is eligible for conversational approval. Ask Georgie to prepare the repair first."};
+  const latest=eligible[0],state=await readState(uid),plan=(state.plans||[]).find(item=>item.id===latest.evidence.planId);
+  if(!plan)return{ok:false,status:"plan_record_missing",missingTool:"approval.plan_store",error:`Approval ${latest.id} exists, but its durable plan record is missing.`};
+  if(plan.sessionId!==clean(sessionId).slice(0,150)&&eligible.length>1)return{ok:false,status:"ambiguous",error:`Approval is ambiguous across ${eligible.length} pending plans. Use an exact approval ID.`};
+  const approval=await decideApproval(uid,latest.id,{decision:"approved",note:"Explicit conversational approval resolved to the latest eligible versioned plan."});
+  plan.status="approved";plan.updatedAt=now();await saveState(uid,state);
+  return{ok:true,status:"approved",plan,approval,execution:plan.execution};
+}
+
+export async function transitionApprovalPlan(userId,planId,{status,executionResult=null,verification=null,error=null,missingTool=null}={}){
+  const uid=clean(userId)||"primary",state=await readState(uid),plan=(state.plans||[]).find(item=>item.id===planId);if(!plan)return null;
+  plan.status=clean(status)||plan.status;plan.executionResult=executionResult;plan.verification=verification;plan.error=error?clean(error).slice(0,2000):null;plan.missingTool=missingTool||null;plan.updatedAt=now();await saveState(uid,state);return plan;
+}
+
+export async function listApprovalPlans(userId,{limit=25}={}){const state=await readState(clean(userId)||"primary");return(state.plans||[]).slice(-Math.max(1,Math.min(Number(limit)||25,100))).reverse();}

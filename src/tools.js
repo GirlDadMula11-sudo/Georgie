@@ -20,6 +20,7 @@ import { runStaticBenchmark } from "./intelligence-benchmark.js";
 import { createApprovalRequest, getApprovalRequest } from "./command-layer.js";
 import { createEnrollmentCode } from "./mobile-auth.js";
 import { operatingContinuity, transitionOperatingNode, upsertOperatingNode } from "./operating-graph.js";
+import { listApprovalPlans, preflightExecution, prepareApprovalPlan, resolveConversationalApproval, transitionApprovalPlan } from "./approval-continuation.js";
 import crypto from "crypto";
 
 const LEVELS={read:0,low_risk_write:1,sensitive_write:2,external_side_effect:3};const registry=new Map();function defineTool(definition){registry.set(definition.name,definition)}
@@ -96,6 +97,23 @@ defineTool({name:"decisions.list",description:"Read the verified decision journa
 defineTool({name:"decisions.record",description:"Record an explicit user decision, correction, rationale, verification, or outcome in the durable decision journal.",risk:"low_risk_write",async run({userId,args}){return recordDecision(userId,args||{})}});
 defineTool({name:"approvals.list",description:"List pending, approved, rejected, deferred, or all governed action approvals with evidence, risk, verification, and rollback contracts.",risk:"read",async run({userId,args}){return listApprovals(userId,{status:args?.status||"pending",limit:args?.limit||25})}});
 defineTool({name:"approvals.decide",description:"Record Jason's explicit approval, rejection, or deferral for one exact approval ID. This authorizes but does not execute the action.",risk:"sensitive_write",async run({userId,args}){const id=String(args?.approvalId||"").trim(),decision=String(args?.decision||"").toLowerCase();if(!id)throw new Error("Approval ID is required");return decideApproval(userId,id,{decision,note:args?.note||"Explicit decision issued through Georgie conversation"})}});
+defineTool({name:"approvals.prepare_plan",description:"Save a durable, versioned, exact-scope repair or execution plan and issue its specific approval ID. The execution descriptor must name one available tool with bounded arguments plus optional verification reads. Preparing never executes.",risk:"low_risk_write",async run({userId,args}){return prepareApprovalPlan(userId,args||{})}});
+defineTool({name:"approvals.plans",description:"List durable versioned repair plans, their exact approval IDs, execution state, verification evidence, and any precise missing tool.",risk:"read",async run({userId,args}){return listApprovalPlans(userId,{limit:args?.limit||25})}});
+defineTool({name:"approvals.continue_latest",description:"Resolve explicit conversational approval such as 'complete it, you have my approval' to the latest eligible versioned plan, validate every required tool, execute only its exact bound descriptor, verify it, and durably report the outcome. Never invents a queue.",risk:"low_risk_write",async run({userId,args}){
+  const resolved=await resolveConversationalApproval(userId,args?.utterance||"",{sessionId:args?.sessionId||"native"});
+  if(!resolved?.ok)return resolved||{ok:false,status:"not_an_approval",error:"The utterance was not explicit approval."};
+  const preflight=preflightExecution(resolved.execution,listToolDefinitions());
+  if(!preflight.ok){await transitionApprovalPlan(userId,resolved.plan.id,{status:"blocked_missing_tool",error:preflight.reason,missingTool:preflight.missingTool});return{ok:false,status:"blocked_missing_tool",approvalId:resolved.approval.id,planId:resolved.plan.id,version:resolved.plan.version,missingTool:preflight.missingTool,error:preflight.reason};}
+  const target=registry.get(resolved.execution.tool);if(!target){const missingTool=resolved.execution.tool;await transitionApprovalPlan(userId,resolved.plan.id,{status:"blocked_missing_tool",missingTool,error:`Required tool ${missingTool} is unavailable.`});return{ok:false,status:"blocked_missing_tool",missingTool,error:`Required tool ${missingTool} is unavailable.`};}
+  await transitionApprovalPlan(userId,resolved.plan.id,{status:"executing"});
+  try{
+    const result=await target.run({userId,args:resolved.execution.args||{}});
+    const verification=[];for(const check of resolved.execution.verification||[]){const verifyTool=registry.get(check.tool);if(!verifyTool){verification.push({ok:false,tool:check.tool,error:`Required verification tool ${check.tool} is unavailable.`});continue;}try{verification.push({ok:true,tool:check.tool,result:await verifyTool.run({userId,args:check.args||{}})});}catch(error){verification.push({ok:false,tool:check.tool,error:error instanceof Error?error.message:String(error)});}}
+    const terminal=!['queued','pending','accepted','running','in_progress'].includes(String(result?.status||'').toLowerCase()),verified=terminal&&verification.every(item=>item.ok);
+    await transitionApprovalPlan(userId,resolved.plan.id,{status:verified?"verified":"verification_pending",executionResult:result,verification});
+    return{ok:verified,status:verified?"verified":"verification_pending",approvalId:resolved.approval.id,planId:resolved.plan.id,version:resolved.plan.version,executedTool:resolved.execution.tool,result,verification};
+  }catch(error){const message=error instanceof Error?error.message:String(error);await transitionApprovalPlan(userId,resolved.plan.id,{status:"failed",error:message});return{ok:false,status:"failed",approvalId:resolved.approval.id,planId:resolved.plan.id,version:resolved.plan.version,executedTool:resolved.execution.tool,error:message};}
+}});
 defineTool({name:"system.status",description:"Inspect Georgie's live capability manifest, connection states, verification paths, platform constraints, and resource balance without exposing credentials.",risk:"read",async run(){return getCapabilityManifest()}});
 defineTool({name:"system.action_journal",description:"Read Georgie's durable journal of governed tool attempts, approval requirements, outcomes, and failures.",risk:"read",async run({userId,args}){return listActionJournal(userId,{limit:args?.limit||50})}});
 defineTool({name:"system.reconciliation_status",description:"Read the durable state of Georgie's scheduled intake-transfer, missing-date, funding-evidence, and health-reconciliation workers.",risk:"read",async run({userId}){return reconciliationStatus(userId)}});
