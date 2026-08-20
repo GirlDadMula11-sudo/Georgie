@@ -111,6 +111,10 @@ export async function getSierraReconciliationInvariant(userId, { submissionId = 
   return rpc("georgie_workforce_reconciliation_invariant", { p_user_id:String(userId||"primary"), p_submission_id:submissionId?String(submissionId):null, p_limit:Math.max(1,Math.min(Number(limit)||250,1000)) });
 }
 
+export async function getSierraGuardedLenderConflicts(userId, { reference = null, limit = 50 } = {}) {
+  return rpc("georgie_workforce_guarded_lender_conflicts", { p_user_id:String(userId||"primary"), p_reference:reference?String(reference):null, p_limit:Math.max(1,Math.min(Number(limit)||50,200)) });
+}
+
 export async function getSierraGovernedAccess(userId) {
   const uid=String(userId||"primary");
   const probes=await Promise.all([
@@ -118,6 +122,7 @@ export async function getSierraGovernedAccess(userId) {
     probe("georgie_workforce_infrastructure",{p_user_id:uid}),
     probe("georgie_workforce_apply_inventory",{p_user_id:uid,p_limit:1,p_cursor:null,p_status:"all"}),
     probe("georgie_workforce_audit_events",{p_user_id:uid,p_reference:null,p_limit:1}),
+    probe("georgie_workforce_guarded_lender_conflicts",{p_user_id:uid,p_reference:null,p_limit:1}),
     probe("georgie_workforce_document_manifest",{p_user_id:uid,p_reference:null,p_submission_id:null}),
     probe("georgie_workforce_reconciliation_invariant",{p_user_id:uid,p_submission_id:null,p_limit:1})
   ]);
