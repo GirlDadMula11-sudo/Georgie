@@ -12,7 +12,7 @@ const SNAPSHOT_NS = "command_center_snapshot";
 const PRIORITY_WEIGHT = { urgent: 100, high: 70, normal: 40, low: 10 };
 
 function bounded(value, max = 2000) { return String(value || "").trim().slice(0, max); }
-function validDomain(value) { return ["personal", "household", "sierra", "uncertain"].includes(value) ? value : "uncertain"; }
+function validDomain(value) { return ["general", "technical", "research", "learning", "creative", "life_admin", "personal", "family", "household", "travel", "finance", "sierra", "uncertain"].includes(value) ? value : "uncertain"; }
 function now() { return new Date().toISOString(); }
 function dueScore(dueAt) {
   if (!dueAt) return 0;
