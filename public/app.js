@@ -90,16 +90,16 @@ function attachOutcomeFeedback(item, input, payload) {
 
 function pushHistory(role, content) {
   history.push({ role, content });
-  history = history.slice(-80);
+  history = history.slice(-200);
 }
 
 async function restoreSession() {
   try {
     await georgieDeviceReady;
-    const response = await fetch("/api/mobile/session?limit=80&scope=continuous", { headers: requestHeaders() });
+    const response = await fetch("/api/mobile/session?limit=200&scope=continuous", { headers: requestHeaders() });
     const payload = await response.json();
     if (!response.ok || !payload.ok || !Array.isArray(payload.history)) return;
-    history = payload.history.slice(-80);
+    history = payload.history.slice(-200);
     for (const turn of history) {
       if (["user", "assistant"].includes(turn.role) && turn.content) appendMessage(turn.role, turn.content);
     }
