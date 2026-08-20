@@ -194,11 +194,14 @@ async function unlockVoicePlayback() {
 
 async function speak(text) {
   if (!voiceOutputEnabled) return;
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), 15000);
   try {
     const response = await fetch("/api/mobile/speak", {
       method: "POST",
       headers: requestHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ text })
+      body: JSON.stringify({ text }),
+      signal: controller.signal
     });
     if (!response.ok) throw new Error(`Speech request failed (${response.status})`);
     await playAudioBlob(await response.blob());
@@ -207,12 +210,25 @@ async function speak(text) {
     recordVoiceTelemetry("server_audio_failed", { error: String(error?.message || error).slice(0, 240) });
     await browserVoiceFallback(text);
     recordVoiceTelemetry("browser_fallback_playing");
+  } finally {
+    clearTimeout(deadline);
   }
 }
 
 function browserVoiceFallback(text) {
   return new Promise((resolve, reject) => {
     if (!window.speechSynthesis) return reject(new Error("Browser speech unavailable"));
+    let settled = false;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      error ? reject(error) : resolve();
+    };
+    const deadline = setTimeout(() => {
+      window.speechSynthesis.cancel();
+      finish(new Error("Browser speech exceeded its playback deadline"));
+    }, 20000);
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(String(text || "").slice(0, 1800));
     utterance.lang = "en-US";
@@ -221,8 +237,8 @@ function browserVoiceFallback(text) {
     utterance.volume = 1;
     const voices = window.speechSynthesis.getVoices();
     utterance.voice = voices.find((voice) => /daniel|aaron|evan|reed|male/i.test(voice.name) && /^en/i.test(voice.lang)) || voices.find((voice) => /^en-US/i.test(voice.lang)) || null;
-    utterance.onend = () => resolve();
-    utterance.onerror = (event) => reject(new Error(event.error || "Browser speech failed"));
+    utterance.onend = () => finish();
+    utterance.onerror = (event) => finish(new Error(event.error || "Browser speech failed"));
     window.speechSynthesis.speak(utterance);
   });
 }
@@ -310,8 +326,8 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
     attachHearResponse(assistantItem, payload.spokenText || payload.text);
     void fetch("/api/mobile/telemetry", { method:"POST", headers:requestHeaders({"Content-Type":"application/json"}), body:JSON.stringify({ platform:"web", route:"respond_stream", headersMs:headersAt-requestStarted, firstEventMs:(firstEventAt||headersAt)-requestStarted, firstDeltaMs:(firstDeltaAt||performance.now())-requestStarted, completeMs:performance.now()-requestStarted }) }).catch(()=>{});
     pushHistory("assistant", payload.text);
-    setStatus(payload.remembered ? `Speaking… remembered ${payload.remembered} new detail${payload.remembered === 1 ? "" : "s"}.` : "Speaking…");
-    if (speakResponse) { try { await speak(payload.spokenText || payload.text); } catch (error) { console.warn("Automatic voice playback blocked",error); setStatus("Response ready — tap Hear response for audio."); } }
+    setStatus(payload.remembered ? `Response ready — remembered ${payload.remembered} new detail${payload.remembered === 1 ? "" : "s"}.` : "Response ready.");
+    if (speakResponse) void speak(payload.spokenText || payload.text).catch((error) => { console.warn("Automatic voice playback blocked",error); setStatus("Response ready — tap Hear response for audio."); });
     return payload;
   } catch (error) {
     console.error(error);
