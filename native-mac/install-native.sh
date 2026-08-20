@@ -17,7 +17,7 @@ launchctl bootout "gui/$(id -u)/com.georgie.native" >/dev/null 2>&1 || true
 pkill -x Georgie >/dev/null 2>&1 || true
 sleep 1
 
-echo "[Georgie] Building fresh native Mac app..."
+echo "[Georgie] Building fresh native Mac app with Hey Georgie wake mode..."
 /usr/bin/swiftc "$ROOT/native-mac/GeorgieNative.swift" -o "$MACOS/Georgie" -framework AppKit -framework Carbon -framework Speech -framework AVFoundation
 cp "$ROOT/public/georgie-avatar.jpg" "$RESOURCES/georgie-avatar.jpg"
 cat > "$CONTENTS/Info.plist" <<'PLIST'
@@ -27,13 +27,13 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>Georgie</string>
 <key>CFBundleDisplayName</key><string>Georgie</string>
 <key>CFBundleIdentifier</key><string>com.georgie.native</string>
-<key>CFBundleVersion</key><string>3</string>
-<key>CFBundleShortVersionString</key><string>1.2</string>
+<key>CFBundleVersion</key><string>4</string>
+<key>CFBundleShortVersionString</key><string>1.3</string>
 <key>CFBundleExecutable</key><string>Georgie</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
-<key>NSMicrophoneUsageDescription</key><string>Georgie uses the microphone so you can control your Mac and talk to your assistant by voice.</string>
-<key>NSSpeechRecognitionUsageDescription</key><string>Georgie converts your spoken commands into actions and assistant requests.</string>
+<key>NSMicrophoneUsageDescription</key><string>Georgie listens locally for your Hey Georgie wake phrase and voice commands.</string>
+<key>NSSpeechRecognitionUsageDescription</key><string>Georgie converts your wake phrase and spoken commands into assistant requests.</string>
 </dict></plist>
 PLIST
 chmod +x "$MACOS/Georgie"
@@ -62,6 +62,6 @@ launchctl kickstart -k "gui/$(id -u)/com.georgie.native" >/dev/null 2>&1 || true
 sleep 1
 open "$APP" || true
 
-echo "[Georgie] Fresh native Mac app installed (v1.2)."
-echo "[Georgie] Old Georgie process and app bundle were replaced."
-echo "[Georgie] Use Option+Space to summon the new teal/navy Georgie."
+echo "[Georgie] Fresh native Mac app installed (v1.3)."
+echo "[Georgie] Hey Georgie wake mode starts automatically after Microphone and Speech permissions are granted."
+echo "[Georgie] Say 'Hey Georgie' or use Option+Space to begin a conversation."
