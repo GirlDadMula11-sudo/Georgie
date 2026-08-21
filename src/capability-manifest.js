@@ -60,6 +60,16 @@ export function getCapabilityManifest() {
       governedTools: true,
       boundedExecution: true
     },
+    evidenceFoundation: {
+      guardedConflictContract: "georgie.guarded-conflict.v1",
+      dealEvidenceGraph: "georgie.deal-evidence-graph.v1",
+      completeDealStages: ["lead", "application", "documents", "underwriting", "capital_match", "lender_submission", "lender_response", "closing", "funding", "crm_accounting"],
+      durableMultiToolInvestigations: true,
+      independentStepRecovery: true,
+      contradictionsPreserved: true,
+      explicitUnknownStates: true,
+      writesEnabledByThisLayer: false
+    },
     universalCapabilities: {
       reasoning: ["analysis", "planning", "comparison", "scenario_testing", "counterargument", "uncertainty_calibration", "decision_support"],
       knowledgeWork: ["web_research", "document_reasoning", "technical_assistance", "learning_and_explanation", "writing", "creative_development"],
@@ -80,7 +90,7 @@ export function getCapabilityManifest() {
         state: configured(sierraWorkforce),
         callableInChat: sierraWorkforce,
         access: sierraWorkforce ? "governed_production_rpc" : "none",
-        coverage: sierraWorkforce ? ["portfolio", "deals", "health", "infrastructure", "strategy", "lenders", "offers", "evidence", "bounded_repairs"] : [],
+        coverage: sierraWorkforce ? ["portfolio", "deals", "health", "infrastructure", "strategy", "lenders", "offers", "record_level_conflicts", "durable_diagnostics", "deal_evidence_graph", "bounded_repairs"] : [],
         liveHealth: "verify_with_sierra.health_and_sierra.infrastructure"
       },
       deploymentObservability: {

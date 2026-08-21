@@ -52,7 +52,7 @@ export function deterministicToolPlan(input = "") {
     {tool:"sierra.infrastructure",args:{}},
     {tool:"sierra.audit_events",args:{reference:null,limit:100}}
   ];
-  if (/\b(?:inspect|show|identify|diagnose|explain|list)\b/.test(lower) && /\bguarded\b/.test(lower) && /\b(?:lender[- ]activity|evidence)\b/.test(lower) && /\bconflicts?\b/.test(lower)) return [{tool:"sierra.guarded_lender_conflicts",args:{reference:null,limit:50}}];
+  if (/\b(?:inspect|show|identify|diagnose|explain|list)\b/.test(lower) && /\bguarded\b/.test(lower) && /\b(?:lender[- ]activity|evidence)\b/.test(lower) && /\bconflicts?\b/.test(lower)) return [{tool:"sierra.guarded_conflict_intelligence",args:{reference:referenceFrom(text),limit:50}}];
   if (/\b(?:analy[sz]e|audit|diagnose|review|inspect)\b/.test(lower) && /\b(?:georgie|repo|repository|codebase|architecture)\b/.test(lower) && /\b(?:reliability|silent|working|tool|continuity|completion|failure|weakness|crash)\b/.test(lower)) return [{tool:"developer.search",args:{repo:null,query:"completeTurnV2|respond/stream|sendTextTurn|isBusy|appendSessionTurn|executePlannedActions|verifiedDirectResponse|planActions|queueMacAndWait|recordTurnEvaluation|restoreSession|backgroundLearn"}}];
   if (/\b(?:inspect|review|check)\b/.test(lower) && /\b(?:repo|repository|codebase|working tree|git status)\b/.test(lower)) return [{tool:"developer.repo_inspect",args:{repo:null}}];
   if (/\b(?:review|inspect|check|scan|go through|look through|summarize)\b/.test(lower) && /\b(?:open\s+)?tabs?\b/.test(lower) && /\b(?:mac|safari|chrome|browser)\b/.test(lower)) return [{tool:"mac.browser_inspect",args:{includeContent:true,scope:"sierra"}}];
@@ -62,6 +62,8 @@ export function deterministicToolPlan(input = "") {
   const emailSend=parseExplicitEmailSend(text); if(emailSend) return [emailSend];
   const macApp=parseMacOpen(text); if(macApp) return [{tool:"mac.devices",args:{}},{tool:"mac.open_app",args:{app:macApp}}];
   const ref = referenceFrom(text);
+  if (/\b(?:durable|multi[- ]tool|cross[- ]system)\b/.test(lower) && /\b(?:diagnostic|investigation|inspection|plan)\b/.test(lower) && /\b(?:sierra|deal|workflow|system)\b/.test(lower)) return [{tool:"sierra.diagnostic_investigation",args:{reference:ref,scope:"sierra_end_to_end"}}];
+  if (ref && /\b(?:evidence graph|complete truth|full deal truth|deal reconstruction|trace the deal|trace this deal)\b/.test(lower)) return [{tool:"sierra.evidence_graph",args:{reference:ref}}];
   const sierraWorkflowDomain = /\b(?:sierra|crm|intake|capital\s*match|capitalmatch|underwriting|submission)\b/.test(lower);
   const sierraWorkflowScope = /\b(?:entire|overall|end[- ]to[- ]end|intake|processing|capital\s*match|capitalmatch|underwriting|submission|pipeline|workflow|flow|transition|system)\b/.test(lower);
   const sierraWorkflowIntent = /\b(?:align(?:ment|ed)?|diagnos\w*|evaluate|inspect|review|audit|trace|map|disconnects?|gaps?|permanent solution|smooth transition|broken|issue|problem|what(?:'s| is) going on|help us)\b/.test(lower);
