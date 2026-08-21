@@ -1,7 +1,7 @@
 import { askGeorgie, extractMemoryCandidates, planActions } from "./georgie.js";
 import { addMemory, appendSessionTurn, buildMemoryContext, getSessionHistory } from "./memory.js";
 import { listTasks } from "./tasks.js";
-import { deterministicToolPlan, latestDeterministicApprovalPlan } from "./fast-intents.js";
+import { deterministicToolPlanWithHistory, latestDeterministicApprovalPlan } from "./fast-intents.js";
 import { executeTool, listToolDefinitions, persistentToolSurface } from "./tools.js";
 import { recordTurnEvaluation } from "./evaluation.js";
 import { getCapabilityManifest } from "./capability-manifest.js";
@@ -56,8 +56,8 @@ function safeRuntimePrompt(envelope){
   try{return unifiedRuntimePrompt(envelope);}
   catch(error){console.warn("Georgie runtime prompt degraded:",error instanceof Error?error.stack||error.message:error);return "UNIFIED GEORGIE OPERATING RUNTIME\nUse governed tools, preserve evidence, and report a truthful terminal outcome.";}
 }
-async function planFor(input){
-  const deterministic=deterministicToolPlan(input);
+async function planFor(input,{history=[]}={}){
+  const deterministic=deterministicToolPlanWithHistory(input,history);
   if(deterministic.length){console.log(`[Georgie] governed tool plan ${JSON.stringify({source:"deterministic",actionCount:deterministic.length,tools:deterministic.map(action=>action.tool)})}`);return deterministic;}
   const planned=await planActions(input,listToolDefinitions());
   console.log(`[Georgie] governed tool plan ${JSON.stringify({source:"model_router",actionCount:planned.length,tools:planned.map(action=>action.tool)})}`);
@@ -67,7 +67,7 @@ async function boundedRead(action,userId,policy,{emit}={}){const timeoutMs=Math.
 async function executePlannedActions(userId,input,{sessionId="native",history=[],onProgress}={}){
   const emit=(event)=>{try{onProgress?.(event);}catch{}};
   let actions;
-  try{actions=await planFor(input);}
+  try{actions=await planFor(input,{history});}
   catch(error){
     emit({type:"status",stage:"planning_failed",message:"The governed plan could not be created."});
     return[{ok:false,tool:"tool.router",error:`Tool planning unavailable: ${error instanceof Error?error.message:"unknown error"}`,advisoryFallback:true}];
