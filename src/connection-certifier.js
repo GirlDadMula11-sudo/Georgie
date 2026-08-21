@@ -27,6 +27,13 @@ export async function runConnectionCertification() {
     checkedAt: new Date().toISOString()
   };
 
-  console.log(`[Georgie] Connection certification: ${JSON.stringify(report)}`);
+  const logReport = report.ok ? {
+    ok: true,
+    neo: report.neo.map(({ id, email, ok, imap, smtp }) => ({ id, email, ok, imap, smtp })),
+    vercel: { ok: report.vercel.ok, latestDeployment: report.vercel.latestDeployment, issueCount: report.vercel.errorCount },
+    render: { ok: report.render.ok, latestDeployment: report.render.latestDeployment, issueCount: report.render.errorCount },
+    checkedAt: report.checkedAt
+  } : report;
+  console.log(`[Georgie] Connection certification: ${JSON.stringify(logReport)}`);
   return report;
 }
