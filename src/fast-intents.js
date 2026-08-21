@@ -56,6 +56,16 @@ export function deterministicToolPlan(input = "") {
   if (/\b(?:analy[sz]e|audit|diagnose|review|inspect)\b/.test(lower) && /\b(?:georgie|repo|repository|codebase|architecture)\b/.test(lower) && /\b(?:reliability|silent|working|tool|continuity|completion|failure|weakness|crash)\b/.test(lower)) return [{tool:"developer.search",args:{repo:null,query:"completeTurnV2|respond/stream|sendTextTurn|isBusy|appendSessionTurn|executePlannedActions|verifiedDirectResponse|planActions|queueMacAndWait|recordTurnEvaluation|restoreSession|backgroundLearn"}}];
   if (/\b(?:inspect|review|check)\b/.test(lower) && /\b(?:repo|repository|codebase|working tree|git status)\b/.test(lower)) return [{tool:"developer.repo_inspect",args:{repo:null}}];
   if (/\b(?:review|inspect|check|scan|go through|look through|summarize)\b/.test(lower) && /\b(?:open\s+)?tabs?\b/.test(lower) && /\b(?:mac|safari|chrome|browser)\b/.test(lower)) return [{tool:"mac.browser_inspect",args:{includeContent:true,scope:"sierra"}}];
+  const broadSierraExecution = /\b(?:sierra|capital\s*match|capitalmatch|underwriting|submission|intake|crm|our (?:entire|whole) system)\b/.test(lower)
+    && /\b(?:fix|repair|complete|finish|work(?:ing)? through|attack|stabili[sz]e|prioriti[sz]e|make sure|ensure|get)\b/.test(lower)
+    && /\b(?:everything|entire|whole|all|pending|priorities|functioning|operating|as designed|end[- ]to[- ]end)\b/.test(lower);
+  if (broadSierraExecution) return [
+    {tool:"sierra.health",args:{}},
+    {tool:"sierra.infrastructure",args:{}},
+    {tool:"sierra.apply_inventory",args:{limit:100,status:"all"}},
+    {tool:"sierra.reconciliation_invariant",args:{limit:250}},
+    {tool:"sierra.portfolio",args:{limit:25}}
+  ];
   if (/\b(world state|what am i working on|what are we working on|everything pending|open commitments|unfinished work)\b/.test(lower)) return [{tool:"system.world_state",args:{context:text}}];
   if (/\b(durable objectives?|unfinished engineering|blocked actions?|resume across sessions?|continuity state)\b/.test(lower)) return [{tool:"system.continuity",args:{limit:50}}];
   if (/\b(domain packs?|speciali[sz]ation packs?|installed packs?|georgie core)\b/.test(lower)) return [{tool:"system.domain_packs",args:{}}];

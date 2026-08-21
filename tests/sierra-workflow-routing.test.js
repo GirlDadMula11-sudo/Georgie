@@ -18,3 +18,14 @@ test("workflow-alignment diagnosis remains read-only", () => {
   assert.ok(plan.length >= 4);
   assert.equal(plan.some((step) => /repair|update|reconcile_deal|refresh_pipeline/.test(step.tool)), false);
 });
+
+test("broad productivity commands cannot silently become no-action turns", () => {
+  const plan = deterministicToolPlan("Work through everything pending in our entire Sierra system, prioritize it, and make sure the submission process is functioning and operating as designed.");
+  assert.deepEqual(plan.map((step) => step.tool), [
+    "sierra.health",
+    "sierra.infrastructure",
+    "sierra.apply_inventory",
+    "sierra.reconciliation_invariant",
+    "sierra.portfolio",
+  ]);
+});
