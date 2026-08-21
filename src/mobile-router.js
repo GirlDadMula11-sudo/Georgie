@@ -18,7 +18,7 @@ import { appendSessionTurn } from "./memory.js";
 import { enhanceOutcomeResponse } from "./outcome-lifecycle.js";
 import { retainTurnContinuation } from "./operating-graph.js";
 import { beginDurableTurn, getDurableTurn, listRecoverableTurns, runDurableTurn } from "./durable-turn-runtime.js";
-import { checkpointReportDelivery, listInvestigationArtifacts, openInvestigationArtifact } from "./investigation-artifacts.js";
+import { checkpointReportDelivery, investigationArtifactPage, listInvestigationArtifacts, openInvestigationArtifact } from "./investigation-artifacts.js";
 
 const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:20*1024*1024}});
 const router=Router();
@@ -116,7 +116,7 @@ router.post("/push/subscribe",async(req,res)=>{try{res.json({ok:true,subscriptio
 router.delete("/push/subscribe",async(req,res)=>{await removePushSubscription(userIdFor(req),req.georgieDevice.device_id);res.json({ok:true});});
 router.get("/command-center",async(_req,res)=>res.json({ok:true,commandCenter:await buildCommandCenter(userIdFor(),{refreshSierra:false})}));
 router.get("/investigations",async(req,res)=>{try{res.json({ok:true,artifacts:await listInvestigationArtifacts(userIdFor(req),{limit:req.query?.limit||20})})}catch(error){res.status(500).json({ok:false,error:error instanceof Error?error.message:"Investigation artifacts unavailable"})}});
-router.get("/investigations/:id",async(req,res)=>{try{const artifact=await openInvestigationArtifact(userIdFor(req),req.params.id);res.status(artifact?200:404).json({ok:Boolean(artifact),artifact})}catch(error){res.status(500).json({ok:false,error:error instanceof Error?error.message:"Investigation artifact unavailable"})}});
+router.get("/investigations/:id",async(req,res)=>{try{const artifact=await openInvestigationArtifact(userIdFor(req),req.params.id),page=investigationArtifactPage(artifact,{cursor:req.query?.cursor,includeRaw:req.query?.includeRaw==="true",maxBytes:req.query?.maxBytes});res.status(page?200:404).json({ok:Boolean(page),artifact:page})}catch(error){res.status(500).json({ok:false,error:error instanceof Error?error.message:"Investigation artifact unavailable"})}});
 router.post("/investigations/:id/delivery",async(req,res)=>{try{res.json({ok:true,artifact:await checkpointReportDelivery(userIdFor(req),req.params.id,req.body||{})})}catch(error){res.status(409).json({ok:false,error:error instanceof Error?error.message:"Report delivery checkpoint failed"})}});
 router.get("/repairs",async(_req,res)=>{const maintenance=await maintenanceStatus(userIdFor());res.json({ok:true,runbooks:listRepairRunbooks(),certification:await certificationStatus(userIdFor(),maintenance)});});
 router.post("/repairs/:id/certify",async(req,res)=>{try{res.json({ok:true,result:await certifyRunbook(userIdFor(),req.params.id)})}catch(error){res.status(400).json({ok:false,error:error instanceof Error?error.message:"Certification failed"})}});
