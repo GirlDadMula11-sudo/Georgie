@@ -156,6 +156,20 @@ export function deterministicToolPlan(input = "") {
   return [];
 }
 
+export function deterministicToolPlanWithHistory(input="",history=[]){
+  const direct=deterministicToolPlan(input);if(direct.length)return direct;
+  const text=String(input||"").trim();
+  if(!/^(?:please\s+)?(?:continue|resume|keep going|next(?: section)?|go on)(?:\s+(?:it|the report|the investigation))?[.!]?$/i.test(text))return[];
+  const turns=Array.isArray(history)?history:[];
+  for(let index=turns.length-1;index>=0;index--){
+    const content=String(turns[index]?.content||turns[index]?.text||"");
+    if(!/\b(?:investigation|executive control brief|resumable section|persisted version)\b/i.test(content))continue;
+    const investigationId=content.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i)?.[0];
+    if(investigationId)return[{tool:"sierra.investigation_open",args:{investigationId}}];
+  }
+  return[];
+}
+
 export function latestDeterministicApprovalPlan(history = []) {
   const turns = Array.isArray(history) ? history : [];
   for (let index = turns.length - 1; index >= 0; index -= 1) {
