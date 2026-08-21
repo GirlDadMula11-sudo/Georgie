@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { readCloudState, writeCloudState } from "./cloud-state.js";
 import { summarizeInvestigationSteps } from "./evidence-foundation.js";
+import { persistInvestigationArtifact } from "./investigation-artifacts.js";
 
 const NAMESPACE = "sierra_diagnostic_investigations", MAX_PLANS = 40;
 const DEFAULT_TOOLS = ["sierra.health", "sierra.infrastructure", "sierra.apply_inventory", "sierra.reconciliation_invariant", "sierra.portfolio", "sierra.guarded_conflict_intelligence"];
@@ -9,7 +10,7 @@ const INTAKE_TO_SUBMISSION_STAGES = new Set(["lead", "application", "documents",
 function bounded(value) { const serialized = JSON.stringify(value ?? null); return serialized.length > 150000 ? { bounded: true, byteLength: serialized.length, summary: "Result retained by source contract; synthesis bounded." } : value; }
 export function normalizeDiagnosticState(value) { return { ...(value && typeof value === "object" && !Array.isArray(value) ? value : {}), version: Number(value?.version) || 1, plans: Array.isArray(value?.plans) ? value.plans.filter(item => item && typeof item === "object") : [] }; }
 async function state(userId) { return normalizeDiagnosticState(await readCloudState(userId, NAMESPACE, { version: 1, plans: [] })); }
-async function save(userId, next) { const normalized = normalizeDiagnosticState(next); const saved = await writeCloudState(userId, NAMESPACE, { version: 1, updatedAt: new Date().toISOString(), plans: normalized.plans.slice(0, MAX_PLANS) }); if (!saved) throw new Error("Durable diagnostic-state storage is unavailable"); }
+async function save(userId, next) { const normalized = normalizeDiagnosticState(next); const plans=normalized.plans.slice(0,MAX_PLANS).map(plan=>({...plan,steps:(plan.steps||[]).map(({evidenceOutput,...step})=>step)}));const saved = await writeCloudState(userId, NAMESPACE, { version: 1, updatedAt: new Date().toISOString(), plans }); if (!saved) throw new Error("Durable diagnostic-state storage is unavailable"); }
 export async function listDiagnosticPlans(userId, { limit = 20 } = {}) { const current = await state(userId); return current.plans.slice(0, Math.max(1, Math.min(Number(limit) || 20, MAX_PLANS))); }
 
 export async function runDurableDiagnosticPlan(userId, { reference = null, scope = "sierra_end_to_end", tools = null } = {}, execute) {
@@ -21,12 +22,16 @@ export async function runDurableDiagnosticPlan(userId, { reference = null, scope
   const current = await state(userId); await save(userId, { ...current, plans: [plan, ...current.plans] });
   await Promise.all(plan.steps.map(async step => {
     step.status = "running"; step.startedAt = new Date().toISOString();
-    try { const outcome = await execute(step.tool, step.args); if (!outcome?.ok) throw new Error(outcome?.error || `${step.tool} returned no verified result`); step.status = "completed"; step.result = bounded(outcome.result); }
+    try { const outcome = await execute(step.tool, step.args); if (!outcome?.ok) throw new Error(outcome?.error || `${step.tool} returned no verified result`); step.status = "completed"; step.evidenceOutput=outcome.result;step.result = bounded(outcome.result); }
     catch (error) { step.status = "failed"; step.error = error instanceof Error ? error.message : String(error); }
     finally { step.completedAt = new Date().toISOString(); const latest = await state(userId), existing = latest.plans.find(item => item.requestId === requestId) || plan; existing.steps = plan.steps; existing.status = plan.steps.some(item => ["pending", "running"].includes(item.status)) ? "running" : plan.steps.some(item => item.status === "completed") ? "partial" : "failed"; await save(userId, { ...latest, plans: [existing, ...latest.plans.filter(item => item.requestId !== requestId)] }); }
   }));
   plan.synthesis = summarizeInvestigationSteps(plan.steps); plan.status = plan.synthesis.failed === 0 ? "completed" : plan.synthesis.completed > 0 ? "partial" : "failed"; plan.completedAt = new Date().toISOString();
-  const latest = await state(userId); await save(userId, { ...latest, plans: [plan, ...latest.plans.filter(item => item.requestId !== requestId)] }); return plan;
+  const latest = await state(userId); await save(userId, { ...latest, plans: [plan, ...latest.plans.filter(item => item.requestId !== requestId)] });
+  const artifact=await persistInvestigationArtifact(userId,plan);
+  plan.artifact={investigationId:artifact.investigationId,status:artifact.status,evidenceCoverage:artifact.evidenceCoverage,lifecycle:artifact.lifecycle,nextUndeliveredSection:artifact.sections.find(item=>item.status!=="delivered")?.id||null};
+  if(!artifact.evidenceCoverage.readBackPassed)plan.status="blocked_incomplete_evidence";
+  const committed=await state(userId);await save(userId,{...committed,plans:[plan,...committed.plans.filter(item=>item.requestId!==requestId)]});return plan;
 }
 
 export function unresolvedEvidencePaths(value,path="result",depth=0){
@@ -106,6 +111,7 @@ export async function continueDurableDiagnosticPlan(userId,{reference,scope="dea
     const gapMap=new Map();for(const item of unresolved)for(const path of item.paths?.length?item.paths:[item.reason]){const gap=businessEvidenceGap(item.tool,path);gapMap.set(`${gap.missing}:${gap.source}`,gap);}
     synthesis.unresolved=unresolved;synthesis.businessGaps=[...gapMap.values()];synthesis.verifiedBreaks=synthesis.businessGaps.filter(gap=>/(?:Re-extract|Reprocess|Persist|Repair)/i.test(gap.nextAction));
     const plan={requestId,version:Number(prior?.version||0)+1,scope,reference:resolvedReference,target,resolution,mode:"read_only",status:unresolved.length?"blocked_incomplete_evidence":"completed",createdAt:timestamp,startedAt:timestamp,completedAt:timestamp,steps,synthesis,repairPlan:evidenceRepairProposal(resolvedReference,synthesis.businessGaps,steps.find(step=>step.tool==="sierra.document_manifest")),continuationOf:prior?.requestId||null,skippedFreshTools:[...reusable.keys()],writesPerformed:false};
+    const artifact=await persistInvestigationArtifact(userId,plan);plan.artifact={investigationId:artifact.investigationId,status:artifact.status,evidenceCoverage:artifact.evidenceCoverage,lifecycle:artifact.lifecycle,nextUndeliveredSection:artifact.sections.find(item=>item.status!=="delivered")?.id||null};if(!artifact.evidenceCoverage.readBackPassed)plan.status="blocked_incomplete_evidence";
     await save(userId,{...current,plans:[plan,...current.plans]});return plan;
   }
   const plan=await runDurableDiagnosticPlan(userId,{reference:resolvedReference,scope,tools:toRun},execute);
@@ -127,6 +133,7 @@ export async function continueDurableDiagnosticPlan(userId,{reference,scope="dea
   plan.repairPlan=evidenceRepairProposal(resolvedReference,plan.synthesis.businessGaps,plan.steps.find(step=>step.tool==="sierra.document_manifest"));
   plan.status=unresolved.length?"blocked_incomplete_evidence":"completed";
   plan.completedAt=new Date().toISOString();
+  const artifact=await persistInvestigationArtifact(userId,plan);plan.artifact={investigationId:artifact.investigationId,status:artifact.status,evidenceCoverage:artifact.evidenceCoverage,lifecycle:artifact.lifecycle,nextUndeliveredSection:artifact.sections.find(item=>item.status!=="delivered")?.id||null};if(!artifact.evidenceCoverage.readBackPassed)plan.status="blocked_incomplete_evidence";
   const latest=await state(userId);await save(userId,{...latest,plans:[plan,...latest.plans.filter(item=>item.requestId!==plan.requestId)]});
   return plan;
 }

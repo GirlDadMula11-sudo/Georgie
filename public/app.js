@@ -418,6 +418,9 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
     localStorage.removeItem("georgie:activeTurn");
     updateMessage(assistantItem, payload.text);
     finishExecutionPanel(executionPanel,payload);
+    if(payload.investigationArtifact?.id&&Array.isArray(payload.investigationArtifact.sections)){
+      for(const sectionId of payload.investigationArtifact.sections){await fetch(`/api/mobile/investigations/${payload.investigationArtifact.id}/delivery`,{method:"POST",headers:requestHeaders({"Content-Type":"application/json"}),body:JSON.stringify({sectionId})});}
+    }
     attachOutcomeFeedback(assistantItem, effectiveInput, payload);
     attachHearResponse(assistantItem, payload.spokenText || payload.text);
     void fetch("/api/mobile/telemetry", { method:"POST", headers:requestHeaders({"Content-Type":"application/json"}), body:JSON.stringify({ platform:"web", route:"respond_stream", headersMs:headersAt-requestStarted, firstEventMs:(firstEventAt||headersAt)-requestStarted, firstDeltaMs:(firstDeltaAt||performance.now())-requestStarted, completeMs:performance.now()-requestStarted }) }).catch(()=>{});
