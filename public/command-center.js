@@ -5,9 +5,13 @@ const list=document.querySelector("#commandPriorities");
 const urgent=document.querySelector("#commandUrgent");
 const tasks=document.querySelector("#commandTasks");
 const approvals=document.querySelector("#commandApprovals");
+const brief=document.querySelector("#controlBrief");
+const briefHeadline=document.querySelector("#controlBriefHeadline");
+const briefNext=document.querySelector("#controlBriefNext");
+const briefEvidence=document.querySelector("#controlBriefEvidence");
 
 function esc(value){return String(value||"").replace(/[&<>"']/g,(char)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[char]);}
-function render(payload){const center=payload.commandCenter;urgent.textContent=center.summary.urgentPriorities;tasks.textContent=center.summary.openTasks;approvals.textContent=center.summary.pendingApprovals;const items=center.priorities.slice(0,6);list.innerHTML=items.length?items.map((item)=>`<article class="command-priority ${esc(item.priority)}"><div><span>${esc(item.domain)}</span><strong>${esc(item.title)}</strong></div><small>${esc(item.priority)}${item.dueAt?` • due ${esc(new Date(item.dueAt).toLocaleString())}`:""}</small></article>`).join(""):"<p>No open priorities were found in the connected evidence.</p>";root.dataset.ready="true";}
+function render(payload){const center=payload.commandCenter;urgent.textContent=center.summary.urgentPriorities;tasks.textContent=center.summary.openTasks;approvals.textContent=center.summary.pendingApprovals;const control=center.controlBrief||{};if(brief){brief.dataset.status=control.status||"unknown";briefHeadline.textContent=control.headline||"Maintenance evidence is unavailable, so health is not proven.";briefNext.textContent=control.nextMove||"No production change has been made.";briefEvidence.textContent=JSON.stringify(center.maintenance||{},null,2);}const items=center.priorities.slice(0,6);list.innerHTML=items.length?items.map((item)=>`<article class="command-priority ${esc(item.priority)}"><div><span>${esc(item.domain)}</span><strong>${esc(item.title)}</strong></div><small>${esc(item.priority)}${item.dueAt?` • due ${esc(new Date(item.dueAt).toLocaleString())}`:""}</small></article>`).join(""):"<p>No open priorities were found in the connected evidence.</p>";root.dataset.ready="true";}
 async function load(){refresh.disabled=true;try{await georgieDeviceReady;const response=await fetch("/api/mobile/command-center",{headers:authHeaders()});const payload=await response.json();if(!response.ok||!payload.ok)throw new Error(payload.error||"Command center unavailable");render(payload);}catch(error){list.innerHTML=`<p>${esc(error.message||"Command center unavailable")}</p>`;}finally{refresh.disabled=false;}}
 refresh?.addEventListener("click",()=>load(true));
 if(root)load(false);
