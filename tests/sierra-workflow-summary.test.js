@@ -9,6 +9,31 @@ test("the exact broad alignment language routes without model planning", () => {
   assert.equal(plan[0].tool, "sierra.health");
 });
 
+test("deep-system Control Brief routes to current Sierra evidence, not developer search",()=>{
+  const plan=deterministicToolPlan("Sierra Deep-System Integrity Program — Control Brief");
+  assert.deepEqual(plan.map(item=>item.tool),["sierra.health","sierra.infrastructure","sierra.apply_inventory","sierra.reconciliation_invariant","sierra.portfolio","system.maintenance"]);
+  assert.equal(plan.some(item=>item.tool==="developer.search"),false);
+});
+
+test("fresh integrity evidence outranks an incomplete developer search",()=>{
+  const response=sierraWorkflowDirectResponse("Sierra Deep-System Integrity Program — Control Brief",[
+    {ok:false,tool:"developer.search",error:"foreground deadline",durable:true,recoveryId:"old-job"},
+    {ok:true,tool:"sierra.health",result:{health_status:"healthy",active_deals:27,failed_pipeline_stages:0}},
+    {ok:true,tool:"sierra.infrastructure",result:{status:"healthy"}},
+    {ok:true,tool:"sierra.apply_inventory",result:{submissions:[]}},
+    {ok:true,tool:"sierra.reconciliation_invariant",result:{violation_count:0}},
+    {ok:true,tool:"sierra.portfolio",result:{deals:Array.from({length:27})}},
+    {ok:true,tool:"system.maintenance",result:{status:"healthy"}}
+  ]);
+  assert.equal(response.completed,true);
+  assert.equal(response.terminalState,"verified");
+  assert.match(response.text,/CURRENT CONTROL BRIEF/);
+  assert.match(response.text,/27/);
+  assert.match(response.text,/isolated engineering-evidence gap/);
+  assert.match(response.text,/Fresh authoritative results.*outrank/i);
+  assert.doesNotMatch(response.text,/program established; initial inspection is queued/i);
+});
+
 test("workflow evidence produces a useful immediate terminal assessment", () => {
   const response = sierraWorkflowDirectResponse("evaluate Sierra alignment", [
     { ok: true, tool: "sierra.health", result: { health_status: "healthy", active_deals: 21, failed_pipeline_stages: 0 } },

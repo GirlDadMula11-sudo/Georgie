@@ -73,12 +73,21 @@ export function sierraWorkflowDirectResponse(_input, toolResults = []) {
   const inventoryCount = countRows(inventory?.result) ?? findScalar(inventory?.result, ["total", "count", "submission_count"]);
   const invariantViolations = findScalar(invariant?.result, ["violations", "violation_count", "unresolved", "unmatched_count"]);
   const infrastructureStatus = findScalar(infrastructure?.result, ["health_status", "status", "overall_status", "ok"]);
-  const lines = ["Sierra end-to-end alignment inspection completed across the governed intake, infrastructure, CapitalApply, reconciliation, and portfolio contracts.", "", `- Operating health: ${health?.ok ? valueOrUnknown(healthStatus) : "check failed"}`, `- Active deals: ${valueOrUnknown(activeDeals)}`, `- Recorded pipeline failures: ${valueOrUnknown(pipelineFailures)}`, `- Infrastructure: ${infrastructure?.ok ? valueOrUnknown(infrastructureStatus) : "check failed"}`, `- CapitalApply inventory records returned: ${inventory?.ok ? valueOrUnknown(inventoryCount) : "check failed"}`, `- Reconciliation violations returned: ${invariant?.ok ? valueOrUnknown(invariantViolations) : "check failed"}`, ""];
+  const integrityBrief=/\b(?:deep[- ]system\s+integrity|integrity\s+program|control brief)\b/i.test(String(_input||""));
+  const maintenance=toolResults.find(item=>item?.tool==="system.maintenance");
+  const lines = [integrityBrief?"SIERRA DEEP-SYSTEM INTEGRITY — CURRENT CONTROL BRIEF":"Sierra end-to-end alignment inspection completed across the governed intake, infrastructure, CapitalApply, reconciliation, and portfolio contracts.", "", `- Operating health: ${health?.ok ? valueOrUnknown(healthStatus) : "check failed"}`, `- Active deals: ${valueOrUnknown(activeDeals)}`, `- Recorded pipeline failures: ${valueOrUnknown(pipelineFailures)}`, `- Infrastructure: ${infrastructure?.ok ? valueOrUnknown(infrastructureStatus) : "check failed"}`, `- CapitalApply inventory records returned: ${inventory?.ok ? valueOrUnknown(inventoryCount) : "check failed"}`, `- Reconciliation violations returned: ${invariant?.ok ? valueOrUnknown(invariantViolations) : "check failed"}`, ""];
   if (failed.length) lines.push(`Evidence gaps: ${failed.map((item) => `${item.tool} (${item.error || "unavailable"})`).join("; ")}.`);
   else lines.push("All five governed read contracts returned successfully in this turn.");
+  if(integrityBrief){
+    if(maintenance?.ok)lines.push("The durable maintenance state was also read successfully in this turn.");
+    else lines.push(`Maintenance-state evidence gap: ${maintenance?.error||"the durable maintenance contract did not return"}.`);
+    const isolated=toolResults.filter(item=>item?.tool==="developer.search"&&item?.ok!==true);
+    if(isolated.length)lines.push("A developer workspace search is incomplete, but it is an isolated engineering-evidence gap; it does not override the newer governed Sierra health results above.");
+    lines.push("Fresh authoritative results from this turn outrank retained summaries and earlier timed-out jobs.");
+  }
   const prepared=toolResults.find(item=>item?.tool==="approvals.prepare_plan"&&item?.ok&&item?.result?.approval?.id);
   lines.push("", "Permanent-solution path: trace one controlled application through intake → document qualification → CapitalMatch → underwriting → submission; compare every transition against its authoritative record and timestamp; isolate each missing or contradictory handoff; repair only the verified breaks; then rerun the same file and regression suite until the full chain is continuous and repeatable.");
   if(prepared)lines.push("",`Bounded repair plan v${prepared.result.plan?.version||1} is saved and ready for approval.`,`Approval ID: ${prepared.result.approval.id}`,`Exact execution: ${prepared.result.plan?.execution?.tool||"not returned"}`,"Say “You are approved to fix it” to execute this exact plan and its verification reads.");
   lines.push("", "No deal, application, workflow, lender submission, or production record was changed. Any repair remains approval-gated.");
-  return { text: lines.join("\n"), responseId: null, webSearches: 0, model: "deterministic-sierra-workflow-evidence", route: { domain: "sierra", tier: "fast", reasoningEffort: "low", latencyClass: "bounded" } };
+  return { text: lines.join("\n"), responseId: null, webSearches: 0, model: "deterministic-sierra-workflow-evidence", completed:failed.length===0&&(!integrityBrief||maintenance?.ok===true), terminalState:failed.length||integrityBrief&&maintenance?.ok!==true?"blocked":"verified", route: { domain: "sierra", tier: "fast", reasoningEffort: "low", latencyClass: "bounded" } };
 }
