@@ -12,6 +12,7 @@ const APPLICATION_FIELDS = [
   ["industry", "Industry", ["industry", "industry_type", "business_type"]],
   ["authorization", "Authorization signature or printed name", ["authorization_signature", "signature", "signed_by", "printed_name"]]
 ];
+const JURISDICTION_ALIASES = ["state", "business_state", "jurisdiction", "business_address_state"];
 
 function object(value) { return value && typeof value === "object" && !Array.isArray(value) ? value : {}; }
 function array(value) { return Array.isArray(value) ? value : value == null ? [] : [value]; }
@@ -71,12 +72,12 @@ function statementFacts(documents) {
     const fields = Object.fromEntries(fieldCandidates(row).map((item) => [item.key, item]));
     const value = (aliases) => aliases.map((key) => fields[key]).find(Boolean);
     const observed = (aliases) => { const item = value(aliases); return item ? { value: item.value, citation: citation(row, item.detail) } : { value: null, citation: citation(row) }; };
-    const month = observed(["statement_month", "period_month", "month"]), deposits = observed(["total_deposits", "gross_deposits", "deposits"]), averageBalance = observed(["average_daily_balance", "average_balance"]), endingBalance = observed(["ending_balance", "closing_balance"]), nsf = observed(["nsf_count", "nsfs", "returned_items"]), negativeDays = observed(["negative_days", "days_negative"]), account = observed(["account_last4", "last_four", "account_number"]);
+    const month = observed(["statement_month", "period_month", "month"]), deposits = observed(["total_deposits", "gross_deposits", "deposits"]), withdrawals = observed(["total_withdrawals", "withdrawals", "total_debits"]), averageBalance = observed(["average_daily_balance", "average_balance"]), endingBalance = observed(["ending_balance", "closing_balance"]), nsf = observed(["nsf_count", "nsfs", "returned_items"]), negativeDays = observed(["negative_days", "days_negative"]), debtPayments = observed(["debt_payments", "loan_payments", "mca_payments"]), largeTransactions = observed(["large_transactions", "material_transactions"]), account = observed(["account_last4", "last_four", "account_number"]);
     return {
       documentId: first(row, ["document_id", "artifact_id", "id"]), filename: first(row, ["filename", "file_name", "name"]),
       month: clean(month.value, 40) || null, accountLast4: account.value ? clean(account.value, 40).replace(/.*(\d{4})$/, "$1") : null,
-      metrics: { totalDeposits: number(deposits.value), averageDailyBalance: number(averageBalance.value), endingBalance: number(endingBalance.value), nsfCount: number(nsf.value), negativeDays: number(negativeDays.value) },
-      citations: { month: month.citation, accountLast4: account.citation, totalDeposits: deposits.citation, averageDailyBalance: averageBalance.citation, endingBalance: endingBalance.citation, nsfCount: nsf.citation, negativeDays: negativeDays.citation }
+      metrics: { totalDeposits: number(deposits.value), totalWithdrawals: number(withdrawals.value), averageDailyBalance: number(averageBalance.value), endingBalance: number(endingBalance.value), nsfCount: number(nsf.value), negativeDays: number(negativeDays.value), debtPayments: number(debtPayments.value), largeTransactions: array(largeTransactions.value).filter(Boolean) },
+      citations: { month: month.citation, accountLast4: account.citation, totalDeposits: deposits.citation, totalWithdrawals: withdrawals.citation, averageDailyBalance: averageBalance.citation, endingBalance: endingBalance.citation, nsfCount: nsf.citation, negativeDays: negativeDays.citation, debtPayments: debtPayments.citation, largeTransactions: largeTransactions.citation }
     };
   });
 }
@@ -84,13 +85,17 @@ function statementFacts(documents) {
 function metricSummary(statements) {
   const values = (key) => statements.map((item) => item.metrics[key]).filter((value) => value != null);
   const average = (items) => items.length ? items.reduce((sum, value) => sum + value, 0) / items.length : null;
-  const deposits = values("totalDeposits"), balances = values("averageDailyBalance"), nsfs = values("nsfCount"), negatives = values("negativeDays");
-  return { statementCount: statements.length, averageMonthlyDeposits: average(deposits), averageDailyBalance: average(balances), totalNsfs: nsfs.length ? nsfs.reduce((sum, value) => sum + value, 0) : null, totalNegativeDays: negatives.length ? negatives.reduce((sum, value) => sum + value, 0) : null, coverage: { deposits: deposits.length, balances: balances.length, nsfs: nsfs.length, negativeDays: negatives.length } };
+  const deposits = values("totalDeposits"), withdrawals = values("totalWithdrawals"), balances = values("averageDailyBalance"), ending = values("endingBalance"), nsfs = values("nsfCount"), negatives = values("negativeDays"), debt = values("debtPayments");
+  const trend = deposits.length > 1 ? deposits.at(-1) > deposits[0] ? "increasing" : deposits.at(-1) < deposits[0] ? "decreasing" : "flat" : "unknown";
+  return { statementCount: statements.length, averageMonthlyDeposits: average(deposits), averageMonthlyWithdrawals: average(withdrawals), averageDailyBalance: average(balances), averageEndingBalance: average(ending), totalNsfs: nsfs.length ? nsfs.reduce((sum, value) => sum + value, 0) : null, totalNegativeDays: negatives.length ? negatives.reduce((sum, value) => sum + value, 0) : null, totalDebtPayments: debt.length ? debt.reduce((sum, value) => sum + value, 0) : null, cashFlowTrend: trend, coverage: { deposits: deposits.length, withdrawals: withdrawals.length, balances: balances.length, endingBalances: ending.length, nsfs: nsfs.length, negativeDays: negatives.length, debtPayments: debt.length } };
 }
 
 export function buildDocumentIntelligence({ reference, manifest, deal = {}, auditEvents = [], observedAt = new Date().toISOString() } = {}) {
   const documents = rows(manifest), application = applicationFacts(documents), statements = statementFacts(documents), metrics = metricSummary(statements);
-  const jurisdiction = clean(first(deal, ["state", "business_state", "jurisdiction"], ""), 20).toUpperCase();
+  const applicationDocument = documents.find((row) => classify(row) === "application");
+  const jurisdictionCandidate = applicationDocument && fieldCandidates(applicationDocument).find((item) => JURISDICTION_ALIASES.includes(item.key));
+  const jurisdiction = clean(jurisdictionCandidate?.value || first(deal, ["state", "business_state", "jurisdiction"], ""), 20).toUpperCase();
+  const jurisdictionCitation = jurisdictionCandidate ? citation(applicationDocument, jurisdictionCandidate.detail) : null;
   const requiredStatementMonths = ["NY", "CA", "NEW YORK", "CALIFORNIA"].includes(jurisdiction) ? 4 : 3;
   const missingApplicationFields = application.filter((field) => field.status === "missing").map((field) => field.label);
   const conflicts = application.filter((field) => field.status === "conflict").map((field) => ({ field: field.key, label: field.label, observations: field.observations }));
@@ -99,10 +104,13 @@ export function buildDocumentIntelligence({ reference, manifest, deal = {}, audi
   const sourceCitations = application.flatMap((field) => field.observations.map((item) => ({ field: field.key, ...item.citation }))).concat(statements.flatMap((statement) => Object.entries(statement.citations).map(([field, source]) => ({ field, ...source }))));
   return {
     contract: "georgie.document-intelligence.v1", mode: "read_only", reference: clean(reference, 100) || null, observedAt,
-    documentCount: documents.length, classifications: documents.map((row) => ({ documentId: first(row, ["document_id", "artifact_id", "id"]), filename: first(row, ["filename", "file_name", "name"]), type: classify(row), hash: first(row, ["sha256", "hash", "content_hash"]), preserved: first(row, ["preserved", "preservation_verified"], null) })),
+    documentCount: documents.length, classifications: documents.map((row) => { const extracted = Object.fromEntries(fieldCandidates(row).map((item) => [item.key, item.value])); const type = classify(row); return { documentId: first(row, ["document_id", "artifact_id", "id"]), filename: first(row, ["filename", "file_name", "name"]), type, hash: first(row, ["sha256", "hash", "content_hash"]), pageCount: number(first(row, ["page_count", "pages"])), businessIdentity: clean(first(extracted, ["business_name", "legal_business_name"], first(row, ["business_name", "legal_business_name"])), 200) || null, accountLast4: type === "bank_statement" ? clean(first(extracted, ["account_last4", "last_four"], first(row, ["account_last4", "last_four"])), 40).replace(/.*(\d{4})$/, "$1") || null : null, statementPeriod: type === "bank_statement" ? first(extracted, ["statement_period", "period", "statement_month"], first(row, ["statement_period", "period", "statement_month"])) : null, preserved: first(row, ["preserved", "preservation_verified"], null) }; }),
     application: { fields: application, completeness: { present: application.filter((field) => field.status === "verified").length, required: APPLICATION_FIELDS.length, ratio: application.filter((field) => field.status === "verified").length / APPLICATION_FIELDS.length }, missingFields: missingApplicationFields, conflicts },
+    jurisdiction: { value: jurisdiction || null, source: jurisdictionCandidate ? "application" : jurisdiction ? "deal_record" : "unknown", citation: jurisdictionCitation, rule: requiredStatementMonths === 4 ? "NY_CA_four_month" : "standard_three_month" },
     bankStatements: { requiredMonths: requiredStatementMonths, receivedMonths: statements.length, complete: statementGap === 0, missingMonthCount: statementGap, statements, metrics },
     validation: { identity: application.some((field) => field.key === "ssn" && field.status === "verified") && application.some((field) => field.key === "dob" && field.status === "verified") ? "evidence_present" : "incomplete", authorization: application.find((field) => field.key === "authorization")?.status || "missing", dates: application.find((field) => field.key === "businessStartDate")?.status || "missing" },
+    unknowns: [...missingApplicationFields.map((label) => ({ type: "missing_application_field", field: label })), ...statements.flatMap((statement) => Object.entries(statement.metrics).filter(([key, value]) => key !== "largeTransactions" && value == null).map(([field]) => ({ type: "missing_statement_metric", documentId: statement.documentId, field }))), ...(!jurisdiction ? [{ type: "missing_jurisdiction" }] : [])],
+    contradictions: conflicts, outcome: { state: blockers.length ? "blocked" : "ready", blocked: blockers, nextAction: blockers[0] || "Verify underwriting calculations against the cited source pages" },
     blockers, ready: blockers.length === 0, nextAction: blockers[0] || "Verify underwriting calculations against the cited source pages", citations: sourceCitations.filter((item) => item.documentId || item.sourceArtifactId), auditEvidenceCount: rows(auditEvents).length,
     provenancePreserved: true, rawSensitiveValuesStored: false, writesPerformed: false
   };

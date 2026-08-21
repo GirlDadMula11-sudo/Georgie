@@ -62,6 +62,7 @@ export function deterministicToolPlan(input = "") {
   const emailSend=parseExplicitEmailSend(text); if(emailSend) return [emailSend];
   const macApp=parseMacOpen(text); if(macApp) return [{tool:"mac.devices",args:{}},{tool:"mac.open_app",args:{app:macApp}}];
   const ref = referenceFrom(text);
+  if (ref && /\b(?:certif(?:y|ication)|acceptance test|end[- ]to[- ]end document test|independent read[- ]back)\b/.test(lower) && /\b(?:document|application|statement|workspace|package)\b/.test(lower)) return [{tool:"sierra.document_certification",args:{reference:ref}}];
   if (ref && /\b(?:deal intelligence|deal workspace|workspace|ready|blocked|next action)\b/.test(lower)) return [{tool:"sierra.deal_workspace",args:{reference:ref}}];
   if (ref && /\b(?:document intelligence|page[- ]cited|bank statements?|application fields?|missing documents?)\b/.test(lower)) return [{tool:"sierra.document_intelligence",args:{reference:ref}}];
   if (/\b(?:durable|multi[- ]tool|cross[- ]system)\b/.test(lower) && /\b(?:diagnostic|investigation|inspection|plan)\b/.test(lower) && /\b(?:sierra|deal|workflow|system)\b/.test(lower)) return [{tool:"sierra.diagnostic_investigation",args:{reference:ref,scope:"sierra_end_to_end"}}];
