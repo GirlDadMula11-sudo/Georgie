@@ -175,6 +175,15 @@ function attachOutcomeFeedback(item, input, payload) {
   item.append(controls);
 }
 
+function attachInvestigationEvidence(item,payload){
+  const evidence=payload?.investigationEvidence;if(!evidence||evidence.data==null)return;
+  const details=document.createElement("details");details.className="investigation-evidence";
+  const summary=document.createElement("summary");summary.textContent="View evidence";
+  const meta=document.createElement("small");meta.textContent=`${evidence.title||"Technical evidence"} · stored investigation record`;
+  const pre=document.createElement("pre");pre.textContent=JSON.stringify(evidence.data,null,2);
+  details.append(summary,meta,pre);item.append(details);
+}
+
 function pushHistory(role, content) {
   history.push({ role, content });
   history = history.slice(-200);
@@ -421,6 +430,7 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
     if(payload.investigationArtifact?.id&&Array.isArray(payload.investigationArtifact.sections)){
       for(const sectionId of payload.investigationArtifact.sections){await fetch(`/api/mobile/investigations/${payload.investigationArtifact.id}/delivery`,{method:"POST",headers:requestHeaders({"Content-Type":"application/json"}),cache:"no-store",body:JSON.stringify({sectionId})});}
     }
+    attachInvestigationEvidence(assistantItem,payload);
     attachOutcomeFeedback(assistantItem, effectiveInput, payload);
     attachHearResponse(assistantItem, payload.spokenText || payload.text);
     void fetch("/api/mobile/telemetry", { method:"POST", headers:requestHeaders({"Content-Type":"application/json"}), body:JSON.stringify({ platform:"web", route:"respond_stream", headersMs:headersAt-requestStarted, firstEventMs:(firstEventAt||headersAt)-requestStarted, firstDeltaMs:(firstDeltaAt||performance.now())-requestStarted, completeMs:performance.now()-requestStarted }) }).catch(()=>{});
