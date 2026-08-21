@@ -52,20 +52,32 @@ export function validateAttachment(file) {
   return { ext, mimeType, size: file.buffer.length, sha256: crypto.createHash("sha256").update(file.buffer).digest("hex") };
 }
 
-async function ensurePrivateBucket() {
+function safeStorageError(detail) {
+  return String(detail || "").replace(/[\r\n]+/g, " ").replace(/Bearer\s+\S+/gi, "Bearer [redacted]").slice(0, 240);
+}
+
+export function missingBucketResponse(status, detail = "") {
+  if (Number(status) === 404) return true;
+  if (Number(status) !== 400) return false;
+  const text = String(detail).toLowerCase();
+  return /bucket[^\n]{0,80}(?:not found|does not exist|unknown)/.test(text) || /(?:not found|does not exist|unknown)[^\n]{0,80}bucket/.test(text);
+}
+
+export async function ensurePrivateBucket() {
   const { url, key } = storageConfig();
   const headers = { apikey: key, authorization: `Bearer ${key}`, "content-type": "application/json" };
   const check = await fetch(`${url}/storage/v1/bucket/${ATTACHMENT_BUCKET}`, { headers, signal: AbortSignal.timeout(8000) });
   if (check.ok) return;
-  if (check.status !== 404) throw new Error(`Attachment bucket check failed (${check.status})`);
+  const checkDetail = await check.text().catch(() => "");
+  if (!missingBucketResponse(check.status, checkDetail)) throw new Error(`Attachment bucket check failed (${check.status})${checkDetail ? `: ${safeStorageError(checkDetail)}` : ""}`);
   const created = await fetch(`${url}/storage/v1/bucket`, { method: "POST", headers, body: JSON.stringify({ id: ATTACHMENT_BUCKET, name: ATTACHMENT_BUCKET, public: false, file_size_limit: MAX_ATTACHMENT_BYTES, allowed_mime_types: [...new Set([...ALLOWED.values()].flat())] }), signal: AbortSignal.timeout(8000) });
-  if (!created.ok && created.status !== 409) throw new Error(`Attachment bucket creation failed (${created.status})`);
+  if (!created.ok && created.status !== 409) { const detail = await created.text().catch(() => ""); throw new Error(`Attachment bucket creation failed (${created.status})${detail ? `: ${safeStorageError(detail)}` : ""}`); }
 }
 
 async function storeObject(storagePath, file, mimeType) {
   const { url, key } = storageConfig();
   const response = await fetch(`${url}/storage/v1/object/${ATTACHMENT_BUCKET}/${storagePath.split("/").map(encodeURIComponent).join("/")}`, { method: "POST", headers: { apikey: key, authorization: `Bearer ${key}`, "content-type": mimeType, "x-upsert": "false", "cache-control": "private, max-age=31536000, immutable" }, body: file.buffer, signal: AbortSignal.timeout(20000) });
-  if (!response.ok) throw new Error(`Secure upload failed for ${file.originalname} (${response.status})`);
+  if (!response.ok) { const detail = await response.text().catch(() => ""); throw new Error(`Secure upload failed for ${file.originalname} (${response.status})${detail ? `: ${safeStorageError(detail)}` : ""}`); }
 }
 
 export function attachmentModelParts(attachments = []) {

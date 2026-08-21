@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attachmentModelParts, publicAttachmentManifest, validateAttachment } from "../src/attachments.js";
+import { attachmentModelParts, missingBucketResponse, publicAttachmentManifest, validateAttachment } from "../src/attachments.js";
 
 test("validates a genuine PDF and produces a stable digest",()=>{
   const result=validateAttachment({originalname:"application.pdf",mimetype:"application/pdf",buffer:Buffer.from("%PDF-1.7\ncontrolled evidence")});
@@ -25,4 +25,11 @@ test("creates supported multimodal model parts and hides private storage paths",
   assert.equal(manifest.storagePath,undefined);
   assert.equal(manifest.bucket,undefined);
   assert.equal(manifest.buffer,undefined);
+});
+
+test("classifies Supabase's 400 bucket-not-found response without masking other 400 errors",()=>{
+  assert.equal(missingBucketResponse(400,JSON.stringify({statusCode:"404",error:"Bucket not found",message:"Bucket not found"})),true);
+  assert.equal(missingBucketResponse(404,""),true);
+  assert.equal(missingBucketResponse(400,JSON.stringify({message:"Invalid API key"})),false);
+  assert.equal(missingBucketResponse(401,"Bucket not found"),false);
 });
