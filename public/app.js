@@ -82,6 +82,63 @@ function updateMessage(item, text) {
   if (body) body.textContent = text;
 }
 
+function createExecutionPanel(item, startedAt) {
+  const panel=document.createElement("details");
+  panel.className="execution-panel";
+  panel.open=true;
+  panel.innerHTML='<summary><span class="execution-signal"></span><strong>Georgie is working</strong><time>0.0s</time></summary><div class="execution-steps"></div><div class="execution-receipt"></div>';
+  item.append(panel);
+  panel._startedAt=startedAt;
+  panel._timer=setInterval(()=>{
+    const time=panel.querySelector("time");
+    if(time)time.textContent=`${((performance.now()-startedAt)/1000).toFixed(1)}s`;
+  },100);
+  return panel;
+}
+
+function executionStep(panel,key,label,state="running"){
+  const list=panel?.querySelector(".execution-steps");
+  if(!list)return;
+  let row=list.querySelector(`[data-step="${CSS.escape(key)}"]`);
+  if(!row){row=document.createElement("div");row.dataset.step=key;row.innerHTML="<i></i><span></span>";list.append(row);}
+  row.className=`execution-step ${state}`;
+  row.querySelector("span").textContent=label;
+}
+
+function updateExecutionPanel(panel,event){
+  if(!panel||!event)return;
+  const stage=event.stage||event.type;
+  const key=event.tool?`tool:${event.tool}`:`stage:${stage}`;
+  if(stage==="accepted")executionStep(panel,key,"Request accepted","done");
+  else if(stage==="plan_ready")executionStep(panel,key,event.message||"Governed plan ready","done");
+  else if(stage==="tool_running")executionStep(panel,key,event.message||`Running ${event.tool}`,"running");
+  else if(stage==="tool_complete")executionStep(panel,key,event.message||`${event.tool} finished`,event.ok===false?"failed":"done");
+  else if(stage==="evidence")executionStep(panel,key,event.message||"Evidence assembled","done");
+  else if(stage==="verification")executionStep(panel,key,event.message||"Verifying outcome",event.ok===false?"failed":"running");
+  else if(stage==="plan_recovered")executionStep(panel,key,event.message||"Repair plan recovered","done");
+  else if(stage==="planning_failed")executionStep(panel,key,event.message||"Planning failed","failed");
+}
+
+function finishExecutionPanel(panel,payload,{failed=false}={}){
+  if(!panel)return;
+  clearInterval(panel._timer);
+  const elapsed=Number(payload?.latencyMs)||(performance.now()-panel._startedAt);
+  const time=panel.querySelector("time");
+  if(time)time.textContent=`${(elapsed/1000).toFixed(1)}s`;
+  const actions=Array.isArray(payload?.actions)?payload.actions:[];
+  const failedActions=actions.filter(action=>action?.ok===false);
+  panel.classList.remove("running");
+  panel.classList.add(failed||failedActions.length?"failed":"complete");
+  const title=panel.querySelector("summary strong");
+  if(title)title.textContent=failed?"Execution stopped":actions.length?"Execution verified":"Response complete";
+  const receipt=panel.querySelector(".execution-receipt");
+  if(receipt){
+    const evidence=Number(payload?.evidence?.length||0);
+    receipt.textContent=failed?"No completion was claimed.":actions.length?`${actions.length} tool${actions.length===1?"":"s"} · ${evidence} evidence source${evidence===1?"":"s"} · terminal result recorded`:"No tools required.";
+  }
+  panel.open=failed||failedActions.length>0;
+}
+
 function outcomeDomain(input, payload) {
   if (payload?.route?.domain === "sierra") return "sierra";
   if (payload?.route?.domain === "personal") return "personal";
@@ -311,6 +368,7 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
     headersAt = performance.now();
     if (!response.ok || !response.body) throw new Error("Streaming response unavailable");
     assistantItem = appendMessage("assistant", "Working…");
+    const executionPanel=createExecutionPanel(assistantItem,requestStarted);
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "", streamedText = "", payload = null;
@@ -323,7 +381,8 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
         if (!line.trim()) continue;
         const event = JSON.parse(line);
         if (!firstEventAt) firstEventAt = performance.now();
-        if (event.type === "status") setStatus(event.message || "Working…");
+        if (event.type === "status") { setStatus(event.message || "Working…"); updateExecutionPanel(executionPanel,event); }
+        if (event.type === "complete") updateExecutionPanel(executionPanel,event);
         if (event.type === "delta") { if (!firstDeltaAt) firstDeltaAt = performance.now(); streamedText = event.text || `${streamedText}${event.delta || ""}`; updateMessage(assistantItem, streamedText); }
         if (event.type === "final") payload = { ok: event.ok, ...event.result, spokenText: event.spokenText };
         if (event.type === "error") throw new Error(event.error || "Request failed");
@@ -332,6 +391,7 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
     }
     if (!payload?.ok) throw new Error("Georgie did not complete the response");
     updateMessage(assistantItem, payload.text);
+    finishExecutionPanel(executionPanel,payload);
     attachOutcomeFeedback(assistantItem, effectiveInput, payload);
     attachHearResponse(assistantItem, payload.spokenText || payload.text);
     void fetch("/api/mobile/telemetry", { method:"POST", headers:requestHeaders({"Content-Type":"application/json"}), body:JSON.stringify({ platform:"web", route:"respond_stream", headersMs:headersAt-requestStarted, firstEventMs:(firstEventAt||headersAt)-requestStarted, firstDeltaMs:(firstDeltaAt||performance.now())-requestStarted, completeMs:performance.now()-requestStarted }) }).catch(()=>{});
@@ -343,7 +403,7 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
     console.error(error);
     const timedOut = error?.name === "AbortError" || error?.name === "TimeoutError";
     const failureText = timedOut ? "That request exceeded Georgie’s response deadline and was stopped. I did not verify completion, and nothing should be treated as completed." : `I could not complete that request: ${String(error?.message || "the response pipeline failed").slice(0,300)}. Nothing should be treated as completed.`;
-    if (assistantItem) updateMessage(assistantItem, failureText); else assistantItem = appendMessage("assistant", failureText);
+    if (assistantItem) { updateMessage(assistantItem, failureText); finishExecutionPanel(assistantItem.querySelector(".execution-panel"),null,{failed:true}); } else assistantItem = appendMessage("assistant", failureText);
     attachHearResponse(assistantItem, failureText);
     pushHistory("assistant", failureText);
     setStatus(timedOut ? "Request stopped at the deadline. A failure report is on screen." : "Request failed. A failure report is on screen.");
