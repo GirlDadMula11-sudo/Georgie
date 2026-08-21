@@ -28,28 +28,51 @@ export async function runDurableDiagnosticPlan(userId, { reference = null, scope
   const latest = await state(userId); await save(userId, { ...latest, plans: [plan, ...latest.plans.filter(item => item.requestId !== requestId)] }); return plan;
 }
 
-function containsUnresolved(value,depth=0){
-  if(depth>7)return false;
-  if(typeof value==="string")return /\b(?:not returned|unknown|unavailable)\b/i.test(value);
-  if(Array.isArray(value))return value.some(item=>containsUnresolved(item,depth+1));
-  if(value&&typeof value==="object")return Object.entries(value).some(([key,item])=>/unknowns?|evidenceGaps?/i.test(key)?(Array.isArray(item)?item.length>0:Boolean(item)):containsUnresolved(item,depth+1));
-  return false;
+export function unresolvedEvidencePaths(value,path="result",depth=0){
+  if(depth>7)return[];
+  if(typeof value==="string")return /\b(?:not returned|unknown|unavailable)\b/i.test(value)?[`${path}: ${value.slice(0,160)}`]:[];
+  if(Array.isArray(value))return value.flatMap((item,index)=>unresolvedEvidencePaths(item,`${path}[${index}]`,depth+1)).slice(0,50);
+  if(value&&typeof value==="object")return Object.entries(value).flatMap(([key,item])=>{
+    const next=`${path}.${key}`;
+    if(/unknowns?|evidenceGaps?/i.test(key)&&Array.isArray(item))return item.map((entry,index)=>`${next}[${index}]: ${typeof entry==="string"?entry:JSON.stringify(entry).slice(0,160)}`).slice(0,50);
+    return unresolvedEvidencePaths(item,next,depth+1);
+  }).slice(0,50);
+  return[];
+}
+
+export function canonicalReferenceFromDeal(payload){
+  const seen=new Set(),queue=[payload];
+  while(queue.length){
+    const value=queue.shift();if(!value||typeof value!=="object"||seen.has(value))continue;seen.add(value);
+    for(const key of ["sca_reference","deal_reference","reference_number","referral_id","reference"]){const candidate=String(value[key]||"").trim();if(candidate&&(/^(?:SCA|CM)-/i.test(candidate)||key!=="reference"))return candidate;}
+    for(const child of Object.values(value))if(child&&typeof child==="object")Array.isArray(child)?queue.push(...child):queue.push(child);
+  }
+  return null;
 }
 
 export async function continueDurableDiagnosticPlan(userId,{reference,scope="deal_continuation",freshnessMs=300000,tools=null}={},execute){
   if(!reference)throw new Error("A target deal or merchant is required for a continued Sierra investigation");
   const required=Array.isArray(tools)&&tools.length?tools:["sierra.deal","sierra.document_manifest","sierra.evidence_graph","sierra.deal_workspace","sierra.lenders","sierra.infrastructure","sierra.reconciliation_invariant"];
+  const target=String(reference).trim();
+  let resolvedReference=target,resolution="provided_reference";
+  if(!/^(?:SCA|CM)-/i.test(target)){
+    const lookup=await execute("sierra.deal",{reference:target});
+    if(!lookup?.ok)throw new Error(`Could not resolve ${target} to a canonical Sierra deal: ${lookup?.error||"deal lookup returned no verified result"}`);
+    resolvedReference=canonicalReferenceFromDeal(lookup.result)||target;
+    resolution=resolvedReference===target?"provider_accepted_name_without_canonical_reference":"canonical_reference_resolved";
+  }
   const current=await state(userId),now=Date.now();
-  const prior=current.plans.find(plan=>String(plan.reference||"").toLowerCase()===String(reference).toLowerCase());
+  const prior=current.plans.find(plan=>[plan.reference,plan.target].some(value=>String(value||"").toLowerCase()===target.toLowerCase()||String(value||"").toLowerCase()===resolvedReference.toLowerCase()));
   const reusable=new Map((prior?.steps||[]).filter(step=>step.status==="completed"&&step.completedAt&&now-new Date(step.completedAt).getTime()<=Math.max(0,Number(freshnessMs)||0)).map(step=>[step.tool,step]));
   const toRun=required.filter(tool=>!reusable.has(tool));
   if(!toRun.length){
     const requestId=crypto.randomUUID(),timestamp=new Date().toISOString();
     const steps=required.map((tool,index)=>({...reusable.get(tool),stepId:`${requestId}:${index+1}`,reusedFromRequestId:prior?.requestId||null,reusedFreshEvidence:true}));
-    const synthesis=summarizeInvestigationSteps(steps),plan={requestId,version:Number(prior?.version||0)+1,scope,reference,mode:"read_only",status:"completed",createdAt:timestamp,startedAt:timestamp,completedAt:timestamp,steps,synthesis:{...synthesis,unresolved:[]},continuationOf:prior?.requestId||null,skippedFreshTools:[...reusable.keys()],writesPerformed:false};
+    const synthesis=summarizeInvestigationSteps(steps),plan={requestId,version:Number(prior?.version||0)+1,scope,reference:resolvedReference,target,resolution,mode:"read_only",status:"completed",createdAt:timestamp,startedAt:timestamp,completedAt:timestamp,steps,synthesis:{...synthesis,unresolved:[]},continuationOf:prior?.requestId||null,skippedFreshTools:[...reusable.keys()],writesPerformed:false};
     await save(userId,{...current,plans:[plan,...current.plans]});return plan;
   }
-  const plan=await runDurableDiagnosticPlan(userId,{reference,scope,tools:toRun},execute);
+  const plan=await runDurableDiagnosticPlan(userId,{reference:resolvedReference,scope,tools:toRun},execute);
+  plan.target=target;plan.resolution=resolution;
   const executed=new Map(plan.steps.map(step=>[step.tool,step]));
   plan.steps=required.map((tool,index)=>{
     const fresh=executed.get(tool);if(fresh)return fresh;
@@ -58,7 +81,7 @@ export async function continueDurableDiagnosticPlan(userId,{reference,scope="dea
   plan.continuationOf=prior?.requestId||null;
   plan.skippedFreshTools=[...reusable.keys()];
   plan.synthesis=summarizeInvestigationSteps(plan.steps);
-  const unresolved=plan.steps.filter(step=>step.status!=="completed"||containsUnresolved(step.result)).map(step=>({tool:step.tool,reason:step.status!=="completed"?(step.error||step.status):"required evidence contains an explicit unknown or not-returned value"}));
+  const unresolved=plan.steps.map(step=>({step,paths:unresolvedEvidencePaths(step.result)})).filter(({step,paths})=>step.status!=="completed"||paths.length).map(({step,paths})=>({tool:step.tool,reason:step.status!=="completed"?(step.error||step.status):`required evidence remains unresolved: ${paths.slice(0,8).join("; ")}`,paths}));
   plan.synthesis.unresolved=unresolved;
   plan.status=unresolved.length?"blocked_incomplete_evidence":"completed";
   plan.completedAt=new Date().toISOString();
