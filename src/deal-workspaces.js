@@ -43,7 +43,7 @@ function approvalMatches(approval, reference) {
   return haystack.includes(String(reference || "").toLowerCase());
 }
 
-export function deriveDealWorkspace({ reference, graph, tasks = [], approvals = [], previous = null } = {}) {
+export function deriveDealWorkspace({ reference, graph, documentIntelligence = null, tasks = [], approvals = [], previous = null } = {}) {
   const ref = clean(reference, 100);
   if (!ref) throw new Error("A deal or application reference is required");
   const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
@@ -54,13 +54,14 @@ export function deriveDealWorkspace({ reference, graph, tasks = [], approvals = 
   const documentNode = nodes.find((node) => node.stage === "documents");
   const underwritingNode = nodes.find((node) => node.stage === "underwriting");
   const lenderNode = nodes.find((node) => node.stage === "lender_response") || nodes.find((node) => node.stage === "lender_submission");
-  const missingDocuments = documentNode?.unknownFields?.length ? ["Document inventory requires verified source evidence"] : [];
+  const hasDocumentContract = documentIntelligence?.contract === "georgie.document-intelligence.v1";
+  const missingDocuments = hasDocumentContract ? (documentIntelligence.blockers || []).filter((item) => /missing|document|statement/i.test(item)) : documentNode?.unknownFields?.length ? ["Document inventory requires verified source evidence"] : [];
   const blockers = [
-    ...missingDocuments,
+    ...(hasDocumentContract ? documentIntelligence.blockers || [] : missingDocuments),
     ...unresolvedConflicts.map((item) => `Resolve ${item.conflictId || "guarded evidence conflict"}`),
     ...(underwritingNode?.unknownFields?.includes("sourceEvidence") ? ["Underwriting evidence is not yet available"] : [])
   ];
-  const nextAction = blockers[0] || (currentNode ? `Verify the transition after ${STAGE_LABELS[currentNode.stage] || currentNode.stage}` : "Connect the authoritative deal record");
+  const nextAction = documentIntelligence?.nextAction || blockers[0] || (currentNode ? `Verify the transition after ${STAGE_LABELS[currentNode.stage] || currentNode.stage}` : "Connect the authoritative deal record");
   const timeline = nodes.flatMap((node) => (node.provenance || []).map((source) => ({
     stage: node.stage,
     label: STAGE_LABELS[node.stage] || node.stage,
@@ -85,7 +86,8 @@ export function deriveDealWorkspace({ reference, graph, tasks = [], approvals = 
     missingDocuments,
     blockers,
     nextAction,
-    financialMetrics: { status: underwritingNode?.unknownFields?.includes("sourceEvidence") ? "unknown" : "evidence_available", values: [] },
+    financialMetrics: hasDocumentContract ? { status: documentIntelligence.bankStatements?.statements?.length ? "page_cited" : "unknown", values: documentIntelligence.bankStatements?.metrics || {} } : { status: underwritingNode?.unknownFields?.includes("sourceEvidence") ? "unknown" : "evidence_available", values: [] },
+    documentIntelligence: hasDocumentContract ? documentIntelligence : null,
     underwriting: { status: underwritingNode?.state || "unknown", confidence: underwritingNode?.confidence ?? null, evidence: underwritingNode?.provenance || [] },
     lenderFit: { status: lenderNode?.state || "unknown", confidence: lenderNode?.confidence ?? null, evidence: lenderNode?.provenance || [] },
     expectedEconomics: { status: "unknown", values: [], note: "Expected economics require verified offers, close probability, and contribution data." },
@@ -121,7 +123,7 @@ export async function listDealWorkspaces(userId, { limit = 50 } = {}) {
   return (store.workspaces || []).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, Math.max(1, Math.min(Number(limit) || 50, 200)));
 }
 
-export async function refreshDealWorkspace(userId, { reference, graph, tasks = [], approvals = [] } = {}) {
+export async function refreshDealWorkspace(userId, { reference, graph, documentIntelligence = null, tasks = [], approvals = [] } = {}) {
   const previous = await getDealWorkspace(userId, reference);
-  return saveDealWorkspace(userId, deriveDealWorkspace({ reference, graph, tasks, approvals, previous }));
+  return saveDealWorkspace(userId, deriveDealWorkspace({ reference, graph, documentIntelligence, tasks, approvals, previous }));
 }
