@@ -144,9 +144,12 @@ function finishExecutionPanel(panel,payload,{failed=false}={}){
   if(time)time.textContent=`${(elapsed/1000).toFixed(1)}s`;
   const actions=Array.isArray(payload?.actions)?payload.actions:[];
   const failedActions=actions.filter(action=>action?.ok===false);
-  const terminalState=failed?"blocked":payload?.terminalState||(payload?.completed===false?"in_progress":failedActions.length?"blocked":"completed");
+  const rawTerminalState=failed?"blocked":payload?.terminalState||(payload?.completed===false?"in_progress":failedActions.length?"blocked":"completed");
+  const terminalState=["verified","partial"].includes(rawTerminalState)&&payload?.completed!==false?"completed":rawTerminalState;
   panel.classList.remove("running","complete","completed","blocked","approval_needed","in_progress","failed");
-  panel.classList.add(terminalState,terminalState==="completed"?"complete":terminalState==="blocked"?"failed":"");
+  panel.classList.add(terminalState);
+  if(terminalState==="completed")panel.classList.add("complete");
+  if(terminalState==="blocked")panel.classList.add("failed");
   const title=panel.querySelector("summary strong");
   if(title)title.textContent={completed:"Task completed",blocked:"Task blocked",approval_needed:"Approval needed",in_progress:"Task in progress"}[terminalState]||"Task update";
   const receipt=panel.querySelector(".execution-receipt");
