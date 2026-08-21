@@ -69,6 +69,9 @@ export function runDurableTurn({job,execute,onProgress=()=>{}}){
   void persist(job.userId,running).catch(()=>{});
   const progress=event=>{recordDurableProgress(job.userId,job.requestId,event).catch(()=>{});onProgress(event);};
   const operation=Promise.resolve().then(()=>execute({...running,onProgress:progress}));
-  operation.then(result=>completeDurableTurn(job.userId,job.requestId,result).catch(()=>{}),error=>failDurableTurn(job.userId,job.requestId,error).catch(()=>{}));
+  operation.then(
+    result=>completeDurableTurn(job.userId,job.requestId,result).catch(error=>console.warn("Durable result persistence deferred:",error instanceof Error?error.stack||error.message:error)),
+    error=>{console.error(`[Georgie] durable execution failed ${job.requestId}:`,error instanceof Error?error.stack||error.message:error);return failDurableTurn(job.userId,job.requestId,error).catch(()=>{});}
+  );
   return operation;
 }
