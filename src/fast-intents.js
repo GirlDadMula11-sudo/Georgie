@@ -69,6 +69,20 @@ export function deterministicToolPlan(input = "") {
   const continuationTarget=investigationTargetFrom(text);
   if(/\b(?:continue|resume|pick up)\b/.test(lower)&&/\b(?:investigation|diagnosis|inspection|evidence)\b/.test(lower)&&continuationTarget)return [{tool:"sierra.continue_diagnostic_investigation",args:{reference:continuationTarget,scope:"deal_continuation",freshnessMs:300000}}];
   if (/\b(?:inspect|review|check)\b/.test(lower) && /\b(?:repo|repository|codebase|working tree|git status)\b/.test(lower)) return [{tool:"developer.repo_inspect",args:{repo:null}}];
+  const multiSystemMacAudit = /\b(?:mac|desktop|browser|tabs?|safari|chrome)\b/.test(lower)
+    && /\b(?:sierra|supabase|super\s*base|github|vercel|render|partner portal|capitalapply|capital apply)\b/.test(lower)
+    && /\b(?:everything|all|platform|functioning|health|diagnos\w*|permanent repair|make sure)\b/.test(lower);
+  if (multiSystemMacAudit) return [
+    {tool:"mac.browser_inspect",args:{includeContent:true,scope:"sierra_multi_system"}},
+    {tool:"system.supabase",args:{}},
+    {tool:"system.github",args:{}},
+    {tool:"system.vercel",args:{}},
+    {tool:"system.render",args:{}},
+    {tool:"sierra.health",args:{}},
+    {tool:"sierra.infrastructure",args:{}},
+    {tool:"sierra.apply_inventory",args:{limit:100,status:"all"}},
+    {tool:"sierra.reconciliation_invariant",args:{limit:250}}
+  ];
   if (/\b(?:review|inspect|check|scan|go through|look through|summarize)\b/.test(lower) && /\b(?:open\s+)?tabs?\b/.test(lower) && /\b(?:mac|safari|chrome|browser)\b/.test(lower)) return [{tool:"mac.browser_inspect",args:{includeContent:true,scope:"sierra"}}];
   const broadSierraExecution = /\b(?:sierra|capital\s*match|capitalmatch|underwriting|submission|intake|crm|our (?:entire|whole) system)\b/.test(lower)
     && /\b(?:fix|repair|complete|finish|work(?:ing)? through|attack|stabili[sz]e|prioriti[sz]e|make sure|ensure|get)\b/.test(lower)

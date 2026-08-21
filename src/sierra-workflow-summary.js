@@ -16,6 +16,7 @@ function countRows(value, depth = 0) {
 }
 
 const valueOrUnknown = (value) => value === undefined || value === null || value === "" ? "not returned" : String(value);
+const semanticLine=item=>`- ${item.tool}: ${item.state||"UNKNOWN"} — ${item.reason||item.error||"No semantic result returned."}`;
 
 export function sierraWorkflowDirectResponse(_input, toolResults = []) {
   const continuation=toolResults.find(item=>item?.tool==="approvals.continue_latest");
@@ -27,17 +28,20 @@ export function sierraWorkflowDirectResponse(_input, toolResults = []) {
     const queued=lanes.filter(item=>item.status==="queued");
     const failed=lanes.filter(item=>item.status==="failed");
     const observed=lanes.filter(item=>item.status==="observed_only");
-    const verifiedReads=(outcome.verification||[]).filter(item=>item.ok);
+    const verifiedReads=(outcome.verification||[]).filter(item=>item.ok&&item.accepted);
+    const semanticChecks=[outcome.executionVerification?{tool:outcome.executedTool,...outcome.executionVerification}:null,...(outcome.verification||[])].filter(Boolean);
     const sections=[
       `What I checked: ${checked.length?checked.join(", "):"the approved bounded plan"}.`,
       `What I found: ${lanes.length?`${lanes.length} reconciliation lanes — ${queued.length} queued, ${observed.length} observed, ${failed.length} failed`:"the execution returned no lane-level result"}.`,
       `What changed: ${queued.length?`${queued.length} bounded downstream action${queued.length===1?" was":"s were"} queued; no resulting record change is claimed yet`:"no unverified production change is claimed"}.`,
-      `What I verified: ${verifiedReads.length}/${(outcome.verification||[]).length} required read-back checks returned successfully.`,
-      `What remains: ${queued.length?`${queued.length} queued action${queued.length===1?" needs":"s need"} terminal execution and read-back evidence`:failed.length?`${failed.length} failed lane${failed.length===1?" requires":"s require"} recovery`:"nothing within this bounded plan"}.`
+      `What I verified: ${verifiedReads.length}/${(outcome.verification||[]).length} required read-backs passed their business acceptance criteria.`,
+      "Business outcome checks:\n"+semanticChecks.map(semanticLine).join("\n"),
+      `What remains: ${queued.length?`${queued.length} queued action${queued.length===1?" needs":"s need"} terminal execution and read-back evidence`:failed.length?`${failed.length} failed lane${failed.length===1?" requires":"s require"} recovery`:semanticChecks.some(item=>item.accepted!==true)?"one or more business outcomes are failed or unknown; completion is blocked":"nothing within this bounded plan"}.`
     ];
     const ids=`Approval ID: ${outcome.approvalId||"not returned"}\nPlan ID: ${outcome.planId||"not returned"}`;
     if(outcome.ok&&outcome.status==="verified")return{text:[`TASK COMPLETED — Approved plan v${outcome.version}.`,...sections,ids].join("\n\n"),responseId:null,webSearches:0,model:"deterministic-approval-continuation",terminalState:"completed",route:{domain:"technical",tier:"fast",reasoningEffort:"low",latencyClass:"bounded"}};
     if(outcome.status==="verification_pending")return{text:[`IN PROGRESS — Approved plan v${outcome.version} started, but its business outcome is not terminal.`,...sections,ids,"I will not call this completed until terminal outcome evidence is recorded."].join("\n\n"),responseId:null,webSearches:0,model:"deterministic-approval-continuation",completed:false,terminalState:"in_progress",route:{domain:"technical",tier:"fast",reasoningEffort:"low",latencyClass:"bounded"}};
+    if(outcome.status==="blocked_incomplete_evidence")return{text:[`BLOCKED — Approved plan v${outcome.version} did not prove its business outcome.`,...sections,ids,"The tools responded, but Georgie will not equate successful calls with a successful repair."].join("\n\n"),responseId:null,webSearches:0,model:"deterministic-approval-continuation",completed:false,terminalState:"blocked",route:{domain:"technical",tier:"fast",reasoningEffort:"low",latencyClass:"bounded"}};
     const approvalNeeded=outcome.status==="no_eligible_plan"||outcome.status==="not_an_approval";
     return{text:[approvalNeeded?"APPROVAL NEEDED":"BLOCKED",`Status: ${outcome.status||"failed"}`,outcome.missingTool?`Exact missing tool: ${outcome.missingTool}`:"",`Reason: ${outcome.error||"Execution could not be verified."}`,ids,"Nothing was falsely marked complete."].filter(Boolean).join("\n\n"),responseId:null,webSearches:0,model:"deterministic-approval-continuation",completed:false,terminalState:approvalNeeded?"approval_needed":"blocked",route:{domain:"technical",tier:"fast",reasoningEffort:"low",latencyClass:"bounded"}};
   }

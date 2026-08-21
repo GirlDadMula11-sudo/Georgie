@@ -1,6 +1,6 @@
 import { cloudStateStatus } from "./cloud-state.js";
 import { listNeoMailboxes, neoMailConfigured } from "./integrations/neo-mail.js";
-import { renderObservabilityConfigured, vercelObservabilityConfigured } from "./integrations/provider-observability.js";
+import { githubObservabilityConfigured, renderObservabilityConfigured, vercelObservabilityConfigured } from "./integrations/provider-observability.js";
 import { sierraWorkforceConfigured } from "./integrations/sierra-workforce.js";
 import { smartleadConfigured } from "./integrations/smartlead.js";
 import { getMacDeviceStatus } from "./mac/router.js";
@@ -18,6 +18,7 @@ export function getCapabilityManifest() {
   const smartlead = smartleadConfigured();
   const vercel = vercelObservabilityConfigured();
   const render = renderObservabilityConfigured();
+  const github = githubObservabilityConfigured();
   const macDevices = getMacDeviceStatus();
   const memoryStorage = getMemoryStorageStatus();
   const operationalStorage = cloudStateStatus();
@@ -96,9 +97,10 @@ export function getCapabilityManifest() {
         liveHealth: "verify_with_sierra.health_and_sierra.infrastructure"
       },
       deploymentObservability: {
+        github: configured(github),
         vercel: configured(vercel),
         render: configured(render),
-        liveHealth: "verify_with_system.providers"
+        liveHealth: "verify_with_system.github_and_system.providers"
       },
       smartlead: {
         state: configured(smartlead),

@@ -3,7 +3,7 @@ import { createTask, listTasks, updateTask } from "./tasks.js";
 import { enqueueMacJob, listMacJobs } from "./mac/queue.js";
 import { listNeoMailboxes, listRecentMessages, readMessage, searchMessages, sendMessage, verifyNeoMailbox } from "./integrations/neo-mail.js";
 import { executeApprovedSierraChange, getSierraApplyInventory, getSierraAuditEvents, getSierraDeal, getSierraDocumentManifest, getSierraGovernedAccess, getSierraGuardedLenderConflicts, getSierraHealth, getSierraInfrastructure, getSierraLenderResponses, getSierraNetworkGaps, getSierraOffers, getSierraPortfolio, getSierraReconciliationInvariant, getSierraStrategy, queueSierraAction, sierraWorkforceConfigured } from "./integrations/sierra-workforce.js";
-import { getProviderObservability, getRenderObservability, getVercelObservability } from "./integrations/provider-observability.js";
+import { getGithubObservability, getProviderObservability, getRenderObservability, getVercelObservability } from "./integrations/provider-observability.js";
 import { maintenanceStatus, runMaintenanceCycle } from "./maintenance-sentinel.js";
 import { diagnoseSmartleadCampaigns, getSmartleadCampaigns, updateSmartleadCampaignStatus } from "./integrations/smartlead.js";
 import { evaluationScorecard } from "./evaluation.js";
@@ -27,6 +27,7 @@ import { getDealWorkspace, listDealWorkspaces, refreshDealWorkspace } from "./de
 import { buildDocumentIntelligence } from "./document-intelligence.js";
 import { certifyDocumentIntelligence } from "./document-certification.js";
 import crypto from "crypto";
+import { verifyBusinessOutcome } from "./outcome-verification.js";
 
 const LEVELS={read:0,low_risk_write:1,sensitive_write:2,external_side_effect:3};const registry=new Map();function defineTool(definition){registry.set(definition.name,definition)}
 defineTool({name:"memory.search",description:"Search Georgie's durable memory for relevant user context.",risk:"read",async run({userId,args}){return searchMemories(userId,String(args?.query||""),Number(args?.limit||8))}});
@@ -102,6 +103,8 @@ defineTool({name:"campaigns.prepare_status_change",description:"Prepare a Smartl
 defineTool({name:"campaigns.execute_approved_status_change",description:"Execute one explicitly approved Smartlead campaign status change and verify the provider state. Requires approval ID and idempotency key.",risk:"external_side_effect",async run({userId,args}){const approval=await getApprovalRequest(userId,args?.approvalId);if(!approval||approval.status!=="approved")throw new Error("An approved campaign change request is required");if(approval.actionType!=="smartlead_campaign_status")throw new Error("Approval is not for a Smartlead campaign status change");if(!String(args?.idempotencyKey||"").trim())throw new Error("Idempotency key is required");return updateSmartleadCampaignStatus(args?.campaignId,args?.status)}});
 defineTool({name:"system.vercel",description:"Read provider-direct Vercel production deployment state and recent runtime errors for Sierra.",risk:"read",async run(){return getVercelObservability()}});
 defineTool({name:"system.render",description:"Read provider-direct Render deployment state and recent application/runtime errors for Georgie's backend.",risk:"read",async run(){return getRenderObservability()}});
+defineTool({name:"system.github",description:"Read provider-direct GitHub repository and Actions health for Georgie without changing source or workflows.",risk:"read",async run(){return getGithubObservability()}});
+defineTool({name:"system.supabase",description:"Read governed Supabase-backed Sierra infrastructure health without changing database state.",risk:"read",async run({userId}){return getSierraInfrastructure(userId)}});
 defineTool({name:"system.providers",description:"Read provider-direct Vercel and Render observability together and report any connection or runtime gaps.",risk:"read",async run(){return getProviderObservability()}});
 defineTool({name:"system.maintenance",description:"Read Georgie's durable maintenance state, evidence coverage, detected signals, authority mode, and verified learning outcomes.",risk:"read",async run({userId}){return maintenanceStatus(userId)}});
 defineTool({name:"system.maintenance_check",description:"Run one bounded maintenance observation cycle across Sierra health, infrastructure, and deployment providers. This observes and records evidence but does not perform consequential actions.",risk:"low_risk_write",async run(){return runMaintenanceCycle()}});
@@ -122,14 +125,16 @@ defineTool({name:"approvals.continue_latest",description:"Resolve explicit conve
   await transitionApprovalPlan(userId,resolved.plan.id,{status:"executing"});
   try{
     const result=await target.run({userId,args:resolved.execution.args||{}});
-    const verification=[];for(const check of resolved.execution.verification||[]){const verifyTool=registry.get(check.tool);if(!verifyTool){verification.push({ok:false,tool:check.tool,error:`Required verification tool ${check.tool} is unavailable.`});continue;}try{verification.push({ok:true,tool:check.tool,result:await verifyTool.run({userId,args:check.args||{}})});}catch(error){verification.push({ok:false,tool:check.tool,error:error instanceof Error?error.message:String(error)});}}
+    const verification=[];for(const check of resolved.execution.verification||[]){const verifyTool=registry.get(check.tool);if(!verifyTool){verification.push({ok:false,accepted:false,state:"UNKNOWN",tool:check.tool,error:`Required verification tool ${check.tool} is unavailable.`});continue;}try{const verificationResult=await verifyTool.run({userId,args:check.args||{}});const semantic=verifyBusinessOutcome(check.tool,verificationResult,{expect:check.expect});verification.push({ok:true,tool:check.tool,result:verificationResult,...semantic});}catch(error){verification.push({ok:false,accepted:false,state:"UNKNOWN",tool:check.tool,error:error instanceof Error?error.message:String(error)});}}
     const nonTerminalStatuses=new Set(['queued','pending','accepted','running','in_progress']);
     const resultStatus=String(result?.status||'').toLowerCase();
     const nestedStatuses=Array.isArray(result?.lanes)?result.lanes.map(item=>String(item?.status||'').toLowerCase()):[];
     const terminal=!nonTerminalStatuses.has(resultStatus)&&!nestedStatuses.some(status=>nonTerminalStatuses.has(status));
-    const verified=terminal&&verification.every(item=>item.ok);
-    await transitionApprovalPlan(userId,resolved.plan.id,{status:verified?"verified":"verification_pending",executionResult:result,verification});
-    return{ok:verified,status:verified?"verified":"verification_pending",approvalId:resolved.approval.id,planId:resolved.plan.id,version:resolved.plan.version,executedTool:resolved.execution.tool,result,verification};
+    const executionSemantic=verifyBusinessOutcome(resolved.execution.tool,result,{expect:resolved.execution.expect});
+    const verified=terminal&&executionSemantic.accepted&&verification.length>0&&verification.every(item=>item.ok&&item.accepted);
+    const status=verified?"verified":terminal?"blocked_incomplete_evidence":"verification_pending";
+    await transitionApprovalPlan(userId,resolved.plan.id,{status,executionResult:result,verification});
+    return{ok:verified,status,approvalId:resolved.approval.id,planId:resolved.plan.id,version:resolved.plan.version,executedTool:resolved.execution.tool,result,executionVerification:executionSemantic,verification};
   }catch(error){const message=error instanceof Error?error.message:String(error);await transitionApprovalPlan(userId,resolved.plan.id,{status:"failed",error:message});return{ok:false,status:"failed",approvalId:resolved.approval.id,planId:resolved.plan.id,version:resolved.plan.version,executedTool:resolved.execution.tool,error:message};}
 }});
 defineTool({name:"system.status",description:"Inspect Georgie's live capability manifest, connection states, verification paths, platform constraints, and resource balance without exposing credentials.",risk:"read",async run(){return getCapabilityManifest()}});

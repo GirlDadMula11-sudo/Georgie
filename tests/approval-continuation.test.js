@@ -46,8 +46,18 @@ test("preflight names the exact missing execution contract",()=>{
 });
 
 test("verified continuation produces a deterministic evidence-backed completion",()=>{
-  const response=sierraWorkflowDirectResponse("approved",[{ok:true,tool:"approvals.continue_latest",result:{ok:true,status:"verified",version:2,approvalId:"approval-1",planId:"plan-1",executedTool:"developer.apply"}}]);
+  const response=sierraWorkflowDirectResponse("approved",[{ok:true,tool:"approvals.continue_latest",result:{ok:true,status:"verified",version:2,approvalId:"approval-1",planId:"plan-1",executedTool:"system.reconciliation_check",result:{lanes:[{lane:"health",status:"observed_only"}]},executionVerification:{accepted:true,state:"PASS",reason:"1 terminal lane"},verification:[{ok:true,accepted:true,state:"PASS",tool:"sierra.health",reason:"healthy",result:{health_status:"healthy"}}]}}]);
   assert.match(response.text,/TASK COMPLETED/);assert.match(response.text,/What I checked/);assert.match(response.text,/What I found/);assert.match(response.text,/What changed/);assert.match(response.text,/What I verified/);assert.match(response.text,/What remains/);assert.match(response.text,/Approval ID: approval-1/);
+});
+
+test("successful calls with unknown business evidence are blocked, never completed",()=>{
+  const response=sierraWorkflowDirectResponse("approved",[{ok:true,tool:"approvals.continue_latest",result:{ok:false,status:"blocked_incomplete_evidence",version:4,approvalId:"approval-4",planId:"plan-4",executedTool:"system.reconciliation_check",result:{lanes:[{lane:"health",status:"observed_only"}]},executionVerification:{accepted:true,state:"PASS",reason:"terminal"},verification:[{ok:true,accepted:false,state:"UNKNOWN",tool:"sierra.health",reason:"no authoritative healthy status"}]}}]);
+  assert.equal(response.completed,false);assert.equal(response.terminalState,"blocked");assert.match(response.text,/BLOCKED/);assert.match(response.text,/sierra.health: UNKNOWN/);assert.doesNotMatch(response.text,/TASK COMPLETED/);
+});
+
+test("successful calls with unhealthy business evidence are blocked",()=>{
+  const response=sierraWorkflowDirectResponse("approved",[{ok:true,tool:"approvals.continue_latest",result:{ok:false,status:"blocked_incomplete_evidence",version:5,executedTool:"system.reconciliation_check",executionVerification:{accepted:true,state:"PASS",reason:"terminal"},verification:[{ok:true,accepted:false,state:"FAIL",tool:"sierra.health",reason:"failed_pipeline_stages: 2"}]}}]);
+  assert.equal(response.completed,false);assert.match(response.text,/sierra.health: FAIL/);
 });
 
 test("blocked continuation names the missing tool and never invents a queue",()=>{

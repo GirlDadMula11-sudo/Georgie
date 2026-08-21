@@ -1,5 +1,6 @@
 const VERCEL_BASE = "https://api.vercel.com";
 const RENDER_BASE = "https://api.render.com/v1";
+const GITHUB_BASE = "https://api.github.com";
 
 function timeout(ms = 7000) { return AbortSignal.timeout(ms); }
 
@@ -28,6 +29,36 @@ export function vercelObservabilityConfigured() {
 
 export function renderObservabilityConfigured() {
   return Boolean(process.env.GEORGIE_RENDER_API_KEY && process.env.GEORGIE_RENDER_WORKSPACE_ID && process.env.GEORGIE_RENDER_SERVICE_ID);
+}
+
+export function githubObservabilityConfigured() {
+  return Boolean(process.env.GEORGIE_GITHUB_REPOSITORY || "GirlDadMula11-sudo/Georgie");
+}
+
+export async function getGithubObservability() {
+  const repository = String(process.env.GEORGIE_GITHUB_REPOSITORY || "GirlDadMula11-sudo/Georgie").trim();
+  const token = process.env.GEORGIE_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
+  if (!/^[^/\s]+\/[^/\s]+$/.test(repository)) throw new Error("GEORGIE_GITHUB_REPOSITORY must be owner/repository");
+  const headers = { ...(token ? { authorization: `Bearer ${token}` } : {}), accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" };
+  const [repoResponse, runsResponse] = await Promise.all([
+    fetch(`${GITHUB_BASE}/repos/${repository}`, { headers, signal: timeout() }),
+    fetch(`${GITHUB_BASE}/repos/${repository}/actions/runs?branch=main&per_page=5`, { headers, signal: timeout() })
+  ]);
+  if (!repoResponse.ok) throw new Error(`GitHub repository check failed (${repoResponse.status})`);
+  if (!runsResponse.ok) throw new Error(`GitHub Actions check failed (${runsResponse.status})`);
+  const repo = await repoResponse.json();
+  const runsPayload = await runsResponse.json();
+  const runs = Array.isArray(runsPayload?.workflow_runs) ? runsPayload.workflow_runs : [];
+  return {
+    provider: "github",
+    repository: repo.full_name || repository,
+    defaultBranch: repo.default_branch || null,
+    archived: Boolean(repo.archived),
+    pushedAt: repo.pushed_at || null,
+    latestRun: runs[0] ? { id: runs[0].id, status: runs[0].status, conclusion: runs[0].conclusion, headSha: runs[0].head_sha, updatedAt: runs[0].updated_at } : null,
+    recentRuns: runs.map(run => ({ id: run.id, status: run.status, conclusion: run.conclusion, headSha: run.head_sha, updatedAt: run.updated_at })),
+    checkedAt: new Date().toISOString()
+  };
 }
 
 export async function getVercelObservability() {

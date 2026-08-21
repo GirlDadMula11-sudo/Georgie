@@ -9,6 +9,7 @@ import { enqueueEvent } from "./events.js";
 import { sierraWorkflowDirectResponse } from "./sierra-workflow-summary.js";
 import { attachmentModelParts, publicAttachmentManifest } from "./attachments.js";
 import { prepareUnifiedOperatingTurn, retainUnifiedObjective, unifiedRuntimePrompt } from "./unified-operating-runtime.js";
+import { multiSystemAuditResponse, verifiedMultiSystemRepairPlan } from "./multi-system-audit.js";
 
 export async function completeAttachmentTurnV2({userId,sessionId,input,history=[],attachments=[],onProgress,shouldFinalize=()=>true}) {
   const startedAt=Date.now(); let firstResponseMs=0;
@@ -84,6 +85,11 @@ async function executePlannedActions(userId,input,{sessionId="native",history=[]
   };
   const readResults=await Promise.all(reads.map(runRead));
   const writeResults=[];
+  const verifiedRepair=verifiedMultiSystemRepairPlan(readResults);
+  if(verifiedRepair){
+    emit({type:"status",stage:"repair_plan",message:"Preparing one bounded approval plan for the verified Sierra defect.",tool:"approvals.prepare_plan"});
+    writeResults.push(await executeTool({name:"approvals.prepare_plan",args:{...verifiedRepair,sessionId},userId,policy:basePolicy}));
+  }
   for(const action of writes){
     emit({type:"status",stage:"tool_running",message:`Running ${action.tool}…`,tool:action.tool});
     const directEmail=action.tool==="email.send"&&explicitEmailSend(input);
@@ -113,6 +119,8 @@ async function executePlannedActions(userId,input,{sessionId="native",history=[]
   return[...readResults,...writeResults];}
 function backgroundLearn({userId,sessionId,input,responseText,toolResults=[],sensitiveResponse=false}){setImmediate(async()=>{const persistedResponse=sensitiveResponse?"[Sensitive one-time credential issued and intentionally not stored.]":responseText;try{await Promise.all([appendSessionTurn({userId,sessionId,role:"user",content:input}),appendSessionTurn({userId,sessionId,role:"assistant",content:persistedResponse})]);}catch(error){console.warn("Georgie v2 history persistence delayed:",error instanceof Error?error.message:error);}if(sensitiveResponse)return;try{const memories=await extractMemoryCandidates(input,responseText);const browserReview=toolResults.some(result=>result?.ok&&result?.tool==="mac.browser_inspect"&&result?.result?.status==="completed");await Promise.all([...memories.map(memory=>addMemory({userId,...memory,source:"auto-extracted-v2"})),...(browserReview?[addMemory({userId,text:responseText,category:"sierra_operating_context",importance:0.8,tags:["mac-review","verified-browser-evidence"],source:"mac-operator"})]:[])]);if(browserReview)await enqueueEvent({userId,type:"mac_operator_complete",title:"Mac review complete",body:String(responseText).slice(0,500),priority:"normal",dedupeKey:`mac-review:${sessionId}:${String(input).slice(0,80)}`,data:{domain:"sierra",evidence:"browser_tabs_verified"}});}catch(error){console.warn("Georgie v2 memory learning delayed:",error instanceof Error?error.message:error);}});}
 function macBrowserInspectionResponse(toolResults=[]){
+  const multiSystem=multiSystemAuditResponse(toolResults);
+  if(multiSystem)return multiSystem;
   const execution=toolResults.find(item=>item?.tool==="mac.browser_inspect");
   if(!execution)return null;
   if(!execution.ok)return{text:`BLOCKED\n\nWhat I checked: Mac browser inspection.\n\nWhat I found: the inspection could not complete.\n\nExact blocker: ${execution.error||"the Mac inspection tool did not return a result"}.\n\nWhat changed: nothing.`,responseId:null,webSearches:0,model:"deterministic-verified-evidence",terminalState:"blocked",completed:false,route:{domain:"mac",tier:"fast",reasoningEffort:"low",latencyClass:"instant"}};

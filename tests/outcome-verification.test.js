@@ -1,0 +1,7 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { verifyBusinessOutcome } from "../src/outcome-verification.js";
+test("health requires authoritative healthy evidence",()=>{assert.equal(verifyBusinessOutcome("sierra.health",{requestId:"x"}).state,"UNKNOWN");assert.equal(verifyBusinessOutcome("sierra.health",{health_status:"healthy",failed_pipeline_stages:0}).state,"PASS");assert.equal(verifyBusinessOutcome("sierra.health",{health_status:"healthy",failed_pipeline_stages:2}).state,"FAIL");});
+test("invariant requires zero violations or explicit healthy status",()=>{assert.equal(verifyBusinessOutcome("sierra.reconciliation_invariant",{}).state,"UNKNOWN");assert.equal(verifyBusinessOutcome("sierra.reconciliation_invariant",{violation_count:0}).state,"PASS");assert.equal(verifyBusinessOutcome("sierra.reconciliation_invariant",{violation_count:1}).state,"FAIL");});
+test("unknown contracts cannot certify themselves merely by returning",()=>{const result=verifyBusinessOutcome("custom.repair",{ok:true});assert.equal(result.accepted,false);assert.equal(result.state,"UNKNOWN");});
+test("observation-only reconciliation can never prove a repair",()=>{const result=verifyBusinessOutcome("system.reconciliation_check",{lanes:[{lane:"health",status:"observed_only"}]});assert.equal(result.accepted,false);assert.equal(result.state,"UNKNOWN");assert.match(result.reason,/Observation is not repair evidence/);});
