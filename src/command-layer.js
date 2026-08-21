@@ -4,7 +4,7 @@ import { listEvents } from "./events.js";
 import { listTasks } from "./tasks.js";
 import { getSierraHealth, getSierraInfrastructure, getSierraStrategy, sierraWorkforceConfigured } from "./integrations/sierra-workforce.js";
 import { evaluationScorecard } from "./evaluation.js";
-import { maintenanceStatus } from "./maintenance-sentinel.js";
+import { maintenanceControlBrief, maintenanceStatus } from "./maintenance-sentinel.js";
 
 const DECISIONS_NS = "decision_journal";
 const APPROVALS_NS = "approval_control";
@@ -167,6 +167,7 @@ export async function buildCommandCenter(userId, { refreshSierra = false } = {})
     recentDecisions: decisions.slice(0, 10),
     intelligence,
     maintenance,
+    controlBrief: maintenanceControlBrief(maintenance),
     sierra,
     boundaries: { personalBusinessSeparated: true, approvalRecordsDoNotExecuteActions: true, spendingAuthority: false, externalCommunicationAuthority: false }
   };
