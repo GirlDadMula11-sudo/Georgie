@@ -6,8 +6,9 @@ const NAMESPACE = "sierra_diagnostic_investigations", MAX_PLANS = 40;
 const DEFAULT_TOOLS = ["sierra.health", "sierra.infrastructure", "sierra.apply_inventory", "sierra.reconciliation_invariant", "sierra.portfolio", "sierra.guarded_conflict_intelligence"];
 const ALLOWED_TOOLS = new Set([...DEFAULT_TOOLS, "sierra.deal", "sierra.document_manifest", "sierra.audit_events", "sierra.lenders", "sierra.offers", "sierra.evidence_graph", "sierra.deal_workspace", "sierra.governed_access", "sierra.strategy", "sierra.network_gaps"]);
 function bounded(value) { const serialized = JSON.stringify(value ?? null); return serialized.length > 150000 ? { bounded: true, byteLength: serialized.length, summary: "Result retained by source contract; synthesis bounded." } : value; }
-async function state(userId) { return readCloudState(userId, NAMESPACE, { version: 1, plans: [] }); }
-async function save(userId, next) { const saved = await writeCloudState(userId, NAMESPACE, { version: 1, updatedAt: new Date().toISOString(), plans: next.plans.slice(0, MAX_PLANS) }); if (!saved) throw new Error("Durable diagnostic-state storage is unavailable"); }
+export function normalizeDiagnosticState(value) { return { ...(value && typeof value === "object" && !Array.isArray(value) ? value : {}), version: Number(value?.version) || 1, plans: Array.isArray(value?.plans) ? value.plans.filter(item => item && typeof item === "object") : [] }; }
+async function state(userId) { return normalizeDiagnosticState(await readCloudState(userId, NAMESPACE, { version: 1, plans: [] })); }
+async function save(userId, next) { const normalized = normalizeDiagnosticState(next); const saved = await writeCloudState(userId, NAMESPACE, { version: 1, updatedAt: new Date().toISOString(), plans: normalized.plans.slice(0, MAX_PLANS) }); if (!saved) throw new Error("Durable diagnostic-state storage is unavailable"); }
 export async function listDiagnosticPlans(userId, { limit = 20 } = {}) { const current = await state(userId); return current.plans.slice(0, Math.max(1, Math.min(Number(limit) || 20, MAX_PLANS))); }
 
 export async function runDurableDiagnosticPlan(userId, { reference = null, scope = "sierra_end_to_end", tools = null } = {}, execute) {
