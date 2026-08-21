@@ -17,7 +17,7 @@ import { createMacRouter, getMacDeviceStatus } from "./mac/router.js";
 import { enqueueMacJob, listMacJobs, macQueueStorageStatus } from "./mac/queue.js";
 import { executeTool, listToolDefinitions } from "./tools.js";
 import { cloudStateStatus, startCloudStateRecovery } from "./cloud-state.js";
-import { createMobileRouter } from "./mobile-router.js";
+import { createMobileRouter, startMobileTurnRecovery } from "./mobile-router.js";
 import { createSierraRouter } from "./sierra-router.js";
 import { createCommandRouter } from "./command-router.js";
 import { completeTurnV2 } from "./v2-turn-engine.js";
@@ -59,6 +59,7 @@ app.get("/api/tasks",async(req,res)=>{try{res.json({ok:true,tasks:await listTask
 app.post("/api/transcribe",upload.single("audio"),async(req,res)=>{try{if(!req.file)return res.status(400).json({ok:false,error:"Audio file is required"});const text=await transcribeAudio({buffer:req.file.buffer,mimeType:req.file.mimetype,filename:req.file.originalname});res.json({ok:true,text})}catch(error){res.status(500).json({ok:false,error:error instanceof Error?error.message:"Unknown error"})}});app.post("/api/respond",async(req,res)=>{try{const{input,history=[]}=req.body??{};if(!input?.trim())return res.status(400).json({ok:false,error:"Input is required"});const response=await completeTurn({userId:getUserId(req),sessionId:getSessionId(req),input:input.trim(),history});res.json({ok:true,...response,spokenText:spokenResponseFor(input,response.text)})}catch(error){res.status(500).json({ok:false,error:error instanceof Error?error.message:"Unknown error"})}});app.post("/api/speak",async(req,res)=>{try{const audio=await synthesizeSpeech(req.body?.text);res.setHeader("Content-Type","audio/mpeg");res.setHeader("Cache-Control","no-store");res.send(audio)}catch(error){res.status(500).json({ok:false,error:error instanceof Error?error.message:"Unknown error"})}});app.post("/api/voice-turn",upload.single("audio"),async(req,res)=>{try{if(!req.file)return res.status(400).json({ok:false,error:"Audio file is required"});const userId=getUserId(req),sessionId=getSessionId(req),history=req.body?.history?JSON.parse(req.body.history):[],transcript=await transcribeAudio({buffer:req.file.buffer,mimeType:req.file.mimetype,filename:req.file.originalname}),response=await completeTurn({userId,sessionId,input:transcript,history}),spokenText=spokenResponseFor(transcript,response.text),speech=await synthesizeSpeech(spokenText);res.json({ok:true,transcript,text:response.text,spokenText,response,speechBase64:speech.toString("base64"),audioBase64:speech.toString("base64"),contentType:"audio/mpeg",audioMimeType:"audio/mpeg"})}catch(error){res.status(500).json({ok:false,error:error instanceof Error?error.message:"Unknown error"})}});
 
 startCloudStateRecovery();
+startMobileTurnRecovery();
 startProactiveEngine();
 startEmailIntelligence();
 startMaintenanceSentinel();

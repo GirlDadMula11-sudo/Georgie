@@ -17,6 +17,7 @@ import { terminalPartialResult, withTurnDeadline } from "./turn-lifecycle.js";
 import { appendSessionTurn } from "./memory.js";
 import { enhanceOutcomeResponse } from "./outcome-lifecycle.js";
 import { retainTurnContinuation } from "./operating-graph.js";
+import { beginDurableTurn, getDurableTurn, listRecoverableTurns, runDurableTurn } from "./durable-turn-runtime.js";
 
 const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:20*1024*1024}});
 const router=Router();
@@ -103,6 +104,7 @@ router.get("/status",(_req,res)=>res.json({ok:true,...nativeAuthStatus()}));
 router.post("/enroll",async(req,res)=>{try{const platform=["ios","pwa","macos"].includes(req.body?.platform)?req.body.platform:"pwa";const token=await enrollNativeDevice({code:req.body?.code,deviceId:req.body?.deviceId,deviceName:req.body?.deviceName||"Georgie device",platform});res.json({ok:true,token,platform})}catch(error){res.status(403).json({ok:false,error:error instanceof Error?error.message:"Enrollment failed"})}});
 router.use(async(req,res,next)=>{try{const device=await authenticateNativeRequest(req);if(!device)return res.status(401).json({ok:false,error:"Native device authentication required"});const claimed=String(req.headers["x-georgie-device"]||"");if(claimed&&claimed!==device.device_id)return res.status(401).json({ok:false,error:"Native device identity mismatch"});req.georgieDevice=device;next()}catch(error){res.status(503).json({ok:false,error:"Native authentication temporarily unavailable"})}});
 router.get("/device",(req,res)=>res.json({ok:true,deviceId:req.georgieDevice.device_id,deviceName:req.georgieDevice.device_name||null,platform:req.georgieDevice.platform||null}));
+router.get("/turns/:requestId",async(req,res)=>{try{const job=await getDurableTurn(userIdFor(req),String(req.params.requestId||""));if(!job)return res.status(404).json({ok:false,error:"Durable request was not found"});res.setHeader("Cache-Control","no-store");res.json({ok:true,job});}catch(error){res.status(503).json({ok:false,error:error instanceof Error?error.message:"Durable request status is temporarily unavailable"});}});
 router.post("/enrollment-code",async(_req,res)=>{try{res.setHeader("Cache-Control","no-store");res.status(201).json({ok:true,...await createEnrollmentCode()})}catch(error){res.status(503).json({ok:false,error:error instanceof Error?error.message:"Enrollment code creation failed"})}});
 router.get("/tasks",async(req,res)=>{try{res.json({ok:true,tasks:await listTasks(userIdFor(req),{status:"open",limit:30})})}catch(error){res.status(500).json({ok:false,error:error instanceof Error?error.message:"Task load failed"})}});
 router.get("/session",async(req,res)=>{try{const limit=Number(req.query?.limit||200),all=req.query?.scope!=="session";res.json({ok:true,scope:all?"continuous":"session",history:all?await getConversationHistory(userIdFor(req),limit):await getSessionHistory(userIdFor(req),sessionIdFor(req),limit)})}catch(error){res.status(500).json({ok:false,error:"Session load failed"})}});
@@ -116,7 +118,25 @@ router.get("/repairs",async(_req,res)=>{const maintenance=await maintenanceStatu
 router.post("/repairs/:id/certify",async(req,res)=>{try{res.json({ok:true,result:await certifyRunbook(userIdFor(),req.params.id)})}catch(error){res.status(400).json({ok:false,error:error instanceof Error?error.message:"Certification failed"})}});
 router.post("/repairs/:id/execute",async(req,res)=>{try{const maintenance=await maintenanceStatus(userIdFor()),cert=await certificationStatus(userIdFor(),maintenance);if(!cert.certified)return res.status(409).json({ok:false,error:"Bounded repair mode is not certified"});res.json(await executeCertifiedRepair(userIdFor(),req.params.id))}catch(error){res.status(400).json({ok:false,error:error instanceof Error?error.message:"Repair failed"})}});
 router.post("/respond",async(req,res)=>{try{const input=String(req.body?.input||"").trim();if(!input)return res.status(400).json({ok:false,error:"Input is required"});const response=await complete(userIdFor(req),sessionIdFor(req),input);res.json({ok:true,...response,spokenText:spokenResponseFor(input,response.text)})}catch(error){res.status(500).json({ok:false,error:error instanceof Error?error.message:"Response failed"})}});
-router.post("/respond/stream",async(req,res)=>{const input=String(req.body?.input||"").trim();if(!input)return res.status(400).json({ok:false,error:"Input is required"});const requestId=crypto.randomUUID(),started=Date.now();console.log(`[Georgie] turn accepted ${JSON.stringify({requestId,inputLength:input.length})}`);res.status(200);res.setHeader("Content-Type","application/x-ndjson; charset=utf-8");res.setHeader("Cache-Control","no-cache, no-transform");res.setHeader("X-Accel-Buffering","no");res.flushHeaders?.();const send=event=>{if(!res.writableEnded&&!res.destroyed)res.write(`${JSON.stringify(event)}\n`);};send({type:"status",stage:"accepted",message:"I heard you. I’m starting the bounded work now.",requestId,elapsedMs:0});try{const response=await complete(userIdFor(req),sessionIdFor(req),input,{history:Array.isArray(req.body?.history)?req.body.history:[],onProgress:send});send({type:"final",ok:true,spokenText:spokenResponseFor(input,response.text),result:response});console.log(`[Georgie] turn terminal ${JSON.stringify({requestId,elapsedMs:Date.now()-started,completed:response.completed!==false,terminalReason:response.terminalReason||"completed",actionCount:response.actions?.length||0})}`);}catch(error){console.error(`[Georgie] turn failed ${JSON.stringify({requestId,elapsedMs:Date.now()-started,error:error instanceof Error?error.message:"Streaming response failed"})}`);send({type:"error",ok:false,error:error instanceof Error?error.message:"Streaming response failed"});}finally{if(!res.writableEnded)res.end();}});
+router.post("/respond/stream",async(req,res)=>{
+  const input=String(req.body?.input||"").trim();if(!input)return res.status(400).json({ok:false,error:"Input is required"});
+  const requestId=crypto.randomUUID(),started=Date.now(),userId=userIdFor(req),sessionId=sessionIdFor(req),history=Array.isArray(req.body?.history)?req.body.history:[];
+  console.log(`[Georgie] turn accepted ${JSON.stringify({requestId,inputLength:input.length})}`);
+  res.status(200);res.setHeader("Content-Type","application/x-ndjson; charset=utf-8");res.setHeader("Cache-Control","no-cache, no-transform");res.setHeader("X-Accel-Buffering","no");res.setHeader("X-Georgie-Request-Id",requestId);res.flushHeaders?.();
+  const send=event=>{if(!res.writableEnded&&!res.destroyed)res.write(`${JSON.stringify({...event,requestId})}\n`);};
+  send({type:"status",stage:"accepted",message:"Request accepted. The work will continue even if this screen disconnects.",elapsedMs:0});
+  const job=await beginDurableTurn({requestId,userId,sessionId,input,history,recoverable:/\b(?:continue|resume)\b/i.test(input)&&/\b(?:investigation|diagnosis|inspection|evidence)\b/i.test(input)});
+  const heartbeat=setInterval(()=>send({type:"status",stage:"heartbeat",message:"Still working. This request is durable and reconnectable.",elapsedMs:Date.now()-started}),4000);heartbeat.unref?.();
+  try{
+    const response=await runDurableTurn({job,execute:({onProgress})=>complete(userId,sessionId,input,{history,onProgress}),onProgress:send});
+    send({type:"final",ok:true,spokenText:spokenResponseFor(input,response.text),result:{...response,requestId}});
+    console.log(`[Georgie] turn terminal ${JSON.stringify({requestId,elapsedMs:Date.now()-started,completed:response.completed!==false,terminalReason:response.terminalReason||"completed",actionCount:response.actions?.length||0})}`);
+  }catch(error){
+    const blocker=error instanceof Error?error.message:"Streaming response failed";
+    console.error(`[Georgie] turn failed ${JSON.stringify({requestId,elapsedMs:Date.now()-started,error:blocker})}`);
+    send({type:"error",ok:false,error:`Blocked while executing the durable request: ${blocker}`,blocker,reconnect:`/api/mobile/turns/${requestId}`});
+  }finally{clearInterval(heartbeat);if(!res.writableEnded)res.end();}
+});
 router.post("/respond/stream-with-files",upload.array("files",MAX_ATTACHMENTS_PER_TURN),async(req,res)=>{
   const input=String(req.body?.input||"Analyze the attached files.").trim();
   if(!req.files?.length)return res.status(400).json({ok:false,error:"At least one attachment is required"});
@@ -140,4 +160,18 @@ router.post("/transcribe",upload.single("audio"),async(req,res)=>{try{if(!req.fi
 router.post("/speak",async(req,res)=>{try{const audio=await synthesizeSpeech(req.body?.text);res.setHeader("Content-Type","audio/mpeg");res.setHeader("Cache-Control","no-store");res.send(audio)}catch(error){res.status(500).json({ok:false,error:error instanceof Error?error.message:"Speech failed"})}});
 router.post("/voice-turn",upload.single("audio"),async(req,res)=>{try{if(!req.file)return res.status(400).json({ok:false,error:"Audio is required"});const userId=userIdFor(req),sessionId=sessionIdFor(req),transcript=await transcribeAudio({buffer:req.file.buffer,mimeType:req.file.mimetype,filename:req.file.originalname}),response=await complete(userId,sessionId,transcript),spokenText=spokenResponseFor(transcript,response.text),speech=await synthesizeSpeech(spokenText);res.json({ok:true,transcript,text:response.text,spokenText,responseId:response.responseId,remembered:response.remembered,actions:response.actions,audioBase64:speech.toString("base64"),audioMimeType:"audio/mpeg"})}catch(error){res.status(500).json({ok:false,error:error instanceof Error?error.message:"Voice turn failed"})}});
 
+let recoveryStarted=false;
+export function startMobileTurnRecovery(){
+  if(recoveryStarted)return;recoveryStarted=true;
+  setTimeout(async()=>{
+    const userId=userIdFor();
+    try{
+      const jobs=await listRecoverableTurns(userId);
+      for(const job of jobs.filter(item=>Number(item.attempts||0)<3)){
+        console.log(`[Georgie] recovering durable read-only turn ${JSON.stringify({requestId:job.requestId,attempts:job.attempts||0})}`);
+        runDurableTurn({job,execute:({onProgress})=>complete(userId,job.sessionId,job.input,{history:job.history||[],onProgress})}).catch(()=>{});
+      }
+    }catch(error){console.warn("Durable turn recovery scan deferred:",error instanceof Error?error.message:error);}
+  },1500).unref?.();
+}
 export function createMobileRouter(){return router;}

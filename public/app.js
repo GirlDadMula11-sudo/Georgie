@@ -117,6 +117,23 @@ function updateExecutionPanel(panel,event){
   else if(stage==="verification")executionStep(panel,key,event.message||"Verifying outcome",event.ok===false?"failed":"running");
   else if(stage==="plan_recovered")executionStep(panel,key,event.message||"Repair plan recovered","done");
   else if(stage==="planning_failed")executionStep(panel,key,event.message||"Planning failed","failed");
+  else if(stage==="heartbeat")executionStep(panel,"stage:heartbeat",event.message||"Still working — durable connection active","running");
+}
+
+async function recoverDurableTurn(requestId,{attempts=45,delayMs=1500}={}){
+  if(!requestId)return null;
+  for(let attempt=0;attempt<attempts;attempt+=1){
+    try{
+      const response=await fetch(`/api/mobile/turns/${encodeURIComponent(requestId)}`,{headers:requestHeaders(),cache:"no-store"});
+      const payload=await response.json();
+      if(response.ok&&payload?.job){
+        if(payload.job.result)return{ok:true,...payload.job.result,requestId};
+        if(payload.job.status==="blocked")throw new Error(payload.job.error||payload.job.message||"Durable task blocked");
+      }
+    }catch(error){if(attempt===attempts-1)throw error;}
+    await new Promise(resolve=>setTimeout(resolve,delayMs));
+  }
+  return null;
 }
 
 function finishExecutionPanel(panel,payload,{failed=false}={}){
@@ -355,6 +372,7 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
   setStatus("Thinking…");
   const requestStarted = performance.now();
   let headersAt = 0, firstEventAt = 0, firstDeltaAt = 0;
+  let durableRequestId = null;
   let assistantItem = null;
   // The server owns the bounded turn lifecycle. A browser timer must never
   // cancel durable tool work or discard a terminal result that is still arriving.
@@ -367,6 +385,8 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
     else{headers=requestHeaders({"Content-Type":"application/json"});body=JSON.stringify({input:effectiveInput,history:priorHistory,userId,sessionId});}
     const response = await fetch(endpoint, { method: "POST", headers, body });
     headersAt = performance.now();
+    durableRequestId=response.headers.get("X-Georgie-Request-Id")||null;
+    if(durableRequestId)localStorage.setItem("georgie:activeTurn",durableRequestId);
     if (!response.ok || !response.body) throw new Error("Streaming response unavailable");
     assistantItem = appendMessage("assistant", "Working…");
     const executionPanel=createExecutionPanel(assistantItem,requestStarted);
@@ -381,6 +401,7 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
       for (const line of lines) {
         if (!line.trim()) continue;
         const event = JSON.parse(line);
+        if(event.requestId){durableRequestId=event.requestId;executionPanel.dataset.requestId=durableRequestId;localStorage.setItem("georgie:activeTurn",durableRequestId);}
         if (!firstEventAt) firstEventAt = performance.now();
         if (event.type === "status") { setStatus(event.message || "Working…"); updateExecutionPanel(executionPanel,event); }
         if (event.type === "complete") updateExecutionPanel(executionPanel,event);
@@ -391,6 +412,7 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
       if (done) break;
     }
     if (!payload?.ok) throw new Error("Georgie did not complete the response");
+    localStorage.removeItem("georgie:activeTurn");
     updateMessage(assistantItem, payload.text);
     finishExecutionPanel(executionPanel,payload);
     attachOutcomeFeedback(assistantItem, effectiveInput, payload);
@@ -402,6 +424,21 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
     return payload;
   } catch (error) {
     console.error(error);
+    durableRequestId=durableRequestId||error?.requestId||assistantItem?.querySelector(".execution-panel")?.dataset?.requestId||null;
+    if(durableRequestId){
+      try{
+        setStatus("Connection interrupted. Reconnecting to the durable task…");
+        const recovered=await recoverDurableTurn(durableRequestId);
+        if(recovered){
+          if(!assistantItem)assistantItem=appendMessage("assistant",recovered.text||"Task result recovered.");else updateMessage(assistantItem,recovered.text||"Task result recovered.");
+          finishExecutionPanel(assistantItem.querySelector(".execution-panel"),recovered);
+          attachOutcomeFeedback(assistantItem,effectiveInput,recovered);attachHearResponse(assistantItem,recovered.spokenText||recovered.text);pushHistory("assistant",recovered.text);setStatus("Task result recovered after reconnect.");
+          localStorage.removeItem("georgie:activeTurn");
+          return recovered;
+        }
+        error=new Error(`Durable request ${durableRequestId} is still running. Its result remains saved and reconnectable from the activity center.`);
+      }catch(recoveryError){error=new Error(`Durable task blocked: ${String(recoveryError?.message||recoveryError)}`);}
+    }
     const timedOut = error?.name === "AbortError" || error?.name === "TimeoutError";
     const failureText = timedOut ? "That request exceeded Georgie’s response deadline and was stopped. I did not verify completion, and nothing should be treated as completed." : `I could not complete that request: ${String(error?.message || "the response pipeline failed").slice(0,300)}. Nothing should be treated as completed.`;
     if (assistantItem) { updateMessage(assistantItem, failureText); finishExecutionPanel(assistantItem.querySelector(".execution-panel"),null,{failed:true}); } else assistantItem = appendMessage("assistant", failureText);
@@ -631,6 +668,16 @@ window.addEventListener("beforeunload", () => handsFree.disable());
 setPresence("off", "Manual mode");
 syncVoiceOutput();
 restoreSession();
+const interruptedTurnId=localStorage.getItem("georgie:activeTurn");
+if(interruptedTurnId){
+  const item=appendMessage("assistant","Reconnecting to your unfinished Georgie task…");
+  const panel=createExecutionPanel(item,performance.now());panel.dataset.requestId=interruptedTurnId;
+  setStatus("Recovering the durable task result…");
+  recoverDurableTurn(interruptedTurnId).then(result=>{
+    if(!result)return;
+    updateMessage(item,result.text||"Durable task result recovered.");finishExecutionPanel(panel,result);attachHearResponse(item,result.spokenText||result.text);pushHistory("assistant",result.text);localStorage.removeItem("georgie:activeTurn");setStatus("Recovered the completed task after refresh.");
+  }).catch(error=>{const text=`Task blocked: ${String(error?.message||error)}`;updateMessage(item,text);finishExecutionPanel(panel,null,{failed:true});attachHearResponse(item,text);localStorage.removeItem("georgie:activeTurn");setStatus("Recovered the task’s exact blocker.");});
+}
 if (localStorage.getItem("georgie:handsFree") === "on") {
   setStatus("Tap Hands-free to resume microphone access.");
 }
