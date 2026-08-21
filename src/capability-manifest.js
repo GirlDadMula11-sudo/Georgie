@@ -31,6 +31,8 @@ export function getCapabilityManifest() {
       rawCredentialsExposedToModel: false
     },
     sessionRuntime: {
+      unifiedOperatingRuntime: "unified-georgie-runtime.v1",
+      operatingLoop: ["understand", "plan", "act", "verify", "recover", "report", "learn"],
       persistentToolRouter: true,
       toolsAttachedToEveryTurn: true,
       planningFailureDegradesToTruthfulAdvisory: true,
