@@ -47,10 +47,19 @@ test("preflight names the exact missing execution contract",()=>{
 
 test("verified continuation produces a deterministic evidence-backed completion",()=>{
   const response=sierraWorkflowDirectResponse("approved",[{ok:true,tool:"approvals.continue_latest",result:{ok:true,status:"verified",version:2,approvalId:"approval-1",planId:"plan-1",executedTool:"developer.apply"}}]);
-  assert.match(response.text,/executed and verified/);assert.match(response.text,/Approval ID: approval-1/);
+  assert.match(response.text,/TASK COMPLETED/);assert.match(response.text,/What I checked/);assert.match(response.text,/What I found/);assert.match(response.text,/What changed/);assert.match(response.text,/What I verified/);assert.match(response.text,/What remains/);assert.match(response.text,/Approval ID: approval-1/);
 });
 
 test("blocked continuation names the missing tool and never invents a queue",()=>{
   const response=sierraWorkflowDirectResponse("approved",[{ok:true,tool:"approvals.continue_latest",result:{ok:false,status:"blocked_missing_tool",approvalId:"approval-1",planId:"plan-1",missingTool:"developer.verify",error:"Required tool developer.verify is unavailable."}}]);
-  assert.match(response.text,/Exact missing tool: developer.verify/);assert.match(response.text,/Nothing was queued or completed/);
+  assert.match(response.text,/BLOCKED/);assert.match(response.text,/Exact missing tool: developer.verify/);assert.match(response.text,/Nothing was falsely marked complete/);
+});
+
+test("queued reconciliation is reported as in progress, never completed",()=>{
+  const response=sierraWorkflowDirectResponse("approved",[{ok:true,tool:"approvals.continue_latest",result:{ok:false,status:"verification_pending",version:3,approvalId:"approval-2",planId:"plan-2",executedTool:"system.reconciliation_check",result:{lanes:[{lane:"intake_transfer",status:"queued"},{lane:"funding_evidence",status:"queued"}]},verification:[{ok:true,tool:"sierra.health"}]}}]);
+  assert.equal(response.completed,false);
+  assert.equal(response.terminalState,"in_progress");
+  assert.match(response.text,/IN PROGRESS/);
+  assert.match(response.text,/2 bounded downstream actions were queued/);
+  assert.match(response.text,/2 queued actions need terminal execution/);
 });

@@ -122,7 +122,11 @@ defineTool({name:"approvals.continue_latest",description:"Resolve explicit conve
   try{
     const result=await target.run({userId,args:resolved.execution.args||{}});
     const verification=[];for(const check of resolved.execution.verification||[]){const verifyTool=registry.get(check.tool);if(!verifyTool){verification.push({ok:false,tool:check.tool,error:`Required verification tool ${check.tool} is unavailable.`});continue;}try{verification.push({ok:true,tool:check.tool,result:await verifyTool.run({userId,args:check.args||{}})});}catch(error){verification.push({ok:false,tool:check.tool,error:error instanceof Error?error.message:String(error)});}}
-    const terminal=!['queued','pending','accepted','running','in_progress'].includes(String(result?.status||'').toLowerCase()),verified=terminal&&verification.every(item=>item.ok);
+    const nonTerminalStatuses=new Set(['queued','pending','accepted','running','in_progress']);
+    const resultStatus=String(result?.status||'').toLowerCase();
+    const nestedStatuses=Array.isArray(result?.lanes)?result.lanes.map(item=>String(item?.status||'').toLowerCase()):[];
+    const terminal=!nonTerminalStatuses.has(resultStatus)&&!nestedStatuses.some(status=>nonTerminalStatuses.has(status));
+    const verified=terminal&&verification.every(item=>item.ok);
     await transitionApprovalPlan(userId,resolved.plan.id,{status:verified?"verified":"verification_pending",executionResult:result,verification});
     return{ok:verified,status:verified?"verified":"verification_pending",approvalId:resolved.approval.id,planId:resolved.plan.id,version:resolved.plan.version,executedTool:resolved.execution.tool,result,verification};
   }catch(error){const message=error instanceof Error?error.message:String(error);await transitionApprovalPlan(userId,resolved.plan.id,{status:"failed",error:message});return{ok:false,status:"failed",approvalId:resolved.approval.id,planId:resolved.plan.id,version:resolved.plan.version,executedTool:resolved.execution.tool,error:message};}

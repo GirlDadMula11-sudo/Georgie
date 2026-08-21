@@ -127,16 +127,17 @@ function finishExecutionPanel(panel,payload,{failed=false}={}){
   if(time)time.textContent=`${(elapsed/1000).toFixed(1)}s`;
   const actions=Array.isArray(payload?.actions)?payload.actions:[];
   const failedActions=actions.filter(action=>action?.ok===false);
-  panel.classList.remove("running");
-  panel.classList.add(failed||failedActions.length?"failed":"complete");
+  const terminalState=failed?"blocked":payload?.terminalState||(payload?.completed===false?"in_progress":failedActions.length?"blocked":"completed");
+  panel.classList.remove("running","complete","completed","blocked","approval_needed","in_progress","failed");
+  panel.classList.add(terminalState,terminalState==="completed"?"complete":terminalState==="blocked"?"failed":"");
   const title=panel.querySelector("summary strong");
-  if(title)title.textContent=failed?"Execution stopped":actions.length?"Execution verified":"Response complete";
+  if(title)title.textContent={completed:"Task completed",blocked:"Task blocked",approval_needed:"Approval needed",in_progress:"Task in progress"}[terminalState]||"Task update";
   const receipt=panel.querySelector(".execution-receipt");
   if(receipt){
     const evidence=Number(payload?.evidence?.length||0);
-    receipt.textContent=failed?"No completion was claimed.":actions.length?`${actions.length} tool${actions.length===1?"":"s"} · ${evidence} evidence source${evidence===1?"":"s"} · terminal result recorded`:"No tools required.";
+    receipt.textContent=terminalState==="completed"?(actions.length?`${actions.length} tool${actions.length===1?"":"s"} · ${evidence} evidence source${evidence===1?"":"s"} · terminal outcome recorded`:"No tools required."):terminalState==="in_progress"?"Work started; completion awaits terminal business evidence.":"No completion was claimed.";
   }
-  panel.open=failed||failedActions.length>0;
+  panel.open=terminalState!=="completed";
 }
 
 function outcomeDomain(input, payload) {
