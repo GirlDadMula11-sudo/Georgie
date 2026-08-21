@@ -58,7 +58,7 @@ export function deterministicToolPlan(input = "") {
   const lower = text.toLowerCase();
   if (!text) return [];
   const investigationId=text.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i)?.[0];
-  if(investigationId&&/\b(?:open|show|render|resume|continue|retrieve|read)\b/i.test(text)&&/\b(?:investigation|control brief|report|artifact)\b/i.test(text))return[{tool:"sierra.investigation_open",args:{investigationId}}];
+  if(investigationId&&/\b(?:open|show|build|generate|render|resume|continue|retrieve|read)\b/i.test(text)&&/\b(?:investigation|control brief|report|artifact)\b/i.test(text))return[{tool:"sierra.investigation_open",args:{investigationId}}];
   if (/\b(?:create|generate|get|give|issue|need|show)\b/.test(lower) && /\b(?:one[- ]time\s+)?enrollment code\b/.test(lower)) return [{tool:"system.create_enrollment_code",args:{}}];
   if (/\b(?:probe|test|inspect|verify|report)\b/.test(lower) && /\b(?:governed|rpc|contracts?|read access)\b/.test(lower) && /\b(?:lender[- ]activity|guarded|conflicts?|audit|infrastructure)\b/.test(lower)) return [
     {tool:"sierra.guarded_lender_conflicts",args:{reference:null,limit:50}},
