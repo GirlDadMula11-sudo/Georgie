@@ -101,7 +101,7 @@ export function deterministicToolPlan(input = "") {
       summary:"Run one idempotent Sierra reconciliation cycle across intake transfer, missing dates, funding evidence, and health reconciliation, then verify health, infrastructure, and the Apply-to-Sierra invariant.",
       domain:"sierra",risk:"medium",reversible:true,
       steps:["Run one bounded reconciliation cycle without lender submission or external communication.","Verify Sierra health and infrastructure after execution.","Verify every Apply submission resolves to one Sierra deal, confirmed duplicate, or quarantine record.","Report any remaining issue as a separate exact-scope approval plan."],
-      execution:{tool:"system.reconciliation_check",args:{mode:"bounded",scope:"submission_reliability"},verification:[{tool:"sierra.health",args:{}},{tool:"sierra.infrastructure",args:{}},{tool:"sierra.reconciliation_invariant",args:{limit:250}}]},
+      execution:{tool:"system.reconciliation_execute_bounded",args:{scope:"submission_reliability"},verification:[{tool:"sierra.health",args:{}},{tool:"sierra.infrastructure",args:{}},{tool:"sierra.reconciliation_invariant",args:{limit:250}}]},
       verificationMethod:"Require terminal reconciliation evidence plus successful health, infrastructure, and invariant read-back.",
       rollbackPlan:"Stop further reconciliation cycles and preserve every action-journal entry; any record-specific reversal requires its own exact approval."
     }}

@@ -35,7 +35,7 @@ test("an explicit approval can recover the exact deterministic plan from recent 
     {role:"assistant",content:"Diagnosis completed; the bounded repair remains approval-gated."}
   ]);
   assert.equal(recovered.tool,"approvals.prepare_plan");
-  assert.equal(recovered.args.execution.tool,"system.reconciliation_check");
+  assert.equal(recovered.args.execution.tool,"system.reconciliation_execute_bounded");
   assert.equal(recovered.args.execution.verification.length,3);
 });
 
@@ -52,7 +52,7 @@ test("verified continuation produces a deterministic evidence-backed completion"
 
 test("successful calls with unknown business evidence are blocked, never completed",()=>{
   const response=sierraWorkflowDirectResponse("approved",[{ok:true,tool:"approvals.continue_latest",result:{ok:false,status:"blocked_incomplete_evidence",version:4,approvalId:"approval-4",planId:"plan-4",executedTool:"system.reconciliation_check",result:{lanes:[{lane:"health",status:"observed_only"}]},executionVerification:{accepted:true,state:"PASS",reason:"terminal"},verification:[{ok:true,accepted:false,state:"UNKNOWN",tool:"sierra.health",reason:"no authoritative healthy status"}]}}]);
-  assert.equal(response.completed,false);assert.equal(response.terminalState,"blocked");assert.match(response.text,/BLOCKED/);assert.match(response.text,/sierra.health: UNKNOWN/);assert.doesNotMatch(response.text,/TASK COMPLETED/);
+  assert.equal(response.completed,false);assert.equal(response.terminalState,"blocked");assert.match(response.text,/NEEDS ATTENTION/);assert.match(response.text,/sierra.health: UNKNOWN/);assert.doesNotMatch(response.text,/TASK COMPLETED/);
 });
 
 test("successful calls with unhealthy business evidence are blocked",()=>{

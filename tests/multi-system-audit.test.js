@@ -50,6 +50,6 @@ test("a bounded approval plan is prepared only from a verified Sierra defect",()
     {ok:true,tool:"sierra.infrastructure",result:{status:"healthy"}},
     {ok:true,tool:"sierra.reconciliation_invariant",result:{status:"healthy"}}
   ]);
-  assert.equal(plan.execution.tool,"system.reconciliation_check");
+  assert.equal(plan.execution.tool,"system.reconciliation_execute_bounded");
   assert.equal(verifiedMultiSystemRepairPlan([{ok:true,tool:"system.supabase"},{ok:true,tool:"system.github"},{ok:false,tool:"sierra.health",error:"not returned"}]),null);
 });
