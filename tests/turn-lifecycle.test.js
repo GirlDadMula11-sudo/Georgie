@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { terminalPartialResult, withTurnDeadline } from "../src/turn-lifecycle.js";
+import { interruptedStreamRecoveryContext } from "../src/georgie.js";
 
 test("a stalled turn always returns a terminal partial result",async()=>{
   const result=await withTurnDeadline(()=>new Promise(()=>{}),{timeoutMs:20,onDeadline:()=>terminalPartialResult({startedAt:Date.now()-20})});
@@ -30,4 +31,12 @@ test("provider timeout returns a durable terminal recovery result",()=>{
   assert.match(result.text,/accepted and preserved/i);
   assert.match(result.text,/without restating/i);
   assert.doesNotMatch(result.text,/completed successfully/i);
+});
+
+test("interrupted intelligence is recovered with a bounded continuation",()=>{
+  const context=interruptedStreamRecoveryContext("live evidence","already-visible draft");
+  assert.match(context,/do not repeat the draft/i);
+  assert.match(context,/under 350 words/i);
+  assert.match(context,/already-visible draft/);
+  assert.match(context,/never claim an unverified action/i);
 });
