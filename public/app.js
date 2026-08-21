@@ -419,7 +419,7 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
     updateMessage(assistantItem, payload.text);
     finishExecutionPanel(executionPanel,payload);
     if(payload.investigationArtifact?.id&&Array.isArray(payload.investigationArtifact.sections)){
-      for(const sectionId of payload.investigationArtifact.sections){await fetch(`/api/mobile/investigations/${payload.investigationArtifact.id}/delivery`,{method:"POST",headers:requestHeaders({"Content-Type":"application/json"}),body:JSON.stringify({sectionId})});}
+      for(const sectionId of payload.investigationArtifact.sections){await fetch(`/api/mobile/investigations/${payload.investigationArtifact.id}/delivery`,{method:"POST",headers:requestHeaders({"Content-Type":"application/json"}),cache:"no-store",body:JSON.stringify({sectionId})});}
     }
     attachOutcomeFeedback(assistantItem, effectiveInput, payload);
     attachHearResponse(assistantItem, payload.spokenText || payload.text);
