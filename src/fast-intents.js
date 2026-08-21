@@ -66,7 +66,17 @@ export function deterministicToolPlan(input = "") {
     {tool:"sierra.infrastructure",args:{}},
     {tool:"sierra.apply_inventory",args:{limit:100,status:"all"}},
     {tool:"sierra.reconciliation_invariant",args:{limit:250}},
-    {tool:"sierra.portfolio",args:{limit:25}}
+    {tool:"sierra.portfolio",args:{limit:25}},
+    {tool:"approvals.prepare_plan",args:{
+      sessionId:"native",
+      title:"Run bounded Sierra submission-reliability repair cycle",
+      summary:"Run one idempotent Sierra reconciliation cycle across intake transfer, missing dates, funding evidence, and health reconciliation, then verify health, infrastructure, and the Apply-to-Sierra invariant.",
+      domain:"sierra",risk:"medium",reversible:true,
+      steps:["Run one bounded reconciliation cycle without lender submission or external communication.","Verify Sierra health and infrastructure after execution.","Verify every Apply submission resolves to one Sierra deal, confirmed duplicate, or quarantine record.","Report any remaining issue as a separate exact-scope approval plan."],
+      execution:{tool:"system.reconciliation_check",args:{mode:"bounded",scope:"submission_reliability"},verification:[{tool:"sierra.health",args:{}},{tool:"sierra.infrastructure",args:{}},{tool:"sierra.reconciliation_invariant",args:{limit:250}}]},
+      verificationMethod:"Require terminal reconciliation evidence plus successful health, infrastructure, and invariant read-back.",
+      rollbackPlan:"Stop further reconciliation cycles and preserve every action-journal entry; any record-specific reversal requires its own exact approval."
+    }}
   ];
   if (/\b(world state|what am i working on|what are we working on|everything pending|open commitments|unfinished work)\b/.test(lower)) return [{tool:"system.world_state",args:{context:text}}];
   if (/\b(durable objectives?|unfinished engineering|blocked actions?|resume across sessions?|continuity state)\b/.test(lower)) return [{tool:"system.continuity",args:{limit:50}}];
@@ -116,4 +126,15 @@ export function deterministicToolPlan(input = "") {
   if (ref && /\b(deal|file|status|underwriting|capitalmatch|application|evidence)\b/.test(lower)) return [{ tool: "sierra.deal", args: { reference: ref } }];
   if (ref && /\b(refresh|recompute|rerun|re-run|re-evaluate|reevaluate)\b/.test(lower)) return [{ tool: "sierra.refresh_pipeline", args: { reference: ref, reason: text.slice(0, 1000) } }];
   return [];
+}
+
+export function latestDeterministicApprovalPlan(history = []) {
+  const turns = Array.isArray(history) ? history : [];
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turn = turns[index];
+    if (turn?.role !== "user" || typeof turn?.content !== "string") continue;
+    const action = deterministicToolPlan(turn.content).find(item => item?.tool === "approvals.prepare_plan");
+    if (action) return action;
+  }
+  return null;
 }

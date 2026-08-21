@@ -22,3 +22,16 @@ test("workflow evidence produces a useful immediate terminal assessment", () => 
   assert.match(response.text, /Permanent-solution path/);
   assert.match(response.text, /No deal.*was changed/);
 });
+
+test("workflow response exposes the durable exact-scope approval plan",()=>{
+  const response=sierraWorkflowDirectResponse("repair Sierra",[
+    {ok:true,tool:"sierra.health",result:{health_status:"healthy"}},
+    {ok:true,tool:"sierra.infrastructure",result:{status:"healthy"}},
+    {ok:true,tool:"sierra.apply_inventory",result:{submissions:[]}},
+    {ok:true,tool:"sierra.reconciliation_invariant",result:{violation_count:0}},
+    {ok:true,tool:"sierra.portfolio",result:{deals:[]}},
+    {ok:true,tool:"approvals.prepare_plan",result:{plan:{version:1,execution:{tool:"system.reconciliation_check"}},approval:{id:"approval-123"}}}
+  ]);
+  assert.match(response.text,/Approval ID: approval-123/);
+  assert.match(response.text,/Exact execution: system\.reconciliation_check/);
+});

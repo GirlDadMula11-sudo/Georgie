@@ -27,5 +27,9 @@ test("broad productivity commands cannot silently become no-action turns", () =>
     "sierra.apply_inventory",
     "sierra.reconciliation_invariant",
     "sierra.portfolio",
+    "approvals.prepare_plan",
   ]);
+  const approvalPlan=plan.at(-1).args;
+  assert.equal(approvalPlan.execution.tool,"system.reconciliation_check");
+  assert.deepEqual(approvalPlan.execution.verification.map(item=>item.tool),["sierra.health","sierra.infrastructure","sierra.reconciliation_invariant"]);
 });

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { deterministicToolPlan } from "../src/fast-intents.js";
+import { deterministicToolPlan, latestDeterministicApprovalPlan } from "../src/fast-intents.js";
 import { isConversationalApproval, preflightExecution } from "../src/approval-continuation.js";
 import { sierraWorkflowDirectResponse } from "../src/sierra-workflow-summary.js";
 
@@ -27,6 +27,16 @@ test("non-approval language cannot execute a pending plan",()=>{
   for(const utterance of ["Can you fix it?","You should fix it","I want this fixed","Go ahead and inspect it"]){
     assert.equal(isConversationalApproval(utterance),false,utterance);
   }
+});
+
+test("an explicit approval can recover the exact deterministic plan from recent history",()=>{
+  const recovered=latestDeterministicApprovalPlan([
+    {role:"user",content:"Work through everything pending in our entire Sierra system, prioritize it, and make sure the submission process is functioning and operating as designed."},
+    {role:"assistant",content:"Diagnosis completed; the bounded repair remains approval-gated."}
+  ]);
+  assert.equal(recovered.tool,"approvals.prepare_plan");
+  assert.equal(recovered.args.execution.tool,"system.reconciliation_check");
+  assert.equal(recovered.args.execution.verification.length,3);
 });
 
 test("preflight names the exact missing execution contract",()=>{
