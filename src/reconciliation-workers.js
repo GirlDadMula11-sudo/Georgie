@@ -8,13 +8,16 @@ const INTERVAL = Math.max(60_000, Number(process.env.GEORGIE_RECONCILIATION_INTE
 const LANES = ["intake_transfer", "missing_application_date", "funding_evidence", "health_reconciliation"];
 let timer = null, running = false;
 function mode() { if (process.env.GEORGIE_AUTOMATION_KILL_SWITCH === "true") return "paused"; return process.env.GEORGIE_RECONCILIATION_MODE === "bounded" ? "bounded" : "shadow"; }
+export function resolveReconciliationMode(configuredMode, requestedMode) { return configuredMode === "paused" ? "paused" : requestedMode === "bounded" ? "bounded" : configuredMode === "bounded" ? "bounded" : "shadow"; }
 export async function reconciliationStatus(userId = USER()) { return readCloudState(String(userId), NS, { mode: mode(), cycles: 0, lanes: [], lastRunAt: null }); }
 
-export async function runReconciliationCycle() {
+export async function runReconciliationCycle({ requestedMode = null, userId: requestedUserId = null } = {}) {
   if (running) return { skipped: true, reason: "cycle_already_running" };
-  running = true; const userId = USER();
+  running = true; const userId = String(requestedUserId || USER());
   try {
-    const previous = await reconciliationStatus(userId), currentMode = mode(), observedAt = new Date().toISOString();
+    const configuredMode = mode();
+    const currentMode = resolveReconciliationMode(configuredMode, requestedMode);
+    const previous = await reconciliationStatus(userId), observedAt = new Date().toISOString();
     if (currentMode === "paused") { const paused = { ...previous, mode: currentMode, pausedByKillSwitch: true, lastRunAt: observedAt }; await writeCloudState(userId, NS, paused); return paused; }
     if (!sierraWorkforceConfigured()) throw new Error("Sierra Workforce is not configured");
     const [health, infrastructure] = await Promise.all([getSierraHealth(userId), getSierraInfrastructure(userId)]);
