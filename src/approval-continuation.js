@@ -1,14 +1,14 @@
 import crypto from "node:crypto";
 import { createApprovalRequest, decideApproval, listApprovals } from "./command-layer.js";
 import { readCloudState, writeCloudState } from "./cloud-state.js";
+import { isExplicitConversationalApproval } from "./approval-language.js";
 
 const NS="approval_continuation";
-const APPROVAL_LANGUAGE=/^\s*(?:yes[,.!]?\s*)?(?:so\s+)?(?:complete|proceed|execute|apply|finish|do)\s+(?:it|that|the plan|the repair)(?:\s+now)?[,.!;:\s-]*(?:you have|with|i give|this is)\s+(?:my\s+)?approval\b|^\s*(?:approved|i approve|you have my approval)\s*(?:it|that|the plan|the repair)?[.!]?\s*$/i;
 
 const clean=value=>String(value||"").trim();
 const now=()=>new Date().toISOString();
 
-export function isConversationalApproval(input){return APPROVAL_LANGUAGE.test(clean(input));}
+export function isConversationalApproval(input){return isExplicitConversationalApproval(input);}
 
 export function preflightExecution(execution,availableTools=[]){
   if(!execution||typeof execution!=="object"||!clean(execution.tool))return{ok:false,missingTool:"approval.execution_descriptor",reason:"The approved plan has no exact execution tool and bounded arguments."};

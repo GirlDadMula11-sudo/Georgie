@@ -10,6 +10,25 @@ test("natural approval resolves to the continuation tool instead of generic conv
   assert.deepEqual(deterministicToolPlan(utterance),[{tool:"approvals.continue_latest",args:{utterance}}]);
 });
 
+test("ordinary explicit approval language resolves to the latest bounded plan",()=>{
+  const approved=[
+    "You are approved to fix it",
+    "You're approved to repair that.",
+    "I approve you to complete the plan now",
+    "Go ahead and fix it, you are approved to do so"
+  ];
+  for(const utterance of approved){
+    assert.equal(isConversationalApproval(utterance),true,utterance);
+    assert.deepEqual(deterministicToolPlan(utterance),[{tool:"approvals.continue_latest",args:{utterance}}],utterance);
+  }
+});
+
+test("non-approval language cannot execute a pending plan",()=>{
+  for(const utterance of ["Can you fix it?","You should fix it","I want this fixed","Go ahead and inspect it"]){
+    assert.equal(isConversationalApproval(utterance),false,utterance);
+  }
+});
+
 test("preflight names the exact missing execution contract",()=>{
   assert.deepEqual(preflightExecution(null,[{name:"sierra.health"}]),{ok:false,missingTool:"approval.execution_descriptor",reason:"The approved plan has no exact execution tool and bounded arguments."});
   const result=preflightExecution({tool:"developer.apply",verificationTools:["developer.verify"]},[{name:"developer.apply"}]);

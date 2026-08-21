@@ -1,3 +1,5 @@
+import { isExplicitConversationalApproval } from "./approval-language.js";
+
 function referenceFrom(text = "") {
   const explicit = String(text).match(/\b((?:SCA[-_A-Z0-9]+|CM[-_]\d+))\b/i);
   return explicit ? explicit[1] : null;
@@ -94,7 +96,7 @@ export function deterministicToolPlan(input = "") {
   if (/\b(invariant|exactly one|duplicate|quarantine|reconciliation coverage)\b/.test(lower) && /\b(apply|submission|sierra|deal|record)\b/.test(lower)) return [{tool:"sierra.reconciliation_invariant",args:{limit:250}}];
   if (/\b(what|which|current|show|check|verify|do you|georgie)\b/.test(lower) && /\b(access|connections?|connected|configured|capabilit(?:y|ies)|current blockers?)\b/.test(lower)) return [{ tool: "system.status", args: {} }];
   if (/\b(show|list|what are|review|check)\b/.test(lower) && /\b(pending )?approvals?\b/.test(lower)) return [{tool:"approvals.list",args:{status:"pending",limit:25}}];
-  if (/^(?:yes[,.!]?\s*)?(?:so\s+)?(?:complete|proceed|execute|apply|finish|do)\s+(?:it|that|the plan|the repair)(?:\s+now)?[,.!;:\s-]*(?:you have|with|i give|this is)\s+(?:my\s+)?approval\b/i.test(text)||/^\s*(?:approved|i approve|you have my approval)\s*(?:it|that|the plan|the repair)?[.!]?\s*$/i.test(text)) return [{tool:"approvals.continue_latest",args:{utterance:text}}];
+  if (isExplicitConversationalApproval(text)) return [{tool:"approvals.continue_latest",args:{utterance:text}}];
   const approvalDecision=text.match(/^\s*(approve|reject|defer)\s+(?:approval\s+)?([0-9a-f-]{20,})(?:\s+because\s+(.+))?\s*$/i);if(approvalDecision)return[{tool:"approvals.decide",args:{approvalId:approvalDecision[2],decision:{approve:"approved",reject:"rejected",defer:"deferred"}[approvalDecision[1].toLowerCase()],note:approvalDecision[3]||""}}];
   if (/\b(neo|email|e-mail|mail)\b/.test(lower) && /\b(configured|connected|working|available|send|outbound|status|verify)\b/.test(lower)) return [{ tool: "email.accounts", args: {} }];
   const campaignStatus=lower.match(/\b(start|resume|pause|stop)\s+(?:smartlead\s+)?campaign\s+(\d+)\b/);if(campaignStatus){const status={start:"START",resume:"START",pause:"PAUSED",stop:"STOPPED"}[campaignStatus[1]];return [{tool:"campaigns.prepare_status_change",args:{campaignId:campaignStatus[2],status}}];}
