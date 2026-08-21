@@ -5,6 +5,16 @@ function referenceFrom(text = "") {
   return explicit ? explicit[1] : null;
 }
 
+function investigationTargetFrom(text=""){
+  const reference=referenceFrom(text);if(reference)return reference;
+  const quoted=String(text).match(/[“"]([^”"]{2,80})[”"]/);if(quoted)return quoted[1].trim();
+  const known=String(text).match(/\b(Mr\.?\s+Muffins)\b/i);
+  if(known)return known[1];
+  const traced=String(text).match(/\b(?:trace|inspect|investigate|target)\s+(?:the\s+)?(.{2,80}?)\s+(?:specifically|through\s+intake|file|deal)\b/i);
+  if(traced)return traced[1].replace(/^(?:deal|file)\s+/i,"").trim();
+  return null;
+}
+
 const MAC_APPS = new Map([
   ["notepad", "Notes"], ["note pad", "Notes"], ["notes", "Notes"], ["note", "Notes"],
   ["safari", "Safari"], ["chrome", "Google Chrome"], ["google chrome", "Google Chrome"],
@@ -56,6 +66,8 @@ export function deterministicToolPlan(input = "") {
   ];
   if (/\b(?:inspect|show|identify|diagnose|explain|list)\b/.test(lower) && /\bguarded\b/.test(lower) && /\b(?:lender[- ]activity|evidence)\b/.test(lower) && /\bconflicts?\b/.test(lower)) return [{tool:"sierra.guarded_conflict_intelligence",args:{reference:referenceFrom(text),limit:50}}];
   if (/\b(?:analy[sz]e|audit|diagnose|review|inspect)\b/.test(lower) && /\b(?:georgie|repo|repository|codebase|architecture)\b/.test(lower) && /\b(?:reliability|silent|working|tool|continuity|completion|failure|weakness|crash)\b/.test(lower)) return [{tool:"developer.search",args:{repo:null,query:"completeTurnV2|respond/stream|sendTextTurn|isBusy|appendSessionTurn|executePlannedActions|verifiedDirectResponse|planActions|queueMacAndWait|recordTurnEvaluation|restoreSession|backgroundLearn"}}];
+  const continuationTarget=investigationTargetFrom(text);
+  if(/\b(?:continue|resume|pick up)\b/.test(lower)&&/\b(?:investigation|diagnosis|inspection|evidence)\b/.test(lower)&&continuationTarget)return [{tool:"sierra.continue_diagnostic_investigation",args:{reference:continuationTarget,scope:"deal_continuation",freshnessMs:300000}}];
   if (/\b(?:inspect|review|check)\b/.test(lower) && /\b(?:repo|repository|codebase|working tree|git status)\b/.test(lower)) return [{tool:"developer.repo_inspect",args:{repo:null}}];
   if (/\b(?:review|inspect|check|scan|go through|look through|summarize)\b/.test(lower) && /\b(?:open\s+)?tabs?\b/.test(lower) && /\b(?:mac|safari|chrome|browser)\b/.test(lower)) return [{tool:"mac.browser_inspect",args:{includeContent:true,scope:"sierra"}}];
   const broadSierraExecution = /\b(?:sierra|capital\s*match|capitalmatch|underwriting|submission|intake|crm|our (?:entire|whole) system)\b/.test(lower)

@@ -33,3 +33,9 @@ test("broad productivity commands cannot silently become no-action turns", () =>
   assert.equal(approvalPlan.execution.tool,"system.reconciliation_check");
   assert.deepEqual(approvalPlan.execution.verification.map(item=>item.tool),["sierra.health","sierra.infrastructure","sierra.reconciliation_invariant"]);
 });
+
+test("deal-specific continuation bypasses the generic workflow summary",()=>{
+  const prompt="Continue this same investigation. Do not repeat completed checks. Resolve the missing reconciliation evidence, inspect worker and queue status, and trace Mr Muffins specifically through intake → documents → canonical application → CapitalMatch → underwriting → submission.";
+  const plan=deterministicToolPlan(prompt);
+  assert.deepEqual(plan,[{tool:"sierra.continue_diagnostic_investigation",args:{reference:"Mr Muffins",scope:"deal_continuation",freshnessMs:300000}}]);
+});

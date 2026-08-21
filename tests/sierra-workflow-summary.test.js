@@ -35,3 +35,11 @@ test("workflow response exposes the durable exact-scope approval plan",()=>{
   assert.match(response.text,/Approval ID: approval-123/);
   assert.match(response.text,/Exact execution: system\.reconciliation_check/);
 });
+
+test("continued investigation fails closed and returns every required outcome section",()=>{
+  const response=sierraWorkflowDirectResponse("continue",[{ok:true,tool:"sierra.continue_diagnostic_investigation",result:{requestId:"request-1",reference:"Mr Muffins",continuationOf:null,status:"blocked_incomplete_evidence",steps:[{tool:"sierra.deal",status:"completed"},{tool:"sierra.reconciliation_invariant",status:"completed"}],skippedFreshTools:[],synthesis:{unresolved:[{tool:"sierra.reconciliation_invariant",reason:"required evidence contains an explicit unknown or not-returned value"}]}}}]);
+  assert.equal(response.completed,false);
+  assert.equal(response.terminalState,"blocked");
+  for(const heading of ["What I checked","What I found","What changed","What I verified","What remains"])assert.match(response.text,new RegExp(heading));
+  assert.match(response.text,/No repair plan was created/);
+});
