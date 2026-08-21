@@ -10,6 +10,7 @@ import { sierraWorkflowDirectResponse } from "./sierra-workflow-summary.js";
 import { attachmentModelParts, publicAttachmentManifest } from "./attachments.js";
 import { prepareUnifiedOperatingTurn, retainUnifiedObjective, unifiedRuntimePrompt } from "./unified-operating-runtime.js";
 import { multiSystemAuditResponse, verifiedMultiSystemRepairPlan } from "./multi-system-audit.js";
+import { AUTHORIZED_READ_FALLBACKS, executeWithRecovery } from "./resilient-execution.js";
 
 export async function completeAttachmentTurnV2({userId,sessionId,input,history=[],attachments=[],onProgress,shouldFinalize=()=>true}) {
   const startedAt=Date.now(); let firstResponseMs=0;
@@ -62,7 +63,7 @@ async function planFor(input){
   console.log(`[Georgie] governed tool plan ${JSON.stringify({source:"model_router",actionCount:planned.length,tools:planned.map(action=>action.tool)})}`);
   return planned;
 }
-async function boundedRead(action,userId,policy){const timeoutMs=Math.max(5000,Math.min(15000,Number(process.env.GEORGIE_TOOL_TIMEOUT_MS||12000)));const operation=executeTool({name:action.tool,args:action.args||{},userId,policy});operation.catch(()=>{});return Promise.race([operation,new Promise(resolve=>setTimeout(()=>resolve({ok:false,tool:action.tool,error:`Tool exceeded its ${timeoutMs}ms read deadline`,timedOut:true}),timeoutMs))]);}
+async function boundedRead(action,userId,policy,{emit}={}){const timeoutMs=Math.max(5000,Math.min(15000,Number(process.env.GEORGIE_TOOL_TIMEOUT_MS||12000)));return executeWithRecovery({action,userId,policy,risk:"read",execute:executeTool,timeoutMs,fallback:AUTHORIZED_READ_FALLBACKS[action.tool]||null,onProgress:emit,onLateResult:({recoveryId,action:lateAction,result})=>{const terminal=result?.ok===true?"completed":"blocked";void enqueueEvent({userId,type:`execution.recovered_${terminal}`,title:terminal==="completed"?"Recovered task completed":"Recovered task blocked",body:terminal==="completed"?`${lateAction.tool} finished after the browser deadline.`:`${lateAction.tool} remained blocked: ${result?.error||"unknown failure"}`,priority:terminal==="completed"?"normal":"high",dedupeKey:`recovery:${recoveryId}`,data:{recoveryId,tool:lateAction.tool,terminal,result}}).catch(()=>{});}});}
 async function executePlannedActions(userId,input,{sessionId="native",history=[],onProgress}={}){
   const emit=(event)=>{try{onProgress?.(event);}catch{}};
   let actions;
@@ -79,7 +80,7 @@ async function executePlannedActions(userId,input,{sessionId="native",history=[]
   const writes=actions.filter(action=>risks.get(action.tool)!=="read");
   const runRead=async(action)=>{
     emit({type:"status",stage:"tool_running",message:`Running ${action.tool}…`,tool:action.tool});
-    const result=await boundedRead(action,userId,basePolicy);
+    const result=await boundedRead(action,userId,basePolicy,{emit});
     emit({type:"status",stage:"tool_complete",message:`${action.tool} ${result?.ok===false?"failed":"finished"}.`,tool:action.tool,ok:result?.ok!==false});
     return result;
   };
