@@ -32,6 +32,11 @@ export function terminalPartialResult({startedAt,firstResponseMs=0,reason="turn_
 export async function withTurnDeadline(work,{timeoutMs=TURN_DEADLINE_MS,onDeadline}={}){
   let timer;
   const operation=Promise.resolve().then(work);
+  // Streaming requests already have durable request identity, reconnect
+  // polling, and bounded provider/tool calls. Do not convert their real late
+  // result into a terminal partial merely because the HTTP turn crossed the
+  // short synchronous-response budget.
+  if(timeoutMs===null||timeoutMs===false)return operation;
   // The operation is intentionally not cancelled: queued tools are durable and
   // late completion may still write its evidence journal. This catch prevents a
   // detached rejection after the terminal response has been returned.

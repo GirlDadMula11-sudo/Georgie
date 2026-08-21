@@ -17,6 +17,15 @@ test("a completed turn wins before the deadline",async()=>{
   assert.equal(result.text,"verified");
 });
 
+test("a durable streaming turn is not preempted by the synchronous deadline",async()=>{
+  const result=await withTurnDeadline(
+    ()=>new Promise(resolve=>setTimeout(()=>resolve({terminal:true,completed:true,text:"late verified result"}),25)),
+    {timeoutMs:null,onDeadline:()=>terminalPartialResult()}
+  );
+  assert.equal(result.completed,true);
+  assert.equal(result.text,"late verified result");
+});
+
 test("terminal partial language never claims execution",()=>{
   const result=terminalPartialResult({startedAt:Date.now()});
   assert.doesNotMatch(result.text,/successfully completed|repair completed|fixed/i);

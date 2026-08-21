@@ -144,18 +144,18 @@ function finishExecutionPanel(panel,payload,{failed=false}={}){
   if(time)time.textContent=`${(elapsed/1000).toFixed(1)}s`;
   const actions=Array.isArray(payload?.actions)?payload.actions:[];
   const failedActions=actions.filter(action=>action?.ok===false);
-  const rawTerminalState=failed?"blocked":payload?.terminalState||(payload?.completed===false?"in_progress":failedActions.length?"blocked":"completed");
+  const rawTerminalState=failed?"blocked":payload?.terminalState||(payload?.completed===false?(payload?.terminal===true?"retained":"in_progress"):failedActions.length?"blocked":"completed");
   const terminalState=["verified","partial"].includes(rawTerminalState)&&payload?.completed!==false?"completed":rawTerminalState;
   panel.classList.remove("running","complete","completed","blocked","approval_needed","in_progress","failed");
   panel.classList.add(terminalState);
   if(terminalState==="completed")panel.classList.add("complete");
   if(terminalState==="blocked")panel.classList.add("failed");
   const title=panel.querySelector("summary strong");
-  if(title)title.textContent={completed:"Task completed",blocked:"Task blocked",approval_needed:"Approval needed",in_progress:"Task in progress"}[terminalState]||"Task update";
+  if(title)title.textContent={completed:"Task completed",blocked:"Task blocked",approval_needed:"Approval needed",in_progress:"Task in progress",retained:"Task retained"}[terminalState]||"Task update";
   const receipt=panel.querySelector(".execution-receipt");
   if(receipt){
     const evidence=Number(payload?.evidence?.length||0);
-    receipt.textContent=terminalState==="completed"?(actions.length?`${actions.length} tool${actions.length===1?"":"s"} · ${evidence} evidence source${evidence===1?"":"s"} · terminal outcome recorded`:"No tools required."):terminalState==="in_progress"?"Work started; completion awaits terminal business evidence.":"No completion was claimed.";
+    receipt.textContent=terminalState==="completed"?(actions.length?`${actions.length} tool${actions.length===1?"":"s"} · ${evidence} evidence source${evidence===1?"":"s"} · terminal outcome recorded`:"No tools required."):terminalState==="in_progress"?"Work started; completion awaits terminal business evidence.":terminalState==="retained"?"Work retained for recovery; no completion was claimed.":"No completion was claimed.";
   }
   panel.open=terminalState!=="completed";
 }

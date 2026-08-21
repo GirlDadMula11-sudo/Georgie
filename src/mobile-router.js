@@ -41,6 +41,7 @@ async function complete(userId, sessionId, input, options = {}) {
       shouldFinalize: () => !expired,
     }),
     {
+      timeoutMs: options.durableStream ? null : undefined,
       onDeadline: () => {
         expired = true;
         const result = terminalPartialResult({ startedAt });
@@ -132,7 +133,7 @@ router.post("/respond/stream",async(req,res)=>{
   const job=await beginDurableTurn({requestId,userId,sessionId,input,history,recoverable:/\b(?:continue|resume)\b/i.test(input)&&/\b(?:investigation|diagnosis|inspection|evidence)\b/i.test(input)});
   const heartbeat=setInterval(()=>send({type:"status",stage:"heartbeat",message:"Still working. This request is durable and reconnectable.",elapsedMs:Date.now()-started}),4000);heartbeat.unref?.();
   try{
-    const response=await runDurableTurn({job,execute:({onProgress})=>complete(userId,sessionId,input,{history,onProgress}),onProgress:send});
+    const response=await runDurableTurn({job,execute:({onProgress})=>complete(userId,sessionId,input,{history,onProgress,durableStream:true}),onProgress:send});
     send({type:"final",ok:true,spokenText:spokenResponseFor(input,response.text),result:{...response,requestId}});
     console.log(`[Georgie] turn terminal ${JSON.stringify({requestId,elapsedMs:Date.now()-started,completed:response.completed!==false,terminalReason:response.terminalReason||"completed",actionCount:response.actions?.length||0})}`);
   }catch(error){
@@ -152,7 +153,7 @@ router.post("/respond/stream-with-files",upload.array("files",MAX_ATTACHMENTS_PE
   try{
     const attachments=await persistAttachments({userId:userIdFor(req),sessionId:sessionIdFor(req),files:req.files});
     send({type:"attachments",attachments:publicAttachmentManifest(attachments)});
-    const response=await complete(userIdFor(req),sessionIdFor(req),input,{history:Array.isArray(history)?history:[],attachments,onProgress:send});
+    const response=await complete(userIdFor(req),sessionIdFor(req),input,{history:Array.isArray(history)?history:[],attachments,onProgress:send,durableStream:true});
     send({type:"final",ok:true,spokenText:spokenResponseFor(input,response.text),result:response});
     console.log(`[Georgie] attachment turn terminal ${JSON.stringify({requestId,elapsedMs:Date.now()-started,fileCount:attachments.length,completed:response.completed!==false})}`);
   }catch(error){console.error(`[Georgie] attachment turn failed ${JSON.stringify({requestId,error:error instanceof Error?error.message:"Attachment response failed"})}`);send({type:"error",ok:false,error:error instanceof Error?error.message:"Attachment response failed"});}
