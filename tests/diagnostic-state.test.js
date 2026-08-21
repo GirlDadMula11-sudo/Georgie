@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canonicalReferenceFromDeal, normalizeDiagnosticState, unresolvedEvidencePaths } from "../src/diagnostic-plans.js";
+import { canonicalReferenceFromDeal, normalizeDiagnosticState, stageRequiredEvidencePaths, unresolvedEvidencePaths } from "../src/diagnostic-plans.js";
 
 test("legacy or malformed diagnostic state always receives a safe plans array", () => {
   for (const value of [undefined, null, {}, { version: 1 }, { plans: null }, { plans: "invalid" }]) {
@@ -18,6 +18,13 @@ test("unresolved evidence reports exact paths instead of a generic unknown", () 
   const paths = unresolvedEvidencePaths({ unknowns: ["underwriting.stableRecordId"], stages: [{ state: "unknown" }] });
   assert.match(paths.join("\n"), /result\.unknowns\[0\]: underwriting\.stableRecordId/);
   assert.match(paths.join("\n"), /result\.stages\[0\]\.state: unknown/);
+});
+
+test("intake-to-submission evidence ignores unknown future lifecycle stages",()=>{
+  const graph={nodes:[{stage:"application",state:"unknown",unknownFields:["state"]},{stage:"funding",state:"unknown",unknownFields:["stableRecordId","state"]}]};
+  const paths=stageRequiredEvidencePaths("sierra.evidence_graph",graph,"intake_to_submission");
+  assert.match(paths.join("\n"),/application|state: unknown/);
+  assert.doesNotMatch(paths.join("\n"),/funding|stableRecordId/);
 });
 
 test("valid durable plans are preserved while malformed rows are removed", () => {

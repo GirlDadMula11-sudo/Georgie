@@ -43,3 +43,12 @@ test("continued investigation fails closed and returns every required outcome se
   for(const heading of ["What I checked","What I found","What changed","What I verified","What remains"])assert.match(response.text,new RegExp(heading));
   assert.match(response.text,/No repair plan was created/);
 });
+
+test("continued investigation translates raw extraction paths into a business report",()=>{
+  const response=sierraWorkflowDirectResponse("continue",[{ok:true,tool:"sierra.continue_diagnostic_investigation",result:{requestId:"request-2",reference:"SCA-100",target:"Mr Muffins",status:"blocked_incomplete_evidence",steps:[{tool:"sierra.document_intelligence",status:"completed"}],synthesis:{unresolved:[{tool:"sierra.document_intelligence",paths:["result.jurisdiction.source: unknown"]}],businessGaps:[{missing:"Page-cited business jurisdiction",why:"Sierra cannot apply the correct statement rule.",source:"Signed application",nextAction:"Extract and persist the cited state."}]},repairPlan:{execution:{tool:"sierra.reprocess_documents"},scope:["existing documents only"],excluded:["lender submission"],verification:[{tool:"sierra.document_certification"},{tool:"sierra.deal_workspace"}]}}}]);
+  assert.match(response.text,/Missing: Page-cited business jurisdiction/);
+  assert.match(response.text,/Authoritative source: Signed application/);
+  assert.match(response.text,/BOUNDED REPAIR PLAN — APPROVAL NEEDED/);
+  assert.match(response.text,/deal remains blocked/i);
+  assert.doesNotMatch(response.text,/result\.jurisdiction/);
+});
