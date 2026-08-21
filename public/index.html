@@ -58,6 +58,12 @@
       <div id="commandPriorities"><p>Building your evidence-backed priorities…</p></div>
       <p class="command-boundary">Observe, recommend, and prepare only. No automatic spending, external messages, or consequential execution.</p>
     </section>
+    <section class="deal-intelligence" id="dealIntelligence" aria-live="polite">
+      <div class="deal-intelligence-head"><div><span>DEAL INTELLIGENCE</span><strong>Evidence workspace</strong></div><span class="deal-live">LIVE TRUTH</span></div>
+      <form id="dealWorkspaceForm" class="deal-workspace-search"><input id="dealWorkspaceReference" autocomplete="off" placeholder="Deal or application reference" aria-label="Deal or application reference" /><button type="submit">Open</button></form>
+      <div id="dealWorkspaceList" class="deal-workspace-list"></div>
+      <div id="dealWorkspaceView" class="deal-workspace-view"><p>Open a reference to reconstruct its verified stage, blockers, evidence, approvals, and next action.</p></div>
+    </section>
     <section class="sierra-desk" id="sierraDesk" aria-live="polite">
       <div class="sierra-desk-head"><div><strong>SIERRA CAPITAL DESK</strong><span id="sierraHealth">Connecting…</span></div><button id="sierraRefresh" type="button">Refresh</button></div>
       <div class="sierra-metrics"><article><small>Active</small><strong id="sierraActive">—</strong></article><article><small>Needs attention</small><strong id="sierraAttention">—</strong></article><article><small>At lenders</small><strong id="sierraLenders">—</strong></article><article><small>Offers</small><strong id="sierraOffers">—</strong></article></div>
@@ -69,6 +75,7 @@
   <script type="module" src="/app.js"></script>
   <script type="module" src="/sierra-desk.js"></script>
   <script type="module" src="/command-center.js"></script>
+  <script type="module" src="/deal-workspace.js"></script>
   <script type="module" src="/proactive.js"></script>
   <script type="module" src="/pwa.js"></script>
 </body>

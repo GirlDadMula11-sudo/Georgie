@@ -1,5 +1,5 @@
 function referenceFrom(text = "") {
-  const explicit = String(text).match(/\b(SCA[-_A-Z0-9]+)\b/i);
+  const explicit = String(text).match(/\b((?:SCA[-_A-Z0-9]+|CM[-_]\d+))\b/i);
   return explicit ? explicit[1] : null;
 }
 
@@ -62,6 +62,7 @@ export function deterministicToolPlan(input = "") {
   const emailSend=parseExplicitEmailSend(text); if(emailSend) return [emailSend];
   const macApp=parseMacOpen(text); if(macApp) return [{tool:"mac.devices",args:{}},{tool:"mac.open_app",args:{app:macApp}}];
   const ref = referenceFrom(text);
+  if (ref && /\b(?:deal intelligence|deal workspace|workspace|ready|blocked|next action)\b/.test(lower)) return [{tool:"sierra.deal_workspace",args:{reference:ref}}];
   if (/\b(?:durable|multi[- ]tool|cross[- ]system)\b/.test(lower) && /\b(?:diagnostic|investigation|inspection|plan)\b/.test(lower) && /\b(?:sierra|deal|workflow|system)\b/.test(lower)) return [{tool:"sierra.diagnostic_investigation",args:{reference:ref,scope:"sierra_end_to_end"}}];
   if (ref && /\b(?:evidence graph|complete truth|full deal truth|deal reconstruction|trace the deal|trace this deal)\b/.test(lower)) return [{tool:"sierra.evidence_graph",args:{reference:ref}}];
   const sierraWorkflowDomain = /\b(?:sierra|crm|intake|capital\s*match|capitalmatch|underwriting|submission)\b/.test(lower);

@@ -11,6 +11,8 @@ import {
   queueSierraAction,
   sierraWorkforceConfigured
 } from "./integrations/sierra-workforce.js";
+import { executeTool } from "./tools.js";
+import { getDealWorkspace, listDealWorkspaces } from "./deal-workspaces.js";
 
 function clean(value, max = 160) {
   return String(value || "").trim().slice(0, max);
@@ -92,6 +94,35 @@ export function createSierraRouter() {
       res.json({ ok: true, offers: await getSierraOffers(req.georgieUserId, clean(req.params.reference, 100)) });
     } catch (error) {
       res.status(503).json({ ok: false, error: error instanceof Error ? error.message : "Sierra offers unavailable" });
+    }
+  });
+
+  router.get("/workspaces", async (req, res) => {
+    try {
+      res.json({ ok: true, workspaces: await listDealWorkspaces(req.georgieUserId, { limit: Number(req.query?.limit || 50) }) });
+    } catch (error) {
+      res.status(503).json({ ok: false, error: error instanceof Error ? error.message : "Deal workspaces unavailable" });
+    }
+  });
+
+  router.get("/workspace/:reference", async (req, res) => {
+    try {
+      const workspace = await getDealWorkspace(req.georgieUserId, clean(req.params.reference, 100));
+      if (!workspace) return res.status(404).json({ ok: false, error: "Deal workspace has not been created yet" });
+      res.json({ ok: true, workspace });
+    } catch (error) {
+      res.status(503).json({ ok: false, error: error instanceof Error ? error.message : "Deal workspace unavailable" });
+    }
+  });
+
+  router.post("/workspace/:reference/refresh", async (req, res) => {
+    try {
+      const reference = clean(req.params.reference, 100);
+      const outcome = await executeTool({ name: "sierra.deal_workspace", args: { reference }, userId: req.georgieUserId, policy: "read" });
+      if (!outcome.ok) return res.status(503).json({ ok: false, error: outcome.error || "Deal workspace refresh failed" });
+      res.json({ ok: true, workspace: outcome.result });
+    } catch (error) {
+      res.status(503).json({ ok: false, error: error instanceof Error ? error.message : "Deal workspace refresh failed" });
     }
   });
 
