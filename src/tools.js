@@ -29,6 +29,7 @@ import { certifyDocumentIntelligence } from "./document-certification.js";
 import crypto from "crypto";
 import { verifyBusinessOutcome } from "./outcome-verification.js";
 import { checkpointReportDelivery, investigationArtifactPage, listInvestigationArtifacts, openInvestigationArtifact, persistInvestigationArtifact } from "./investigation-artifacts.js";
+import { activateRevenueController, revenueControllerStatus } from "./revenue-controller.js";
 
 const LEVELS={read:0,low_risk_write:1,sensitive_write:2,external_side_effect:3};const registry=new Map();function defineTool(definition){registry.set(definition.name,definition)}
 defineTool({name:"memory.search",description:"Search Georgie's durable memory for relevant user context.",risk:"read",async run({userId,args}){return searchMemories(userId,String(args?.query||""),Number(args?.limit||8))}});
@@ -112,6 +113,8 @@ defineTool({name:"system.supabase",description:"Read governed Supabase-backed Si
 defineTool({name:"system.providers",description:"Read provider-direct Vercel and Render observability together and report any connection or runtime gaps.",risk:"read",async run(){return getProviderObservability()}});
 defineTool({name:"system.maintenance",description:"Read Georgie's durable maintenance state, evidence coverage, detected signals, authority mode, and verified learning outcomes.",risk:"read",async run({userId}){return maintenanceStatus(userId)}});
 defineTool({name:"system.maintenance_check",description:"Run one bounded maintenance observation cycle across Sierra health, infrastructure, and deployment providers. This observes and records evidence but does not perform consequential actions.",risk:"low_risk_write",async run(){return runMaintenanceCycle()}});
+defineTool({name:"system.revenue_controller",description:"Read Georgie's progressive revenue-controller phase, deal coverage, gates, and current per-deal assignments.",risk:"read",async run({userId}){return revenueControllerStatus(userId)}});
+defineTool({name:"system.revenue_controller_activate",description:"Activate progressive Phase 1 deal-flow control, assign Georgie to every current Sierra deal, persist the governed revenue objective, and run the first evidence cycle. Does not send messages or submit to lenders.",risk:"low_risk_write",async run({userId}){return activateRevenueController(userId)}});
 defineTool({name:"system.evaluations",description:"Read Georgie's measured intelligence scorecard for latency, evidence coverage, action success, and high-impact review requirements.",risk:"read",async run({userId,args}){return evaluationScorecard(userId,{limit:args?.limit||200})}});
 defineTool({name:"system.resource_governor",description:"Read Georgie's live bounded-concurrency, queue-pressure, and saturation state to verify that intelligence workloads remain balanced.",risk:"read",async run(){return resourceGovernorStatus()}});
 defineTool({name:"decisions.list",description:"Read the verified decision journal so Georgie can learn the user's approvals, rejections, corrections, rationale, and outcomes.",risk:"read",async run({userId,args}){return listDecisions(userId,{limit:args?.limit||30,domain:args?.domain||"all"})}});

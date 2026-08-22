@@ -35,6 +35,14 @@ function integrityBusinessStatus(tool,result){
 }
 
 export function sierraWorkflowDirectResponse(_input, toolResults = []) {
+  const revenueController=toolResults.find(item=>item?.tool==="system.revenue_controller_activate");
+  if(revenueController){
+    if(!revenueController.ok)return{text:`PHASE 1 ACTIVATION BLOCKED\n\n${revenueController.error||"The revenue controller could not complete its first governed cycle."}\n\nNo lender submission, external message, or consequential deal change was made.`,responseId:null,webSearches:0,model:"deterministic-revenue-controller",completed:false,terminalState:"blocked",route:{domain:"sierra",tier:"fast",reasoningEffort:"low",latencyClass:"bounded"}};
+    const state=revenueController.result||{},coverage=state.coverage||{},controls=state.controls||{},top=(Array.isArray(state.assignments)?state.assignments:[]).slice(0,5),lines=["PHASE 1 ACTIVATED — DEAL-FLOW CONTROL",`Georgie is now assigned to ${coverage.assignedDeals??0} current Sierra deals and will refresh the portfolio every five minutes.`,"","Current operating coverage:",`- Waiting on Sierra/system work: ${coverage.waitingSystem??0}`,`- Waiting on Jason or Louri: ${coverage.waitingHuman??0}`,`- Already submitted to at least one lender: ${coverage.lenderSubmitted??0}`,`- Offers currently visible: ${coverage.offersAvailable??0}`,`- Pipeline failures: ${controls.pipelineFailures??"unknown"}`,`- Reconciliation: ${controls.reconciliationProven?`verified with ${controls.reconciliationExceptions} exceptions`:"not yet proven"}`];
+    if(top.length)lines.push("","Highest-priority deal actions:",...top.map(row=>`- ${row.business} (${row.reference}): ${row.nextAction}`));
+    lines.push("","Phase 2 — conversion and attribution remains locked until deal processing and source-to-funded tracking are certified.","Phase 3 — SEO, content, partner, referral, and campaign expansion remains locked until Phase 2 and capacity gates pass.","","Georgie may automatically perform only pre-certified reversible maintenance with independent verification. Lender submissions, external messages, financial actions, credentials, and consequential changes remain approval-gated.");
+    return{text:lines.join("\n"),responseId:null,webSearches:0,model:"deterministic-revenue-controller",completed:true,terminalState:"verified",route:{domain:"sierra",tier:"fast",reasoningEffort:"low",latencyClass:"bounded"}};
+  }
   const continuation=toolResults.find(item=>item?.tool==="approvals.continue_latest");
   if(continuation){
     const outcome=continuation.result||continuation;

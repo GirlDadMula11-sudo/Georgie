@@ -29,14 +29,12 @@ test("non-approval language cannot execute a pending plan",()=>{
   }
 });
 
-test("an explicit approval can recover the exact deterministic plan from recent history",()=>{
+test("an explicit approval cannot recover a plan that was never justified by evidence",()=>{
   const recovered=latestDeterministicApprovalPlan([
     {role:"user",content:"Work through everything pending in our entire Sierra system, prioritize it, and make sure the submission process is functioning and operating as designed."},
     {role:"assistant",content:"Diagnosis completed; the bounded repair remains approval-gated."}
   ]);
-  assert.equal(recovered.tool,"approvals.prepare_plan");
-  assert.equal(recovered.args.execution.tool,"system.reconciliation_execute_bounded");
-  assert.equal(recovered.args.execution.verification.length,3);
+  assert.equal(recovered,null);
 });
 
 test("preflight names the exact missing execution contract",()=>{

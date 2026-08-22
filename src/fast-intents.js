@@ -57,6 +57,7 @@ export function deterministicToolPlan(input = "") {
   const text = String(input || "").trim();
   const lower = text.toLowerCase();
   if (!text) return [];
+  if(/\bactivate\b/.test(lower)&&/\bprogressive(?:ly)?\b/.test(lower))return[{tool:"system.revenue_controller_activate",args:{phase:1}}];
   const investigationId=text.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i)?.[0];
   if(investigationId&&/\b(?:open|show|build|generate|render|resume|continue|retrieve|read)\b/i.test(text)&&/\b(?:investigation|control brief|report|artifact)\b/i.test(text))return[{tool:"sierra.investigation_open",args:{investigationId}}];
   const integrityControlBrief = /\b(?:sierra\s+)?(?:deep[- ]system\s+)?integrity\s+program\b/.test(lower)
@@ -104,17 +105,7 @@ export function deterministicToolPlan(input = "") {
     {tool:"sierra.infrastructure",args:{}},
     {tool:"sierra.apply_inventory",args:{limit:100,status:"all"}},
     {tool:"sierra.reconciliation_invariant",args:{limit:250}},
-    {tool:"sierra.portfolio",args:{limit:25}},
-    {tool:"approvals.prepare_plan",args:{
-      sessionId:"native",
-      title:"Run bounded Sierra submission-reliability repair cycle",
-      summary:"Run one idempotent Sierra reconciliation cycle across intake transfer, missing dates, funding evidence, and health reconciliation, then verify health, infrastructure, and the Apply-to-Sierra invariant.",
-      domain:"sierra",risk:"medium",reversible:true,
-      steps:["Run one bounded reconciliation cycle without lender submission or external communication.","Verify Sierra health and infrastructure after execution.","Verify every Apply submission resolves to one Sierra deal, confirmed duplicate, or quarantine record.","Report any remaining issue as a separate exact-scope approval plan."],
-      execution:{tool:"system.reconciliation_execute_bounded",args:{scope:"submission_reliability"},verification:[{tool:"sierra.health",args:{}},{tool:"sierra.infrastructure",args:{}},{tool:"sierra.reconciliation_invariant",args:{limit:250}}]},
-      verificationMethod:"Require terminal reconciliation evidence plus successful health, infrastructure, and invariant read-back.",
-      rollbackPlan:"Stop further reconciliation cycles and preserve every action-journal entry; any record-specific reversal requires its own exact approval."
-    }}
+    {tool:"sierra.portfolio",args:{limit:100}}
   ];
   if (/\b(world state|what am i working on|what are we working on|everything pending|open commitments|unfinished work)\b/.test(lower)) return [{tool:"system.world_state",args:{context:text}}];
   if (/\b(durable objectives?|unfinished engineering|blocked actions?|resume across sessions?|continuity state)\b/.test(lower)) return [{tool:"system.continuity",args:{limit:50}}];
