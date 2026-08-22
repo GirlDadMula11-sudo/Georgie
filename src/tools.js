@@ -151,7 +151,8 @@ defineTool({name:"approvals.continue_latest",description:"Resolve explicit conve
     const nestedStatuses=Array.isArray(result?.lanes)?result.lanes.map(item=>String(item?.status||'').toLowerCase()):[];
     const terminal=!nonTerminalStatuses.has(resultStatus)&&!nestedStatuses.some(status=>nonTerminalStatuses.has(status));
     const executionSemantic=verifyBusinessOutcome(resolved.execution.tool,result,{expect:resolved.execution.expect});
-    const verified=terminal&&executionSemantic.accepted&&verification.length>0&&verification.every(item=>item.ok&&item.accepted);
+    const verificationSatisfied=verification.length>0?verification.every(item=>item.ok&&item.accepted):resolved.execution.tool==="mac.browser_workflow"&&executionSemantic.accepted;
+    const verified=terminal&&executionSemantic.accepted&&verificationSatisfied;
     const status=verified?"verified":terminal?"blocked_incomplete_evidence":"verification_pending";
     await transitionApprovalPlan(userId,resolved.plan.id,{status,executionResult:result,verification});
     return{ok:verified,status,approvalId:resolved.approval.id,planId:resolved.plan.id,version:resolved.plan.version,executedTool:resolved.execution.tool,result,executionVerification:executionSemantic,verification};

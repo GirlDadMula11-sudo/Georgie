@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { supabaseAuthHardeningPlan, validateBrowserWorkflow } from "../src/browser-workflow.js";
 import { deterministicToolPlan } from "../src/fast-intents.js";
+import { verifyBusinessOutcome } from "../src/outcome-verification.js";
 
 test("Supabase browser workflow is project and setting scoped",()=>{
   const plan=supabaseAuthHardeningPlan("quzhzefkwymxcaylmozp");assert.equal(plan.execution.tool,"mac.browser_workflow");assert.deepEqual(plan.execution.args.workflow.allowedSettings,["auth.leaked_password_protection","auth.database_connection_allocation"]);assert.ok(plan.execution.args.workflow.steps.every(step=>step.action!=="ui.click"));
@@ -18,4 +19,10 @@ test("replacement-plan language invokes the governed registry deterministically"
 
 test("exact plan approval routes by both immutable IDs",()=>{
   const planId="ff855750-b4d1-425f-adb5-a972849196c4",approvalId="06216bba-d516-4217-9f8e-a091d4c48411";assert.deepEqual(deterministicToolPlan(`Approved plan ${planId} under approval ${approvalId}`),[{tool:"approvals.approve_plan",args:{planId,approvalId}}]);
+});
+
+test("workflow completion requires every receipt, persisted assertions, screenshots, and both advisors",()=>{
+  const workflow=supabaseAuthHardeningPlan().execution.args.workflow,receipts=workflow.steps.map((step,index)=>({stepId:step.id,index,completedAt:new Date().toISOString(),result:step.action==="assert_control"?{verified:true}:step.action==="screenshot"?{mimeType:"image/png"}:{ok:true}}));
+  assert.equal(verifyBusinessOutcome("mac.browser_workflow",{workflowCompleted:true,stepCount:workflow.steps.length,receipts}).accepted,true);
+  assert.equal(verifyBusinessOutcome("mac.browser_workflow",{workflowCompleted:true,stepCount:workflow.steps.length,receipts:receipts.slice(1)}).accepted,false);
 });

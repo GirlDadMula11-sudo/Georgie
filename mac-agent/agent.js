@@ -171,7 +171,7 @@ async function semanticDomStep(projectId,step){
 
 async function executeBrowserWorkflow(job){
   const workflow=job.args?.workflow||{},projectId=String(workflow.projectId||"");if(workflow.provider!=="supabase"||!/^[a-z0-9]{20}$/.test(projectId))throw new Error("Invalid browser workflow scope");
-  const steps=Array.isArray(workflow.steps)?workflow.steps:[];let next=Math.max(0,Number(job.workflowCheckpoint?.nextStep||0));const receipts=[];
+  const steps=Array.isArray(workflow.steps)?workflow.steps:[];let next=Math.max(0,Number(job.workflowCheckpoint?.nextStep||0));const receipts=Array.isArray(job.workflowCheckpoint?.receipts)?[...job.workflowCheckpoint.receipts]:[];
   for(;next<steps.length;next++){const step=steps[next],startedAt=new Date().toISOString();let result;
     if(step.action==="open_url"){const url=new URL(String(step.url));if(!url.toString().startsWith(`https://supabase.com/dashboard/project/${projectId}`))throw new Error("Workflow URL escaped approved project");await execFileAsync("open",[url.toString()]);result={opened:url.toString()};}
     else if(step.action==="wait"){await new Promise(resolve=>setTimeout(resolve,Math.max(100,Math.min(10000,Number(step.ms)||500))));result={waitedMs:Number(step.ms)||500};}
