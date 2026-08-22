@@ -18,6 +18,7 @@ function easternParts(at = new Date()) {
   return Object.fromEntries(parts.map((part) => [part.type, part.value]));
 }
 function dayKey(at = new Date()) { const p = easternParts(at); return `${p.year}-${p.month}-${p.day}`; }
+export function approvalsAfterActivation(approvals = [], activatedAt) { const watermark = Date.parse(activatedAt || 0); return approvals.filter((approval) => Date.parse(approval.createdAt || 0) >= watermark); }
 export function notificationWindow(at = new Date()) {
   const p = easternParts(at), hour = Number(p.hour) % 24;
   return { day: dayKey(at), hour, quiet: hour >= POLICY.quietStartHour || hour < POLICY.quietEndHour, dailyBriefDue: hour === POLICY.dailyBriefHour };
@@ -83,11 +84,13 @@ export async function runBackgroundOperatingCycle(userId = USER(), { at = new Da
   try {
     const state = await backgroundOperatingStatus(uid);
     if (!state.active) return { status: "inactive" };
+    if (!state.activatedAt) state.activatedAt = now();
     const killed = process.env.GEORGIE_AUTOMATION_KILL_SWITCH === "true";
     state.killSwitchObserved = killed;
     if (killed) { state.lastCycleAt = now(); state.updatedAt = now(); await writeCloudState(uid, NS, state); return { status: "stopped_by_kill_switch", observedAt: state.lastCycleAt, deliveries: [], productionChanged: false }; }
     const controller = await runRevenueControllerCycle(uid).catch(async () => revenueControllerStatus(uid));
-    const approvals = await listApprovals(uid, { status: "pending", limit: 100 });
+    const allApprovals = await listApprovals(uid, { status: "pending", limit: 100 });
+    const approvals = approvalsAfterActivation(allApprovals, state.activatedAt);
     const incidents = currentIncidents(controller);
     const deliveries = [];
     for (const incident of incidents) {
