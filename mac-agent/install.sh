@@ -101,14 +101,45 @@ cat > "$PLIST" <<PLIST
 PLIST
 
 plutil -lint "$PLIST"
-launchctl bootout "gui/$(id -u)/com.georgie.mac-agent" >/dev/null 2>&1 || true
-launchctl bootstrap "gui/$(id -u)" "$PLIST"
-launchctl enable "gui/$(id -u)/com.georgie.mac-agent"
-launchctl kickstart -k "gui/$(id -u)/com.georgie.mac-agent" >/dev/null 2>&1 || true
+GUI_DOMAIN="gui/$(id -u)"
+SERVICE_TARGET="$GUI_DOMAIN/com.georgie.mac-agent"
+
+say_step "Registering Georgie with the current Mac user session..."
+# A previous installer or interrupted launchctl operation can leave the label
+# registered after the process has stopped. Clear both label and plist forms,
+# then wait briefly for launchd to finish removing the old registration.
+launchctl bootout "$SERVICE_TARGET" >/dev/null 2>&1 || true
+launchctl bootout "$GUI_DOMAIN" "$PLIST" >/dev/null 2>&1 || true
+for _attempt in {1..20}; do
+  if ! launchctl print "$SERVICE_TARGET" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.1
+done
+
+BOOTSTRAP_ERROR="$(mktemp)"
+if ! launchctl bootstrap "$GUI_DOMAIN" "$PLIST" 2>"$BOOTSTRAP_ERROR"; then
+  # launchctl can report an error after accepting a registration. Trust a
+  # direct read-back of the exact service over the command's exit text.
+  if launchctl print "$SERVICE_TARGET" >/dev/null 2>&1; then
+    echo "Georgie's LaunchAgent was already registered; continuing with verified service state."
+  else
+    echo "Georgie's LaunchAgent could not be registered in $GUI_DOMAIN."
+    cat "$BOOTSTRAP_ERROR"
+    echo "Do not run this installer with sudo. Diagnostic logs:"
+    echo "  $LOG_DIR/georgie-mac-agent.log"
+    echo "  $LOG_DIR/georgie-mac-agent-error.log"
+    rm -f "$BOOTSTRAP_ERROR"
+    exit 1
+  fi
+fi
+rm -f "$BOOTSTRAP_ERROR"
+launchctl enable "$SERVICE_TARGET"
+launchctl kickstart -k "$SERVICE_TARGET" >/dev/null 2>&1 || true
 
 say_step "Checking Georgie..."
 sleep 2
-if launchctl print "gui/$(id -u)/com.georgie.mac-agent" >/dev/null 2>&1; then
+if launchctl print "$SERVICE_TARGET" >/dev/null 2>&1; then
   echo "Georgie Mac Agent is installed and running."
 else
   echo "The LaunchAgent was installed but did not report as running yet."

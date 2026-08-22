@@ -10,8 +10,22 @@ const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
 const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;
 const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));
+const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));
 
 if (!BASE || !TOKEN) throw new Error("GEORGIE_SERVER_URL and GEORGIE_MAC_AGENT_TOKEN are required");
+
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+function safeErrorDetail(error) {
+  const value = error instanceof Error ? error : new Error(String(error));
+  const cause = value.cause && typeof value.cause === "object" ? value.cause : {};
+  return {
+    message: String(value.message || "Unknown error").slice(0, 500),
+    code: cause.code ? String(cause.code).slice(0, 100) : null,
+    syscall: cause.syscall ? String(cause.syscall).slice(0, 100) : null,
+    hostname: cause.hostname ? String(cause.hostname).slice(0, 255) : null
+  };
+}
 
 const SAFE_APPS = ["Safari","Google Chrome","Notes","Mail","Finder","Calendar","Messages","Preview","System Settings","Microsoft Excel","Microsoft Word","Adobe Acrobat Reader"];
 const SAFE_KEYS = new Set(["return","tab","escape","space","delete","up arrow","down arrow","left arrow","right arrow"]);
@@ -325,11 +339,34 @@ async function cycle() {
         await api(`/api/mac/${encodeURIComponent(DEVICE_ID)}/jobs/${job.id}/complete`, { method: "POST", body: JSON.stringify({ error: error instanceof Error ? error.message : String(error) }) });
       }
     }
+    return true;
   } catch (error) {
-    console.error(new Date().toISOString(), error instanceof Error ? error.message : error);
+    return { ok: false, error: safeErrorDetail(error) };
   }
 }
 
 console.log(`Georgie Mac Agent online as ${DEVICE_ID}`);
-cycle();
-setInterval(cycle, INTERVAL);
+let consecutiveFailures = 0;
+let lastFailureSignature = "";
+async function runForever() {
+  while (true) {
+    const outcome = await cycle();
+    if (outcome === true) {
+      if (consecutiveFailures > 0) console.log(new Date().toISOString(), `Georgie server connection recovered after ${consecutiveFailures} failed cycle(s)`);
+      consecutiveFailures = 0;
+      lastFailureSignature = "";
+      await delay(INTERVAL);
+      continue;
+    }
+    consecutiveFailures += 1;
+    const detail = outcome?.error || { message: "Unknown polling failure", code: null, syscall: null, hostname: null };
+    const signature = JSON.stringify(detail);
+    if (signature !== lastFailureSignature || consecutiveFailures === 1 || consecutiveFailures % 10 === 0) {
+      console.error(new Date().toISOString(), JSON.stringify({ event: "mac_agent_connection_failed", consecutiveFailures, serverOrigin: new URL(BASE).origin, ...detail }));
+      lastFailureSignature = signature;
+    }
+    const backoff = Math.min(MAX_BACKOFF, INTERVAL * (2 ** Math.min(6, consecutiveFailures - 1)));
+    await delay(backoff);
+  }
+}
+void runForever();
