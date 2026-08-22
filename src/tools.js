@@ -4,6 +4,7 @@ import { enqueueMacJob, listMacJobs } from "./mac/queue.js";
 import { listNeoMailboxes, listRecentMessages, readMessage, searchMessages, sendMessage, verifyNeoMailbox } from "./integrations/neo-mail.js";
 import { executeApprovedSierraChange, getSierraApplyInventory, getSierraAuditEvents, getSierraDeal, getSierraDocumentManifest, getSierraGovernedAccess, getSierraGuardedLenderConflicts, getSierraHealth, getSierraInfrastructure, getSierraLenderResponses, getSierraNetworkGaps, getSierraOffers, getSierraPortfolio, getSierraReconciliationInvariant, getSierraStrategy, queueSierraAction, sierraWorkforceConfigured } from "./integrations/sierra-workforce.js";
 import { getGithubObservability, getProviderObservability, getRenderObservability, getVercelObservability } from "./integrations/provider-observability.js";
+import { githubSourceConfigured, listRepositories as githubListRepositories, getRepository as githubGetRepository, listBranches as githubListBranches, getBranch as githubGetBranch, readFile as githubReadFile, searchSource as githubSearchSource, createBranch as githubCreateBranch, createFileCommit as githubCreateFileCommit, createPullRequest as githubCreatePullRequest } from "./integrations/github-source.js";
 import { maintenanceStatus, runMaintenanceCycle } from "./maintenance-sentinel.js";
 import { diagnoseSmartleadCampaigns, getSmartleadCampaigns, updateSmartleadCampaignStatus } from "./integrations/smartlead.js";
 import { evaluationScorecard } from "./evaluation.js";
@@ -72,6 +73,15 @@ defineTool({name:"email.list",description:"List recent Neo Mail inbox messages. 
 defineTool({name:"email.search",description:"Search a Neo Mail mailbox by sender, recipient, subject, or message body.",risk:"read",async run({args}){return searchMessages(args?.mailboxId,{query:args?.query||"",limit:args?.limit||25})}});
 defineTool({name:"email.read",description:"Read the content and attachment metadata for one Neo Mail message.",risk:"read",async run({args}){return readMessage(args?.mailboxId,args?.uid,{markSeen:Boolean(args?.markSeen)})}});
 defineTool({name:"email.send",description:"Send an email through a configured Neo Mail mailbox. This creates an external communication and requires external-side-effect authorization.",risk:"external_side_effect",async run({args}){return sendMessage(args?.mailboxId,{to:args?.to,cc:args?.cc,bcc:args?.bcc,subject:args?.subject,text:args?.text,html:args?.html,replyTo:args?.replyTo})}});
+defineTool({name:"github.repository.list",description:"List allowlisted repositories through authenticated server-side GitHub access. Never uses the Mac agent or public-web fallback.",risk:"read",async run(){return githubListRepositories()}});
+defineTool({name:"github.repository.get",description:"Read metadata for one allowlisted repository through authenticated server-side GitHub access.",risk:"read",async run({args}){return githubGetRepository(args?.repository)}});
+defineTool({name:"github.branch.list",description:"List branches and exact head SHAs for one allowlisted repository through authenticated server-side GitHub access.",risk:"read",async run({args}){return githubListBranches(args?.repository)}});
+defineTool({name:"github.branch.get",description:"Read one branch and exact head SHA through authenticated server-side GitHub access.",risk:"read",async run({args}){return githubGetBranch(args?.repository,args?.branch||"main")}});
+defineTool({name:"github.file.read",description:"Read a non-secret source file from an allowlisted repository through authenticated server-side GitHub access.",risk:"read",async run({args}){return githubReadFile(args?.repository,args?.path,args?.ref||"main")}});
+defineTool({name:"github.source.search",description:"Search source in an allowlisted repository through authenticated server-side GitHub access.",risk:"read",async run({args}){return githubSearchSource(args?.repository,args?.query)}});
+defineTool({name:"github.branch.create",description:"Create a branch in an allowlisted repository. Governed write; never falls back to Mac or public web.",risk:"sensitive_write",async run({args}){return githubCreateBranch(args?.repository,args?.branch,args?.baseRef||"main")}});
+defineTool({name:"github.commit.create",description:"Create or update one source file as a GitHub commit on an existing branch. Governed write requiring approval.",risk:"sensitive_write",async run({args}){return githubCreateFileCommit(args?.repository,args||{})}});
+defineTool({name:"github.pull_request.create",description:"Open a pull request in an allowlisted repository. Governed write requiring approval.",risk:"sensitive_write",async run({args}){return githubCreatePullRequest(args?.repository,args||{})}});
 const workforceOnly=true;
 defineTool({name:"sierra.portfolio",workforceOnly,description:"Read Sierra's canonical CRM portfolio, prioritized by operational attention, including pipeline, underwriting, evidence, exceptions, lender activity, offers and closing status.",risk:"read",async run({userId,args}){return getSierraPortfolio(userId,{limit:args?.limit||25})}});
 defineTool({name:"sierra.deal",workforceOnly,description:"Read the complete canonical Sierra CRM workspace for one deal by SCA reference number or referral ID.",risk:"read",async run({userId,args}){return getSierraDeal(userId,args?.reference||args?.referenceNumber||args?.id)}});
@@ -130,7 +140,7 @@ defineTool({name:"approvals.list",description:"List pending, approved, rejected,
 defineTool({name:"approvals.decide",description:"Record Jason's explicit approval, rejection, or deferral for one exact approval ID. This authorizes but does not execute the action.",risk:"sensitive_write",async run({userId,args}){const id=String(args?.approvalId||"").trim(),decision=String(args?.decision||"").toLowerCase();if(!id)throw new Error("Approval ID is required");return decideApproval(userId,id,{decision,note:args?.note||"Explicit decision issued through Georgie conversation"})}});
 defineTool({name:"approvals.prepare_plan",description:"Save a durable, versioned, exact-scope repair or execution plan and issue its specific approval ID. The execution descriptor must name one available tool with bounded arguments plus optional verification reads. Preparing never executes.",risk:"low_risk_write",async run({userId,args}){return prepareApprovalPlan(userId,args||{})}});
 defineTool({name:"approvals.plans",description:"List durable versioned repair plans, their exact approval IDs, execution state, verification evidence, and any precise missing tool.",risk:"read",async run({userId,args}){return listApprovalPlans(userId,{limit:args?.limit||25})}});
-defineTool({name:"approvals.approve_plan",description:"Approve one exact plan only when the supplied approval ID is authoritatively bound to it, then atomically create its durable dispatch intent.",risk:"sensitive_write",async run({userId,args}){return approvePlanById(userId,args||{})}});
+defineTool({name:"approvals.approve_plan",description:"Approve one exact plan only when the supplied approval ID is authoritatively bound to it, then atomically create its durable dispatch intent.",risk:"sensitive_write",async run({userId,args}){const approved=await approvePlanById(userId,args||{});const dispatch=await dispatchApprovedPlansNow(userId);return{...approved,dispatch}}});
 defineTool({name:"approvals.continue_latest",description:"Resolve explicit conversational approval such as 'complete it, you have my approval' to the latest eligible versioned plan, validate every required tool, execute only its exact bound descriptor, verify it, and durably report the outcome. Never invents a queue.",risk:"low_risk_write",async run({userId,args}){
   const resolved=await resolveConversationalApproval(userId,args?.utterance||"",{sessionId:args?.sessionId||"native"});
   if(!resolved?.ok)return resolved||{ok:false,status:"not_an_approval",error:"The utterance was not explicit approval."};
@@ -184,5 +194,40 @@ export function persistentToolSurface(options={}){const tools=listToolDefinition
 export function canAutoExecute(risk,policy="low_risk_write"){return LEVELS[risk]<=LEVELS[policy]}
 export async function executeTool({name,args,userId,policy="low_risk_write",workforce=sierraWorkforceConfigured()}){const startedAt=new Date().toISOString(),tool=registry.get(name);let outcome;if(!tool)outcome={ok:false,tool:name,missingCapability:name,error:`Required governed tool is not registered: ${name}`};else if(process.env.GEORGIE_AUTOMATION_KILL_SWITCH==="true"&&tool.risk!=="read")outcome={ok:false,tool:name,risk:tool.risk,blockedBy:"automation_kill_switch",error:"Georgie automation kill switch is active"};else if(tool.workforceOnly&&!workforce)outcome={ok:false,tool:name,risk:tool.risk,attached:true,blockedBy:"secure_sierra_workforce_configuration",missingCapability:"secure_sierra_workforce_configuration",error:`Tool ${name} is attached, but secure Sierra workforce configuration is not live in this runtime`};else if(!canAutoExecute(tool.risk,policy))outcome={ok:false,approvalRequired:true,tool:name,risk:tool.risk,args,blockedBy:"approval_policy"};else try{outcome={ok:true,tool:name,risk:tool.risk,result:await tool.run({userId,args})}}catch(error){outcome={ok:false,tool:name,risk:tool.risk,attached:true,blockedBy:"runtime_execution_failure",error:error instanceof Error?error.message:"Tool execution failed"};}void recordAction(userId,{tool:name,risk:tool?.risk,status:outcome.ok?"completed":outcome.approvalRequired?"approval_required":"failed",approvalRequired:outcome.approvalRequired,argsSummary:args&&typeof args==="object"?args:{},error:outcome.error,startedAt}).catch(error=>console.warn("Action journal persistence delayed:",error instanceof Error?error.message:error));return outcome;}
 
-let approvalDispatchTimer=null,approvalDispatchBusy=false;
-export function startApprovalDispatchWorker(){if(approvalDispatchTimer)return approvalDispatchTimer;const userId=process.env.GEORGIE_PRIMARY_USER_ID||"primary";const tick=async()=>{if(approvalDispatchBusy)return;approvalDispatchBusy=true;try{for(const plan of await listRecoverableApprovalDispatches(userId,{limit:10})){if(!String(plan.execution?.tool||"").startsWith("mac."))continue;const target=registry.get(plan.execution.tool);if(!target)continue;await recordApprovalDispatch(userId,plan.id,{status:"dispatching"});try{const result=await target.run({userId,args:{...(plan.execution.args||{}),_governance:{approvalId:plan.approvalId,planId:plan.id,idempotencyKey:plan.dispatch.idempotencyKey}}});if(!result?.dispatchReceipt)throw new Error("Approved Mac execution did not produce a durable dispatch receipt");await recordApprovalDispatch(userId,plan.id,{status:"accepted",receipt:result.dispatchReceipt});}catch(error){await recordApprovalDispatch(userId,plan.id,{status:"retry_wait",error:error instanceof Error?error.message:String(error),retryDelayMs:Math.min(30_000,1000*2**Math.min(Number(plan.dispatch?.attempts||0),5))});}}}catch(error){console.warn("Approval dispatch recovery delayed:",error instanceof Error?error.message:error)}finally{approvalDispatchBusy=false}};approvalDispatchTimer=setInterval(()=>void tick(),2000);approvalDispatchTimer.unref?.();void tick();return approvalDispatchTimer;}
+let approvalDispatchTimer=null,approvalDispatchBusy=false,approvalDispatchRequested=false;
+const APPROVAL_DISPATCH_RECOVERY_INTERVAL_MS=Math.max(30_000,Math.min(300_000,Number(process.env.GEORGIE_APPROVAL_DISPATCH_RECOVERY_MS||30_000)));
+export function approvalDispatchPolicy(){return{mode:"event_driven_with_recovery_sweep",approvalPath:"immediate",idleCloudPolling:false,recoveryIntervalMs:APPROVAL_DISPATCH_RECOVERY_INTERVAL_MS,coalesced:true,idempotent:true}}
+async function runApprovalDispatchSweep(userId=process.env.GEORGIE_PRIMARY_USER_ID||"primary"){
+  if(approvalDispatchBusy){approvalDispatchRequested=true;return{coalesced:true,dispatched:[]}}
+  approvalDispatchBusy=true;const dispatched=[];
+  try{
+    do{
+      approvalDispatchRequested=false;
+      for(const plan of await listRecoverableApprovalDispatches(userId,{limit:10})){
+        if(!String(plan.execution?.tool||"").startsWith("mac."))continue;
+        const target=registry.get(plan.execution.tool);if(!target)continue;
+        await recordApprovalDispatch(userId,plan.id,{status:"dispatching"});
+        try{
+          const result=await target.run({userId,args:{...(plan.execution.args||{}),_governance:{approvalId:plan.approvalId,planId:plan.id,idempotencyKey:plan.dispatch.idempotencyKey}}});
+          if(!result?.dispatchReceipt)throw new Error("Approved Mac execution did not produce a durable dispatch receipt");
+          await recordApprovalDispatch(userId,plan.id,{status:"accepted",receipt:result.dispatchReceipt});
+          dispatched.push({planId:plan.id,approvalId:plan.approvalId,status:"accepted",dispatchReceipt:result.dispatchReceipt});
+        }catch(error){
+          const message=error instanceof Error?error.message:String(error);
+          await recordApprovalDispatch(userId,plan.id,{status:"retry_wait",error:message,retryDelayMs:Math.min(30_000,1000*2**Math.min(Number(plan.dispatch?.attempts||0),5))});
+          dispatched.push({planId:plan.id,approvalId:plan.approvalId,status:"retry_wait",error:message});
+        }
+      }
+    }while(approvalDispatchRequested);
+    return{coalesced:false,dispatched};
+  }finally{approvalDispatchBusy=false}
+}
+export async function dispatchApprovedPlansNow(userId){return runApprovalDispatchSweep(userId)}
+export function startApprovalDispatchWorker(){
+  if(approvalDispatchTimer)return approvalDispatchTimer;
+  const userId=process.env.GEORGIE_PRIMARY_USER_ID||"primary";
+  approvalDispatchTimer=setInterval(()=>void runApprovalDispatchSweep(userId).catch(error=>console.warn("Approval dispatch recovery delayed:",error instanceof Error?error.message:error)),APPROVAL_DISPATCH_RECOVERY_INTERVAL_MS);
+  approvalDispatchTimer.unref?.();
+  void runApprovalDispatchSweep(userId).catch(error=>console.warn("Approval dispatch startup recovery delayed:",error instanceof Error?error.message:error));
+  return approvalDispatchTimer;
+}
