@@ -15,7 +15,7 @@ import { listNeoMailboxes, neoMailConfigured, verifyNeoMailbox } from "./integra
 import { sierraWorkforceConfigured } from "./integrations/sierra-workforce.js";
 import { createMacRouter, getMacDeviceStatus } from "./mac/router.js";
 import { enqueueMacJob, listMacJobs, macQueueStorageStatus } from "./mac/queue.js";
-import { executeTool, listToolDefinitions } from "./tools.js";
+import { executeTool, listToolDefinitions, startApprovalDispatchWorker } from "./tools.js";
 import { cloudStateStatus, startCloudStateRecovery } from "./cloud-state.js";
 import { createMobileRouter, startMobileTurnRecovery } from "./mobile-router.js";
 import { createSierraRouter } from "./sierra-router.js";
@@ -75,6 +75,7 @@ startRevenueController();
 startSelfEvolution();
 startBackgroundOperatingLayer();
 startIntelligenceControlMap();
+startApprovalDispatchWorker();
 const PORT=Number(process.env.PORT||10000);
 const server=app.listen(PORT,()=>console.log(`Georgie listening on port ${PORT}`));
 attachRealtimeRelay(server);
