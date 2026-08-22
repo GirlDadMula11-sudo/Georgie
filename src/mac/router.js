@@ -1,6 +1,6 @@
 import express from "express";
 import crypto from "crypto";
-import { claimMacJobs, completeMacJob, enqueueMacJob, listMacJobs } from "./queue.js";
+import { claimMacJobs, completeMacJob, enqueueMacJob, listMacJobs, reconcileMacDispatches } from "./queue.js";
 
 const heartbeats = new Map();
 
@@ -28,6 +28,7 @@ export function getMacDeviceStatus() {
 
 export function createMacRouter() {
   const router = express.Router();
+  const timer=setInterval(()=>reconcileMacDispatches().catch(error=>console.error("Mac dispatch reconciliation failed:",error instanceof Error?error.message:error)),2000);timer.unref?.();
   router.use(requireAgent);
 
   router.post("/:deviceId/heartbeat", (req, res) => {

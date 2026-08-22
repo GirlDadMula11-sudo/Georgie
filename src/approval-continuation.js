@@ -38,9 +38,25 @@ export async function resolveConversationalApproval(userId,input,{sessionId="nat
   const latest=eligible[0],state=await readState(uid),plan=(state.plans||[]).find(item=>item.id===latest.evidence.planId);
   if(!plan)return{ok:false,status:"plan_record_missing",missingTool:"approval.plan_store",error:`Approval ${latest.id} exists, but its durable plan record is missing.`};
   if(plan.sessionId!==clean(sessionId).slice(0,150)&&eligible.length>1)return{ok:false,status:"ambiguous",error:`Approval is ambiguous across ${eligible.length} pending plans. Use an exact approval ID.`};
+  const idempotencyKey=`approval:${latest.id}:plan:${plan.id}`;
+  plan.dispatch=plan.dispatch||{idempotencyKey,status:"pending_authorization",createdAt:now(),attempts:0,nextAttemptAt:null,receipt:null,lastError:null};plan.updatedAt=now();await saveState(uid,state);
   const approval=await decideApproval(uid,latest.id,{decision:"approved",note:"Explicit conversational approval resolved to the latest eligible versioned plan."});
-  plan.status="approved";plan.updatedAt=now();await saveState(uid,state);
-  return{ok:true,status:"approved",plan,approval,execution:plan.execution};
+  plan.status="approved_dispatch_pending";plan.dispatch={...plan.dispatch,status:"pending",authorizedAt:approval.decidedAt||now(),nextAttemptAt:now()};plan.updatedAt=now();await saveState(uid,state);
+  return{ok:true,status:"approved_dispatch_pending",plan,approval,execution:plan.execution};
+}
+
+export async function listRecoverableApprovalDispatches(userId,{limit=10}={}){
+  const uid=clean(userId)||"primary",state=await readState(uid),approved=await listApprovals(uid,{status:"approved",limit:100}),approvedIds=new Set(approved.map(item=>item.id)),current=Date.now();
+  return(state.plans||[]).filter(plan=>plan.execution&&approvedIds.has(plan.approvalId)&&["pending_authorization","pending","retry_wait","dispatching"].includes(plan.dispatch?.status)&&(!plan.dispatch.nextAttemptAt||new Date(plan.dispatch.nextAttemptAt).getTime()<=current)&&(!plan.dispatch.leaseExpiresAt||new Date(plan.dispatch.leaseExpiresAt).getTime()<=current)).slice(0,Math.max(1,Math.min(Number(limit)||10,50)));
+}
+
+export async function recordApprovalDispatch(userId,planId,{status,receipt=null,error=null,retryDelayMs=2000}={}){
+  const uid=clean(userId)||"primary",state=await readState(uid),plan=(state.plans||[]).find(item=>item.id===planId);if(!plan)return null;
+  const attempts=Number(plan.dispatch?.attempts||0)+(status==="dispatching"?1:0),updated={...(plan.dispatch||{}),status,attempts,lastError:error?clean(error).slice(0,2000):null};
+  if(status==="dispatching")updated.leaseExpiresAt=new Date(Date.now()+30_000).toISOString();
+  if(status==="accepted"){updated.receipt=receipt;updated.receivedAt=now();updated.leaseExpiresAt=null;updated.nextAttemptAt=null;plan.status="execution_dispatched";}
+  if(status==="retry_wait"){updated.leaseExpiresAt=null;updated.nextAttemptAt=new Date(Date.now()+Math.max(500,Number(retryDelayMs)||2000)).toISOString();plan.status="approved_dispatch_retry";}
+  plan.dispatch=updated;plan.updatedAt=now();await saveState(uid,state);return plan;
 }
 
 export async function transitionApprovalPlan(userId,planId,{status,executionResult=null,verification=null,error=null,missingTool=null}={}){
