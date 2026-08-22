@@ -4,12 +4,13 @@ const HIGH_IMPACT = /\b(production|deploy|database|underwriting|capitalmatch|len
 const SIERRA = /\b(sierra|deal|application|document|underwriting|capitalmatch|lender|submission|funding|crm|worker|queue|deployment|database)\b/i;
 const PERSONAL = /\b(personal|family|household|daughter|travel|purchase|bill|credit|bank|subscription)\b/i;
 const TECHNICAL = /\b(repo|repository|codebase|source code|git|software|programming|developer|debug|api|architecture)\b/i;
+const INVESTMENTS = /\b(stock(?:s)?|equity|equities|crypto(?:currency)?|bitcoin|ethereum|token|etf|bond|treasury|commodity|forex|option(?:s)?|portfolio|brokerage|dividend|earnings|valuation|investment|investing|trade|trading)\b/i;
 
 export function intelligenceRoute(input = "") {
   const text = String(input || "").trim();
   const policy = runtimePolicy(text);
   const highImpact = HIGH_IMPACT.test(text);
-  const domain = SIERRA.test(text) ? "sierra" : PERSONAL.test(text) ? "personal" : TECHNICAL.test(text) ? "technical" : "general";
+  const domain = SIERRA.test(text) ? "sierra" : INVESTMENTS.test(text) ? "investments" : PERSONAL.test(text) ? "personal" : TECHNICAL.test(text) ? "technical" : "general";
   const tier = policy.reasoningEffort === "high" || highImpact ? "frontier" : policy.reasoningEffort === "medium" ? "balanced" : "fast";
   const model = tier === "frontier"
     ? process.env.OPENAI_MODEL || "gpt-5.6-sol"
