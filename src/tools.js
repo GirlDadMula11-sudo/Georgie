@@ -17,6 +17,7 @@ import { listDomainPacks } from "./domain-packs.js";
 import { buildWorldState } from "./world-state.js";
 import { readWorldStateSnapshot, refreshWorldState } from "./world-state-sentinel.js";
 import { runStaticBenchmark } from "./intelligence-benchmark.js";
+import { runSelfEvolutionCycle, selfEvolutionStatus } from "./self-evolution.js";
 import { createApprovalRequest, getApprovalRequest } from "./command-layer.js";
 import { createEnrollmentCode } from "./mobile-auth.js";
 import { operatingContinuity, transitionOperatingNode, upsertOperatingNode } from "./operating-graph.js";
@@ -157,6 +158,8 @@ defineTool({name:"system.domain_packs",description:"List Georgie's universal cor
 defineTool({name:"system.world_state_snapshot",description:"Read Georgie's continuously refreshed durable world-state snapshot without rebuilding it inside the current turn.",risk:"read",async run({userId}){return readWorldStateSnapshot(userId)}});
 defineTool({name:"system.world_state_refresh",description:"Refresh Georgie's universal world-state snapshot from current tasks, events, approvals, and decisions.",risk:"low_risk_write",async run({userId}){return refreshWorldState(userId)}});
 defineTool({name:"system.intelligence_benchmark",description:"Run Georgie's deterministic multi-domain routing, tool-selection, cost-policy, and latency-target benchmark specification.",risk:"read",async run(){return runStaticBenchmark()}});
+defineTool({name:"system.self_evolution",description:"Read Georgie's governed continuous-improvement state, research policy, measured capability gaps, proposals, and promotion gates.",risk:"read",async run({userId}){return selfEvolutionStatus(userId)}});
+defineTool({name:"system.self_evolution_check",description:"Run one bounded improvement cycle: measure Georgie's scorecard and benchmark, identify capability gaps, and persist testable proposals. It cannot modify code, credentials, deployments, or consequential business records.",risk:"low_risk_write",async run({userId}){return runSelfEvolutionCycle(userId)}});
 defineTool({name:"system.create_enrollment_code",description:"Create a cryptographically random, single-use Georgie device enrollment code that expires after 15 minutes. Only run after the authenticated user explicitly requests a code.",risk:"sensitive_write",async run(){return createEnrollmentCode()}});
 export function listToolDefinitions({workforce=sierraWorkforceConfigured(),includeUnavailable=true}={}){return[...registry.values()].filter(tool=>includeUnavailable||workforce||!tool.workforceOnly).map(({name,description,risk,workforceOnly})=>({name,description,risk,attached:true,configured:workforceOnly?Boolean(workforce):true,precondition:workforceOnly&&!workforce?"secure_sierra_workforce_configuration":null}))}
 export function persistentToolSurface(options={}){const tools=listToolDefinitions({...options,includeUnavailable:true});return{generatedAt:new Date().toISOString(),mode:"persistent_governed_registry",attachedToEveryTurn:true,registeredToolCount:tools.length,configuredToolCount:tools.filter(tool=>tool.configured!==false).length,tools};}

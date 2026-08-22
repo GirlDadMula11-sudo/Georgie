@@ -60,6 +60,7 @@ export function getCapabilityManifest() {
       evidenceLifecycle: true,
       tasks: true,
       proactiveMaintenance: true,
+      governedSelfEvolution: true,
       governedTools: true,
       boundedExecution: true
     },
@@ -76,6 +77,7 @@ export function getCapabilityManifest() {
     universalCapabilities: {
       reasoning: ["analysis", "planning", "comparison", "scenario_testing", "counterargument", "uncertainty_calibration", "decision_support"],
       knowledgeWork: ["web_research", "document_reasoning", "technical_assistance", "learning_and_explanation", "writing", "creative_development"],
+      continuousImprovement: ["capability_gap_detection", "deep_multi_source_research", "historical_context", "trace_review", "held_out_evaluations", "regression_testing", "canary_promotion", "verified_outcome_learning"],
       personalAssistance: ["durable_preferences", "commitment_tracking", "task_coordination", "communication_preparation", "travel_and_purchase_research", "household_planning"],
       operation: ["typed_tool_planning", "approval_gates", "verification", "action_journal", "durable_objective_graph", "unfinished_work_recovery", "ranked_next_actions", "bounded_retries", "kill_switch", "fallback_channels"],
       technologyDevelopment: ["repository_inspection", "bounded_code_search", "source_reading", "patch_preparation", "hash_bound_approval", "patch_application", "allowlisted_checks"],

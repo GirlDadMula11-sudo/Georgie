@@ -21,6 +21,7 @@ export const BENCHMARK_SCENARIOS = Object.freeze([
   ,{ id: "sierra_multi_contract_probe", prompt: "Probe Sierra governed read access across lender-activity conflicts, audit events, and infrastructure contracts. Do not modify anything.", expectedDomain: "sierra", expectedTools: ["sierra.governed_access","sierra.infrastructure","sierra.guarded_lender_conflicts","sierra.audit_events"] }
   ,{ id: "developer_inspect", prompt: "Inspect my Georgie repository and report the branch and uncommitted changes.", expectedDomain: "technical", expectedTool: "developer.repo_inspect" }
   ,{ id: "developer_architecture", prompt: "Analyze the Georgie codebase architecture for reliability weaknesses, silent turns, lost continuity, and false completion claims. Do not modify anything.", expectedDomain: "technical", expectedTool: "developer.search" }
+  ,{ id: "self_evolution", prompt: "Activate Georgie's governed self-evolution and deep research improvement cycle.", expectedTool: "system.self_evolution_check" }
 ]);
 
 export function runStaticBenchmark() {
@@ -29,5 +30,5 @@ export function runStaticBenchmark() {
     const checks = [scenario.expectedDomain ? route.domain === scenario.expectedDomain : true, scenario.expectedTier ? route.tier === scenario.expectedTier : true, scenario.expectedWeb !== undefined ? route.allowWebTool === scenario.expectedWeb : true, scenario.expectedTool ? tools.some((item) => item.tool === scenario.expectedTool) : true, scenario.expectedTools ? scenario.expectedTools.every((name)=>tools.some((item)=>item.tool===name)) : true];
     return { id: scenario.id, passed: checks.every(Boolean), route, policy, tools };
   });
-  return { version: "2026-08-20.2", targets: BENCHMARK_TARGETS, reliabilityTargets: RELIABILITY_TARGETS, certificationRule:"Static routing success is not evidence of comparative model superiority. Certification requires measured held-out outcomes and the minimum sample size.", total: cases.length, passed: cases.filter((item) => item.passed).length, failed: cases.filter((item) => !item.passed).map((item) => item.id), cases };
+  return { version: "2026-08-21.1", targets: BENCHMARK_TARGETS, reliabilityTargets: RELIABILITY_TARGETS, certificationRule:"Static routing success is not evidence of comparative model superiority. Certification requires measured held-out outcomes and the minimum sample size.", total: cases.length, passed: cases.filter((item) => item.passed).length, failed: cases.filter((item) => !item.passed).map((item) => item.id), cases };
 }
