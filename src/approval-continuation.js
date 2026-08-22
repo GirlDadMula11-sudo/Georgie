@@ -46,7 +46,9 @@ export async function resolveConversationalApproval(userId,input,{sessionId="nat
 }
 
 export async function listRecoverableApprovalDispatches(userId,{limit=10}={}){
-  const uid=clean(userId)||"primary",state=await readState(uid),approved=await listApprovals(uid,{status:"approved",limit:100}),approvedIds=new Set(approved.map(item=>item.id)),current=Date.now();
+  const uid=clean(userId)||"primary",state=await readState(uid),approved=await listApprovals(uid,{status:"approved",limit:100}),approvedIds=new Set(approved.map(item=>item.id)),current=Date.now();let migrated=false;
+  for(const plan of state.plans||[]){if(!plan.execution||!approvedIds.has(plan.approvalId)||plan.dispatch)continue;if(["verified","completed","cancelled","rejected"].includes(plan.status))continue;plan.dispatch={idempotencyKey:`approval:${plan.approvalId}:plan:${plan.id}`,status:"pending",createdAt:now(),authorizedAt:now(),attempts:0,nextAttemptAt:now(),receipt:null,lastError:null,legacyBackfill:true};plan.status="approved_dispatch_pending";plan.updatedAt=now();migrated=true;}
+  if(migrated)await saveState(uid,state);
   return(state.plans||[]).filter(plan=>plan.execution&&approvedIds.has(plan.approvalId)&&["pending_authorization","pending","retry_wait","dispatching"].includes(plan.dispatch?.status)&&(!plan.dispatch.nextAttemptAt||new Date(plan.dispatch.nextAttemptAt).getTime()<=current)&&(!plan.dispatch.leaseExpiresAt||new Date(plan.dispatch.leaseExpiresAt).getTime()<=current)).slice(0,Math.max(1,Math.min(Number(limit)||10,50)));
 }
 
