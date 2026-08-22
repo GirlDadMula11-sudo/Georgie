@@ -6,12 +6,16 @@ import {
   isDefinitiveDeviceRejection
 } from "../public/device-auth-policy.js";
 
-test("only definitive authentication rejections discard device credentials", () => {
-  assert.equal(isDefinitiveDeviceRejection(401), true);
-  assert.equal(isDefinitiveDeviceRejection(403), true);
-  for (const status of [0, 408, 429, 500, 502, 503, 504]) {
-    assert.equal(isDefinitiveDeviceRejection(status), false, `${status} must retain the credential`);
+test("generic auth failures retain trusted device credentials", () => {
+  for (const status of [0, 401, 403, 408, 429, 500, 502, 503, 504]) {
+    assert.equal(isDefinitiveDeviceRejection(status), false, `${status} must retain the credential without an explicit revocation code`);
   }
+});
+
+test("only explicit device revocation/invalidity discards credentials", () => {
+  assert.equal(isDefinitiveDeviceRejection(401,"device_token_invalid"), true);
+  assert.equal(isDefinitiveDeviceRejection(401,"device_identity_mismatch"), true);
+  assert.equal(isDefinitiveDeviceRejection(410,"device_revoked"), true);
 });
 
 test("device authentication retries use bounded backoff", () => {
