@@ -3,6 +3,17 @@ import assert from "node:assert/strict";
 import { deterministicToolPlan, latestDeterministicApprovalPlan } from "../src/fast-intents.js";
 import { isConversationalApproval, preflightExecution } from "../src/approval-continuation.js";
 import { sierraWorkflowDirectResponse } from "../src/sierra-workflow-summary.js";
+import { approvalDispatchPolicy } from "../src/tools.js";
+
+test("approved plans dispatch immediately without two-second idle cloud polling",()=>{
+  const policy=approvalDispatchPolicy();
+  assert.equal(policy.mode,"event_driven_with_recovery_sweep");
+  assert.equal(policy.approvalPath,"immediate");
+  assert.equal(policy.idleCloudPolling,false);
+  assert.equal(policy.coalesced,true);
+  assert.equal(policy.idempotent,true);
+  assert.ok(policy.recoveryIntervalMs>=30_000);
+});
 
 test("natural approval resolves to the continuation tool instead of generic conversation",()=>{
   const utterance="So complete it you have my approval";
