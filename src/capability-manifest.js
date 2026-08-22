@@ -7,6 +7,7 @@ import { getMacDeviceStatus } from "./mac/router.js";
 import { getMemoryStorageStatus } from "./memory.js";
 import { resourceGovernorStatus } from "./resource-governor.js";
 import { listDomainPacks } from "./domain-packs.js";
+import { investmentCapabilityContract } from "./investment-intelligence.js";
 
 function configured(value) {
   return value ? "configured" : "not_configured";
@@ -84,6 +85,7 @@ export function getCapabilityManifest() {
       technologyDevelopment: ["repository_inspection", "bounded_code_search", "source_reading", "patch_preparation", "hash_bound_approval", "patch_application", "allowlisted_checks"],
       economics: { deterministicFirst: true, cachedEvidencePreferred: true, tieredModelRouting: true, frontierOnlyWhenJustified: true }
     },
+    investmentIntelligence: investmentCapabilityContract(),
     connections: {
       neoMail: {
         state: configured(neoMail),
