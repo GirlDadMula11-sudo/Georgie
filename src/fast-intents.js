@@ -57,6 +57,7 @@ export function deterministicToolPlan(input = "") {
   const text = String(input || "").trim();
   const lower = text.toLowerCase();
   if (!text) return [];
+  if (/\b(?:intelligence (?:and|&) control map|system control map|authoritative (?:system )?map)\b/.test(lower)) return [{tool:/\b(?:refresh|rebuild|update|certif(?:y|ication)|live|current)\b/.test(lower)?"system.intelligence_control_map_refresh":"system.intelligence_control_map",args:{}}];
   if (/\bapproved phase 1\b/.test(lower) || (/\b(?:activate|enable|start)\b/.test(lower) && /\bbackground (?:operating|operations|monitor|work)\b/.test(lower))) return [{tool:"system.background_operations_activate",args:{}}];
   if (/\b(?:self[- ]?(?:evol|improv|teach|learn)|continuous improvement|deep research)\w*\b/.test(lower) && /\b(?:georgie|him|yourself|capab|activate|enable|make|become|status|check)\w*\b/.test(lower)) return [{tool:"system.self_evolution_check",args:{}}];
   if(/\bactivate\b/.test(lower)&&/\bprogressive(?:ly)?\b/.test(lower))return[{tool:"system.revenue_controller_activate",args:{phase:1}}];
