@@ -7,8 +7,11 @@ import { readCloudState, writeCloudState, cloudStateStatus } from "../cloud-stat
 const NS = "mac_jobs";
 const PRIMARY = () => process.env.GEORGIE_PRIMARY_USER_ID || "primary";
 const memoryStores = new Map();
+const cloudRefreshes = new Map();
+const cloudRefreshCompletedAt = new Map();
 let resolvedDataDir = null;
 let storageMode = "unresolved";
+const CLOUD_REFRESH_INTERVAL_MS = Math.max(10_000, Math.min(300_000, Number(process.env.GEORGIE_MAC_QUEUE_CLOUD_REFRESH_MS || 60_000)));
 
 function safeUserId(userId) { return String(userId || PRIMARY()).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120) || "primary"; }
 function candidateDataDirs() { const configured=String(process.env.GEORGIE_DATA_DIR||"").trim(); const candidates=[configured?path.resolve(configured,"mac-jobs"):null,path.resolve(process.cwd(),"data","mac-jobs"),path.resolve(os.tmpdir(),"georgie-data","mac-jobs")].filter(Boolean); return [...new Set(candidates)]; }
@@ -19,9 +22,19 @@ function writeMemoryStore(userId,store){memoryStores.set(safeUserId(userId),{job
 async function readLocalStore(userId){const target=await localPath(userId);if(!target)return readMemoryStore(userId);try{const parsed=JSON.parse(await fs.readFile(target,"utf8"));return{jobs:Array.isArray(parsed?.jobs)?parsed.jobs:[]}}catch(error){if(error?.code!=="ENOENT")console.warn("Mac job local read failed:",error instanceof Error?error.message:error);const memory=readMemoryStore(userId);return memory.jobs.length?memory:{jobs:[]}}}
 async function writeLocalStore(userId,store){writeMemoryStore(userId,store);const target=await localPath(userId);if(!target)return false;try{const temp=`${target}.${process.pid}.${Date.now()}.tmp`;await fs.writeFile(temp,JSON.stringify({jobs:Array.isArray(store?.jobs)?store.jobs:[]}),{mode:0o600});await fs.rename(temp,target);return true}catch(error){console.warn("Mac job disk write failed; in-memory queue remains active:",error instanceof Error?error.message:error);resolvedDataDir=null;storageMode="memory";return false}}
 function mergeStores(localStore,cloudStore){const byId=new Map();for(const job of [...(cloudStore?.jobs||[]),...(localStore?.jobs||[])])if(job?.id)byId.set(job.id,job);return{jobs:[...byId.values()].sort((a,b)=>String(a.createdAt||"").localeCompare(String(b.createdAt||""))).slice(-5000)}}
-async function readStore(userId=PRIMARY()){const uid=safeUserId(userId);const local=await readLocalStore(uid);if(!cloudStateStatus().enabled)return local;const cloud=await readCloudState(uid,NS,{jobs:[]});const merged=mergeStores(local,cloud);if(merged.jobs.length!==local.jobs.length)await writeLocalStore(uid,merged).catch(()=>{});return merged}
+export function macQueueCloudRefreshPolicy(){return{mode:"local_hot_path_cloud_reconciliation",intervalMs:CLOUD_REFRESH_INTERVAL_MS,foregroundPollReadsCloud:false,mutationsMirrorCloud:true,refreshCoalesced:true}}
+function scheduleCloudRefresh(uid,local){
+  if(!cloudStateStatus().enabled||cloudRefreshes.has(uid))return;
+  const last=cloudRefreshCompletedAt.get(uid)||0;
+  if(Date.now()-last<CLOUD_REFRESH_INTERVAL_MS)return;
+  const refresh=(async()=>{const cloud=await readCloudState(uid,NS,{jobs:[]});const latest=await readLocalStore(uid);const merged=mergeStores(mergeStores(local,latest),cloud);if(merged.jobs.length!==latest.jobs.length)await writeLocalStore(uid,merged);})()
+    .catch(error=>console.warn("Mac queue cloud reconciliation deferred:",error instanceof Error?error.message:error))
+    .finally(()=>{cloudRefreshCompletedAt.set(uid,Date.now());cloudRefreshes.delete(uid)});
+  cloudRefreshes.set(uid,refresh);
+}
+async function readStore(userId=PRIMARY()){const uid=safeUserId(userId);const local=await readLocalStore(uid);scheduleCloudRefresh(uid,local);return local}
 async function writeStore(userId,store){const uid=safeUserId(userId);await writeLocalStore(uid,store);if(cloudStateStatus().enabled){const mirrored=await writeCloudState(uid,NS,store);if(!mirrored)console.warn("Mac job cloud mirror unavailable; local/runtime queue remains active.")}}
-export function macQueueStorageStatus(){return{mode:storageMode,path:resolvedDataDir,cloudMirror:cloudStateStatus().enabled}}
+export function macQueueStorageStatus(){return{mode:storageMode,path:resolvedDataDir,cloudMirror:cloudStateStatus().enabled,cloudRefresh:macQueueCloudRefreshPolicy()}}
 
 // All physical Mac jobs live in the primary device queue. requestedByUserId preserves the browser/user origin.
 export async function enqueueMacJob({userId,deviceId,action,args={},risk="low_risk_write",reason=""}){
