@@ -1,6 +1,7 @@
 import { runtimePolicy, shouldRunMemoryExtraction } from "./runtime-policy.js";
 import { intelligenceRoute } from "./intelligence-gateway.js";
 import { withModelPermit } from "./resource-governor.js";
+import { codingRuntimePrompt } from "./coding-intelligence.js";
 
 const OPENAI_BASE_URL = "https://api.openai.com/v1";
 
@@ -112,7 +113,9 @@ async function askGeorgieCore(input, history = [], context = "", { onTextDelta, 
   const policy = runtimePolicy(input);
   const route = intelligenceRoute(input);
   const safeHistory = Array.isArray(history) ? history.slice(-12).filter((item) => item && ["user", "assistant"].includes(item.role) && typeof item.content === "string").map((item)=>({role:item.role,content:item.content})) : [];
-  const instructions = context ? `${SYSTEM_PROMPT}\n\nCURRENT OPERATING CONTEXT\n${context}` : SYSTEM_PROMPT;
+  const codingContext = codingRuntimePrompt(input);
+  const baseInstructions = context ? `${SYSTEM_PROMPT}\n\nCURRENT OPERATING CONTEXT\n${context}` : SYSTEM_PROMPT;
+  const instructions = codingContext ? `${baseInstructions}\n\n${codingContext}` : baseInstructions;
   const streaming = typeof onTextDelta === "function";
   const userContent = attachmentParts.length ? [{ type: "input_text", text: input.trim() }, ...attachmentParts] : input.trim();
   const body = { model: modelOverride||route.model, instructions, input: [...safeHistory, { role: "user", content: userContent }], reasoning: reasoning(modelOverride?"low":process.env.OPENAI_REASONING_EFFORT || route.reasoningEffort), text: { verbosity: process.env.OPENAI_VERBOSITY || route.responseVerbosity }, ...(streaming ? { stream: true } : {}) };
