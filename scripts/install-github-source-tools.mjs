@@ -31,4 +31,20 @@ if (!manifest.includes("sourceOperations:")) {
   manifest = manifest.replace(anchor, replacement);
 }
 fs.writeFileSync(manifestPath, manifest);
-console.log("[Georgie] Governed server-side GitHub source tools installed.");
+
+const intentsPath = new URL("../src/fast-intents.js", import.meta.url);
+let intents = fs.readFileSync(intentsPath, "utf8");
+if (!intents.includes("function githubRepositoryScopeFrom")) {
+  const anchor = 'function investigationTargetFrom(text=""){';
+  if (!intents.includes(anchor)) throw new Error("github scope installer could not find fast-intents helper anchor");
+  const helper = `function githubRepositoryScopeFrom(text="") {\n  const matches=[...String(text).matchAll(/\\b([A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+)\\b/g)].map(match=>match[1]);\n  const repositories=[...new Set(matches.filter(value=>value.includes("-")||/github|sierra|georgie/i.test(value)))];\n  if(repositories.length>1) throw new Error(\`Conflicting GitHub repository scope: \${repositories.join(", ")}\`);\n  return repositories[0]||null;\n}\n\n`;
+  intents = intents.replace(anchor, helper + anchor);
+}
+if (!intents.includes("githubReadOnlyCertification")) {
+  const anchor = '  if (!text) return [];\n';
+  if (!intents.includes(anchor)) throw new Error("github scope installer could not find deterministic plan anchor");
+  const rule = `  const githubReadOnlyCertification = /\\b(?:read[- ]only|connector|source)\\b/.test(lower) && /\\bcertif(?:y|ication)\\b/.test(lower) && /\\bgithub\\b/.test(lower);\n  if (githubReadOnlyCertification) {\n    const repository=githubRepositoryScopeFrom(text);\n    if(!repository) throw new Error("GitHub certification requires one explicit owner/name repository scope");\n    return [\n      {tool:"github.repository.list",args:{repository}},\n      {tool:"github.repository.get",args:{repository}},\n      {tool:"github.branch.list",args:{repository}},\n      {tool:"github.branch.get",args:{repository,branch:"main"}},\n      {tool:"github.file.read",args:{repository,path:"package.json",ref:"main"}},\n      {tool:"github.source.search",args:{repository,query:"referrals"}}\n    ];\n  }\n`;
+  intents = intents.replace(anchor, anchor + rule);
+}
+fs.writeFileSync(intentsPath, intents);
+console.log("[Georgie] Governed server-side GitHub source tools installed with repository scope binding.");
