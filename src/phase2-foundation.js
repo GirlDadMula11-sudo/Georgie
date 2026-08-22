@@ -19,19 +19,22 @@ export function readinessDecision(input = {}) {
 }
 
 export function derivePhase2DeploymentState(evidence = {}) {
+  const contractPresent = evidence.contractPresent !== false;
+  const runtimeCommit = String(evidence.runtimeCommit || "").trim();
   const githubSha = String(evidence.githubSha || evidence.github?.latestRun?.headSha || "").trim();
   const renderSha = String(evidence.renderSha || evidence.render?.latestDeployment?.commitId || "").trim();
   const renderStatus = String(evidence.renderStatus || evidence.render?.latestDeployment?.status || "").toLowerCase();
-  const contractPresent = evidence.contractPresent !== false;
   if (!contractPresent) return { status: "not_present", deployed: false, reason: "phase2_contract_not_present_in_source" };
+  if (runtimeCommit) return { status: "contract_deployed", deployed: true, reason: "phase2_contract_is_executing_from_render_runtime_commit", runtimeCommit, evidenceSource: "render_runtime" };
   if (!githubSha || !renderSha) return { status: "source_present_deployment_unverified", deployed: false, reason: "authoritative_commit_evidence_missing" };
   if (githubSha !== renderSha) return { status: "source_present_deployment_diverged", deployed: false, reason: "github_render_commit_mismatch", githubSha, renderSha };
   if (!new Set(["live", "ready", "active"]).has(renderStatus)) return { status: "source_present_deployment_not_live", deployed: false, reason: `render_status_${renderStatus || "unknown"}`, githubSha, renderSha };
-  return { status: "contract_deployed", deployed: true, reason: "github_and_render_sha_match_on_live_deployment", githubSha, renderSha };
+  return { status: "contract_deployed", deployed: true, reason: "github_and_render_sha_match_on_live_deployment", githubSha, renderSha, evidenceSource: "github_render" };
 }
 
 export function phase2Foundation(evidence = {}) {
-  const deployment = derivePhase2DeploymentState(evidence);
+  const runtimeCommit = String(evidence.runtimeCommit || process.env.RENDER_GIT_COMMIT || process.env.GEORGIE_DEPLOYED_COMMIT || "").trim();
+  const deployment = derivePhase2DeploymentState({ ...evidence, runtimeCommit });
   return {
     schema: "georgie.sierra-phase2-foundation.v1",
     status: deployment.status,
