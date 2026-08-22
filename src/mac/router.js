@@ -1,6 +1,6 @@
 import express from "express";
 import crypto from "crypto";
-import { claimMacJobs, completeMacJob, enqueueMacJob, listMacJobs, reconcileMacDispatches } from "./queue.js";
+import { checkpointMacJob, claimMacJobs, completeMacJob, enqueueMacJob, listMacJobs, reconcileMacDispatches } from "./queue.js";
 
 const heartbeats = new Map();
 
@@ -62,6 +62,7 @@ export function createMacRouter() {
       res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Could not complete Mac job" });
     }
   });
+  router.post("/:deviceId/jobs/:jobId/checkpoint",async(req,res)=>{try{const job=await checkpointMacJob(String(req.params.deviceId),String(req.params.jobId),req.body||{});res.status(job?200:404).json({ok:Boolean(job),checkpoint:job?.workflowCheckpoint||null});}catch(error){res.status(409).json({ok:false,error:error instanceof Error?error.message:"Could not checkpoint Mac workflow"})}});
 
   router.post("/:deviceId/test", async (req, res) => {
     try {

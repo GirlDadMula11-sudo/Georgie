@@ -162,6 +162,27 @@ function validateDeveloperPatch(repo, patchText) {
   return patch;
 }
 
+async function semanticDomStep(projectId,step){
+  const operation=JSON.stringify(step),prefix=JSON.stringify(`https://supabase.com/dashboard/project/${projectId}`);
+  const pageScript=`(() => { const step=${operation}; const norm=v=>String(v||'').replace(/\\s+/g,' ').trim().toLowerCase(); const visible=e=>!!(e&&e.getClientRects().length); const all=s=>[...document.querySelectorAll(s)].filter(visible); const body=norm(document.body?.innerText); if(step.action==='assert_text'){if(!body.includes(norm(step.text)))throw new Error('Expected text is not present');return {asserted:step.text};} const candidates=all('button,a,label,[role="button"],[role="switch"],[role="radio"],input,select').filter(e=>norm(e.innerText||e.getAttribute('aria-label')||e.name||'').includes(norm(step.text))); if(step.action==='click_text'){if(candidates.length!==1)throw new Error('Semantic target count '+candidates.length);candidates[0].click();return {clicked:step.text};} if(step.action==='set_control'||step.action==='assert_control'){let root=candidates[0];if(candidates.length!==1)throw new Error('Semantic control count '+candidates.length);let control=root.matches('input,select,[role="switch"],[role="radio"]')?root:root.querySelector('input,select,[role="switch"],[role="radio"]')||root.parentElement?.querySelector('input,select,[role="switch"],[role="radio"]');if(!control)throw new Error('Semantic control was not found');if(step.value===true){const checked=control.checked===true||control.getAttribute('aria-checked')==='true';if(step.action==='assert_control'){if(!checked)throw new Error('Approved control value did not persist');return {setting:step.setting,value:true,verified:true};}if(!checked)control.click();return {setting:step.setting,value:true,changed:!checked};}if(step.value==='recommended_percentage'){const scope=root.closest('section,form,div')||document;const options=[...scope.querySelectorAll('option,[role="option"],button,label,[role="radio"]')].filter(visible).filter(e=>/recommended|percentage|%/.test(norm(e.innerText||e.textContent)));if(step.action==='assert_control'){const selected=options.filter(e=>e.selected||e.checked||e.getAttribute('aria-checked')==='true'||e.getAttribute('aria-selected')==='true');if(selected.length!==1)throw new Error('Recommended percentage value did not persist');return {setting:step.setting,value:norm(selected[0].innerText||selected[0].textContent),verified:true};}if(options.length!==1)throw new Error('Recommended percentage option count '+options.length);const option=options[0];if(option.tagName==='OPTION'){option.parentElement.value=option.value;option.parentElement.dispatchEvent(new Event('change',{bubbles:true}));}else option.click();return {setting:step.setting,value:norm(option.innerText||option.textContent)};}throw new Error('Unsupported semantic value');}throw new Error('Unsupported semantic action'); })()`;
+  const script=`const prefix=${prefix};const js=${JSON.stringify(pageScript)};let out=null;const chrome=Application('Google Chrome');if(chrome.running()&&chrome.windows().length){const tab=chrome.windows[0].activeTab();if(String(tab.url()).startsWith(prefix))out=tab.execute({javascript:js});}if(out===null){const safari=Application('Safari');if(safari.running()&&safari.windows().length){const tab=safari.windows[0].currentTab();if(String(tab.url()).startsWith(prefix))out=tab.doJavaScript(js);}}if(out===null)throw new Error('No active approved Supabase project tab');JSON.stringify(out);`;
+  return JSON.parse(await runJxa(script)||"{}");
+}
+
+async function executeBrowserWorkflow(job){
+  const workflow=job.args?.workflow||{},projectId=String(workflow.projectId||"");if(workflow.provider!=="supabase"||!/^[a-z0-9]{20}$/.test(projectId))throw new Error("Invalid browser workflow scope");
+  const steps=Array.isArray(workflow.steps)?workflow.steps:[];let next=Math.max(0,Number(job.workflowCheckpoint?.nextStep||0));const receipts=[];
+  for(;next<steps.length;next++){const step=steps[next],startedAt=new Date().toISOString();let result;
+    if(step.action==="open_url"){const url=new URL(String(step.url));if(!url.toString().startsWith(`https://supabase.com/dashboard/project/${projectId}`))throw new Error("Workflow URL escaped approved project");await execFileAsync("open",[url.toString()]);result={opened:url.toString()};}
+    else if(step.action==="wait"){await new Promise(resolve=>setTimeout(resolve,Math.max(100,Math.min(10000,Number(step.ms)||500))));result={waitedMs:Number(step.ms)||500};}
+    else if(step.action==="inspect")result=await inspectBrowserTabs({includeContent:true});
+    else if(step.action==="screenshot"){const target=path.join(os.tmpdir(),`georgie-workflow-${job.id}-${next}.png`);await execFileAsync("screencapture",["-x",target],{timeout:15000});const bytes=await fs.readFile(target);await fs.unlink(target).catch(()=>{});result={mimeType:"image/png",base64:bytes.toString("base64").slice(0,8_000_000)};}
+    else result=await semanticDomStep(projectId,step);
+    const receipt={stepId:step.id,index:next,startedAt,completedAt:new Date().toISOString(),result};receipts.push(receipt);await api(`/api/mac/${encodeURIComponent(DEVICE_ID)}/jobs/${encodeURIComponent(job.id)}/checkpoint`,{method:"POST",body:JSON.stringify({nextStep:next+1,stepId:step.id,receipt})});
+  }
+  return{workflowCompleted:true,projectId,allowedSettings:workflow.allowedSettings,stepCount:steps.length,resumedFrom:Number(job.workflowCheckpoint?.nextStep||0),receipts};
+}
+
 async function execute(job) {
   const a = job.args || {};
   switch (job.action) {
@@ -265,6 +286,8 @@ async function execute(job) {
     }
     case "browser.inspect_tabs":
       return inspectBrowserTabs({ includeContent: a.includeContent !== false });
+    case "browser.workflow":
+      return executeBrowserWorkflow(job);
     case "ui.click": {
       const x = Math.max(0, Math.min(10000, Math.round(Number(a.x) || 0)));
       const y = Math.max(0, Math.min(10000, Math.round(Number(a.y) || 0)));

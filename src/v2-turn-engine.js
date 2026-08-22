@@ -46,7 +46,7 @@ export async function completeAttachmentTurnV2({userId,sessionId,input,history=[
 function toolRiskMap(){return new Map(listToolDefinitions().map(t=>[t.name,t.risk]));}
 function explicitEmailSend(input){const s=String(input||"").toLowerCase();return /\b(send|email|e-mail|reply|respond|forward)\b/.test(s)&&(/\b(email|e-mail|mail|reply|respond|forward|send it)\b/.test(s));}
 function explicitMacInspection(input){const s=String(input||"").toLowerCase();return /\b(review|inspect|check|scan|go through|look through|summarize)\b/.test(s)&&/\b(open\s+)?tabs?\b/.test(s)&&/\b(mac|safari|chrome|browser)\b/.test(s);}
-function explicitApprovalDecision(input){return /^\s*(approve|reject|defer)\s+(?:approval\s+)?[0-9a-f-]{20,}(?:\s+because\s+.+)?\s*$/i.test(String(input||""));}
+function explicitApprovalDecision(input){return /^\s*(approve|reject|defer)\s+(?:approval\s+)?[0-9a-f-]{20,}(?:\s+because\s+.+)?\s*$/i.test(String(input||""))||/^\s*approve(?:d)?\s+plan\s+[0-9a-f-]{20,}\s+(?:under|with|using)\s+approval\s+[0-9a-f-]{20,}\s*$/i.test(String(input||""));}
 function explicitEnrollmentCode(input){const s=String(input||"").toLowerCase();return /\b(?:create|generate|get|give|issue|need|show)\b/.test(s)&&/\b(?:one[- ]time\s+)?enrollment code\b/.test(s);}
 function safeSerialize(value,fallback="{}"){
   try{return JSON.stringify(value);}
@@ -95,7 +95,7 @@ async function executePlannedActions(userId,input,{sessionId="native",history=[]
     emit({type:"status",stage:"tool_running",message:`Running ${action.tool}…`,tool:action.tool});
     const directEmail=action.tool==="email.send"&&explicitEmailSend(input);
     const directMacInspection=action.tool==="mac.browser_inspect"&&explicitMacInspection(input);
-    const directApproval=action.tool==="approvals.decide"&&explicitApprovalDecision(input);
+    const directApproval=["approvals.decide","approvals.approve_plan"].includes(action.tool)&&explicitApprovalDecision(input);
     const directEnrollment=action.tool==="system.create_enrollment_code"&&explicitEnrollmentCode(input);
     const policy=directEmail?"external_side_effect":directMacInspection||directApproval||directEnrollment?"sensitive_write":basePolicy;
     const args=action.tool==="approvals.prepare_plan"||action.tool==="approvals.continue_latest"?{...(action.args||{}),sessionId}:action.args||{};
