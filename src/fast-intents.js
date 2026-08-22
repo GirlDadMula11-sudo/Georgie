@@ -57,6 +57,7 @@ export function deterministicToolPlan(input = "") {
   const text = String(input || "").trim();
   const lower = text.toLowerCase();
   if (!text) return [];
+  if (/\bapproved phase 1\b/.test(lower) || (/\b(?:activate|enable|start)\b/.test(lower) && /\bbackground (?:operating|operations|monitor|work)\b/.test(lower))) return [{tool:"system.background_operations_activate",args:{}}];
   if (/\b(?:self[- ]?(?:evol|improv|teach|learn)|continuous improvement|deep research)\w*\b/.test(lower) && /\b(?:georgie|him|yourself|capab|activate|enable|make|become|status|check)\w*\b/.test(lower)) return [{tool:"system.self_evolution_check",args:{}}];
   if(/\bactivate\b/.test(lower)&&/\bprogressive(?:ly)?\b/.test(lower))return[{tool:"system.revenue_controller_activate",args:{phase:1}}];
   const investigationId=text.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i)?.[0];

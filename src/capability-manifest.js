@@ -61,6 +61,7 @@ export function getCapabilityManifest() {
       tasks: true,
       proactiveMaintenance: true,
       governedSelfEvolution: true,
+      durableBackgroundOperations: true,
       governedTools: true,
       boundedExecution: true
     },
