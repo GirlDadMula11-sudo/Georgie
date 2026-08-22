@@ -11,7 +11,7 @@ test("the exact broad alignment language routes without model planning", () => {
 
 test("deep-system Control Brief routes to current Sierra evidence, not developer search",()=>{
   const plan=deterministicToolPlan("Sierra Deep-System Integrity Program — Control Brief");
-  assert.deepEqual(plan.map(item=>item.tool),["sierra.health","sierra.infrastructure","sierra.apply_inventory","sierra.reconciliation_invariant","sierra.portfolio","system.maintenance"]);
+  assert.deepEqual(plan.map(item=>item.tool),["sierra.health","sierra.infrastructure","sierra.apply_inventory","sierra.reconciliation_invariant","sierra.portfolio","system.maintenance_check"]);
   assert.equal(plan.some(item=>item.tool==="developer.search"),false);
 });
 
@@ -19,16 +19,18 @@ test("fresh integrity evidence outranks an incomplete developer search",()=>{
   const response=sierraWorkflowDirectResponse("Sierra Deep-System Integrity Program — Control Brief",[
     {ok:false,tool:"developer.search",error:"foreground deadline",durable:true,recoveryId:"old-job"},
     {ok:true,tool:"sierra.health",result:{health_status:"healthy",active_deals:27,failed_pipeline_stages:0}},
-    {ok:true,tool:"sierra.infrastructure",result:{status:"healthy"}},
+    {ok:true,tool:"sierra.infrastructure",result:{ok:true,sierra_core:{ok:true,stale_automation:0,failed_pipeline_stage:false,human_attention_pending:11},capitalapply:{issue_count:0}}},
     {ok:true,tool:"sierra.apply_inventory",result:{submissions:[]}},
-    {ok:true,tool:"sierra.reconciliation_invariant",result:{violation_count:0}},
+    {ok:true,tool:"sierra.reconciliation_invariant",result:{exceptions:0,completeness_proven:true,sierra_observed_pass:true,authoritative_capitalapply_pass:true}},
     {ok:true,tool:"sierra.portfolio",result:{deals:Array.from({length:27})}},
-    {ok:true,tool:"system.maintenance",result:{status:"healthy"}}
+    {ok:true,tool:"system.maintenance_check",result:{status:"healthy",repairs:[]}}
   ]);
   assert.equal(response.completed,true);
   assert.equal(response.terminalState,"verified");
   assert.match(response.text,/CURRENT CONTROL BRIEF/);
   assert.match(response.text,/27/);
+  assert.match(response.text,/Reconciliation: VERIFIED/);
+  assert.match(response.text,/Automatic maintenance: a fresh bounded observation cycle ran/);
   assert.match(response.text,/isolated engineering-evidence gap/);
   assert.match(response.text,/Fresh authoritative results.*outrank/i);
   assert.doesNotMatch(response.text,/program established; initial inspection is queued/i);
@@ -43,9 +45,9 @@ test("workflow evidence produces a useful immediate terminal assessment", () => 
     { ok: true, tool: "sierra.portfolio", result: { deals: Array.from({ length: 21 }) } },
   ]);
   assert.match(response.text, /21/);
-  assert.match(response.text, /All five governed read contracts returned successfully/);
-  assert.match(response.text, /Permanent-solution path/);
-  assert.match(response.text, /No deal.*was changed/);
+  assert.match(response.text, /required machine-readable business checks passed/);
+  assert.match(response.text, /Standing operating loop/);
+  assert.match(response.text, /No verified system defect/);
 });
 
 test("workflow response exposes the durable exact-scope approval plan",()=>{

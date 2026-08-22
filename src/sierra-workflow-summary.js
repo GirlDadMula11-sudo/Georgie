@@ -17,6 +17,22 @@ function countRows(value, depth = 0) {
 
 const valueOrUnknown = (value) => value === undefined || value === null || value === "" ? "not returned" : String(value);
 const semanticLine=item=>`- ${item.tool}: ${item.state||"UNKNOWN"} — ${item.reason||item.error||"No semantic result returned."}`;
+const numberFrom=(value,keys)=>{const found=findScalar(value,keys);return typeof found==="number"?found:undefined;};
+function integrityBusinessStatus(tool,result){
+  if(!result?.ok)return{state:"BLOCKED",detail:result?.error||"governed check failed"};
+  const data=result.result||{};
+  if(tool==="sierra.reconciliation_invariant"){
+    const exceptions=numberFrom(data,["exceptions","violation_count","violations","unresolved","unmatched_count"]),complete=findScalar(data,["completeness_proven"]),capitalApply=findScalar(data,["authoritative_capitalapply_pass"]),observed=findScalar(data,["sierra_observed_pass"]),legacyZero=numberFrom(data,["violation_count"])===0;
+    if(exceptions===0&&((complete===true&&capitalApply===true&&observed===true)||legacyZero))return{state:"VERIFIED",detail:"all returned CapitalApply submissions are reconciled exactly once; 0 exceptions"};
+    return{state:"UNKNOWN",detail:"exactly-once reconciliation was not fully proven"};
+  }
+  if(tool==="sierra.infrastructure"){
+    const top=findScalar(data,["ok"]),status=findScalar(data,["health_status","status","overall_status"]),capitalIssues=numberFrom(data,["issue_count"]),stale=numberFrom(data,["stale_automation"]),failed=findScalar(data,["failed_pipeline_stage"]);
+    if(status==="healthy"||top===true&&capitalIssues===0&&stale===0&&failed===false)return{state:"HEALTHY",detail:"core, CapitalApply, workers, and governed infrastructure checks passed"};
+    return{state:"ATTENTION",detail:"one or more infrastructure acceptance conditions need review"};
+  }
+  return{state:"OBSERVED",detail:"current governed evidence returned"};
+}
 
 export function sierraWorkflowDirectResponse(_input, toolResults = []) {
   const continuation=toolResults.find(item=>item?.tool==="approvals.continue_latest");
@@ -74,20 +90,30 @@ export function sierraWorkflowDirectResponse(_input, toolResults = []) {
   const invariantViolations = findScalar(invariant?.result, ["violations", "violation_count", "unresolved", "unmatched_count"]);
   const infrastructureStatus = findScalar(infrastructure?.result, ["health_status", "status", "overall_status", "ok"]);
   const integrityBrief=/\b(?:deep[- ]system\s+integrity|integrity\s+program|control brief)\b/i.test(String(_input||""));
-  const maintenance=toolResults.find(item=>item?.tool==="system.maintenance");
-  const lines = [integrityBrief?"SIERRA DEEP-SYSTEM INTEGRITY — CURRENT CONTROL BRIEF":"Sierra end-to-end alignment inspection completed across the governed intake, infrastructure, CapitalApply, reconciliation, and portfolio contracts.", "", `- Operating health: ${health?.ok ? valueOrUnknown(healthStatus) : "check failed"}`, `- Active deals: ${valueOrUnknown(activeDeals)}`, `- Recorded pipeline failures: ${valueOrUnknown(pipelineFailures)}`, `- Infrastructure: ${infrastructure?.ok ? valueOrUnknown(infrastructureStatus) : "check failed"}`, `- CapitalApply inventory records returned: ${inventory?.ok ? valueOrUnknown(inventoryCount) : "check failed"}`, `- Reconciliation violations returned: ${invariant?.ok ? valueOrUnknown(invariantViolations) : "check failed"}`, ""];
+  const maintenance=toolResults.find(item=>item?.tool==="system.maintenance_check");
+  const infrastructureBusiness=integrityBusinessStatus("sierra.infrastructure",infrastructure),invariantBusiness=integrityBusinessStatus("sierra.reconciliation_invariant",invariant);
+  const healthData=health?.result||{},pendingDelivery=numberFrom(healthData,["pending_lender_deliveries"]),awaitingAuthority=numberFrom(healthData,["awaiting_lender_delivery_authority_or_package"]),recoveryDue=numberFrom(healthData,["recovery_jobs_due"]),humanAttention=numberFrom(infrastructure?.result,["human_attention_pending"]);
+  const verifiedDefects=(Number(pipelineFailures)||0)+Number(numberFrom(healthData,["failed_lender_deliveries"])||0)+Number(numberFrom(healthData,["failed_document_returns"])||0);
+  const executiveHealth=verifiedDefects?"BLOCKED":healthStatus==="degraded"?"ATTENTION — protected work is waiting, but no system failure was returned":"HEALTHY";
+  const lines = [integrityBrief?"SIERRA DEEP-SYSTEM INTEGRITY — CURRENT CONTROL BRIEF":"Sierra end-to-end alignment inspection completed across the governed intake, infrastructure, CapitalApply, reconciliation, and portfolio contracts.", "", `Overall: ${executiveHealth}`,"",`- Active deals: ${valueOrUnknown(activeDeals)}`,`- Pipeline failures: ${valueOrUnknown(pipelineFailures)}`,`- Infrastructure: ${infrastructureBusiness.state} — ${infrastructureBusiness.detail}`,`- CapitalApply: ${inventory?.ok?`${valueOrUnknown(inventoryCount)} canonical submissions observed`:"check failed"}`,`- Reconciliation: ${invariantBusiness.state} — ${invariantBusiness.detail}`];
+  if(integrityBrief&&healthStatus==="degraded"&&!verifiedDefects)lines.push(`- Why attention is showing: ${awaitingAuthority??pendingDelivery??0} lender deliveries await authority or a complete package; ${recoveryDue??0} recovery jobs are due; ${humanAttention??0} items require human attention.`);
+  lines.push("");
   if (failed.length) lines.push(`Evidence gaps: ${failed.map((item) => `${item.tool} (${item.error || "unavailable"})`).join("; ")}.`);
-  else lines.push("All five governed read contracts returned successfully in this turn.");
+  else if(invariantBusiness.state==="UNKNOWN")lines.push("The contracts responded, but overall certification is blocked because reconciliation was not semantically proven.");
+  else lines.push("Current health, infrastructure, inventory, reconciliation, and portfolio evidence returned; required machine-readable business checks passed.");
   if(integrityBrief){
-    if(maintenance?.ok)lines.push("The durable maintenance state was also read successfully in this turn.");
-    else lines.push(`Maintenance-state evidence gap: ${maintenance?.error||"the durable maintenance contract did not return"}.`);
+    if(maintenance?.ok){
+      const repairs=Array.isArray(maintenance.result?.repairs)?maintenance.result.repairs:[],latest=repairs.at(-1);
+      lines.push(`Automatic maintenance: a fresh bounded observation cycle ran${latest?`; latest certified runbook ${latest.runbookId} is ${latest.result}`:"; no safe verified defect required an automatic repair"}.`);
+    }else lines.push(`Maintenance-cycle evidence gap: ${maintenance?.error||"the bounded maintenance cycle did not return"}.`);
     const isolated=toolResults.filter(item=>item?.tool==="developer.search"&&item?.ok!==true);
     if(isolated.length)lines.push("A developer workspace search is incomplete, but it is an isolated engineering-evidence gap; it does not override the newer governed Sierra health results above.");
     lines.push("Fresh authoritative results from this turn outrank retained summaries and earlier timed-out jobs.");
   }
   const prepared=toolResults.find(item=>item?.tool==="approvals.prepare_plan"&&item?.ok&&item?.result?.approval?.id);
-  lines.push("", "Permanent-solution path: trace one controlled application through intake → document qualification → CapitalMatch → underwriting → submission; compare every transition against its authoritative record and timestamp; isolate each missing or contradictory handoff; repair only the verified breaks; then rerun the same file and regression suite until the full chain is continuous and repeatable.");
+  lines.push("", "Standing operating loop: observe → diagnose → simulate → canary → automatically execute only pre-certified reversible maintenance → independently verify → rollback or close → learn. Consequential deal, lender, financial, credential, and external-message actions remain approval-gated.");
   if(prepared)lines.push("",`Bounded repair plan v${prepared.result.plan?.version||1} is saved and ready for approval.`,`Approval ID: ${prepared.result.approval.id}`,`Exact execution: ${prepared.result.plan?.execution?.tool||"not returned"}`,"Say “You are approved to fix it” to execute this exact plan and its verification reads.");
-  lines.push("", "No deal, application, workflow, lender submission, or production record was changed. Any repair remains approval-gated.");
-  return { text: lines.join("\n"), responseId: null, webSearches: 0, model: "deterministic-sierra-workflow-evidence", completed:failed.length===0&&(!integrityBrief||maintenance?.ok===true), terminalState:failed.length||integrityBrief&&maintenance?.ok!==true?"blocked":"verified", route: { domain: "sierra", tier: "fast", reasoningEffort: "low", latencyClass: "bounded" } };
+  lines.push("", verifiedDefects?"A verified defect remains; Georgie must prepare the exact reversible repair and obtain approval when the action is consequential.":"No verified system defect required a production mutation in this cycle. Protected lender actions remain gated; Georgie did not mistake waiting authorization for broken infrastructure.");
+  const complete=failed.length===0&&invariantBusiness.state==="VERIFIED"&&(!integrityBrief||maintenance?.ok===true);
+  return { text: lines.join("\n"), responseId: null, webSearches: 0, model: "deterministic-sierra-workflow-evidence", completed:complete, terminalState:complete?"verified":"blocked", route: { domain: "sierra", tier: "fast", reasoningEffort: "low", latencyClass: "bounded" } };
 }

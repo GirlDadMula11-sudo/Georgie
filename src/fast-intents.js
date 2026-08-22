@@ -67,7 +67,7 @@ export function deterministicToolPlan(input = "") {
     {tool:"sierra.apply_inventory",args:{limit:100,status:"all"}},
     {tool:"sierra.reconciliation_invariant",args:{limit:250}},
     {tool:"sierra.portfolio",args:{limit:25}},
-    {tool:"system.maintenance",args:{}}
+    {tool:"system.maintenance_check",args:{}}
   ];
   if (/\b(?:create|generate|get|give|issue|need|show)\b/.test(lower) && /\b(?:one[- ]time\s+)?enrollment code\b/.test(lower)) return [{tool:"system.create_enrollment_code",args:{}}];
   if (/\b(?:probe|test|inspect|verify|report)\b/.test(lower) && /\b(?:governed|rpc|contracts?|read access)\b/.test(lower) && /\b(?:lender[- ]activity|guarded|conflicts?|audit|infrastructure)\b/.test(lower)) return [
