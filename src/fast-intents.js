@@ -1,4 +1,5 @@
 import { isExplicitConversationalApproval } from "./approval-language.js";
+import { supabaseAuthHardeningPlan } from "./browser-workflow.js";
 
 function referenceFrom(text = "") {
   const explicit = String(text).match(/\b((?:SCA[-_A-Z0-9]+|CM[-_]\d+))\b/i);
@@ -57,6 +58,7 @@ export function deterministicToolPlan(input = "") {
   const text = String(input || "").trim();
   const lower = text.toLowerCase();
   if (!text) return [];
+  if(/\b(?:create|prepare|replace)\b/.test(lower)&&/\b(?:governed\s+)?supabase plan\b/.test(lower)&&/\bleaked[- ]password protection\b/.test(lower)&&/\b(?:connection allocation|fixed 10|percentage)\b/.test(lower))return[{tool:"approvals.prepare_plan",args:supabaseAuthHardeningPlan()}];
   const phase2EngineeringInspection = /\b(?:github|vercel|render)\b/.test(lower)
     && /\b(?:repository|deployment|build|integration|monitor|handoff)\w*\b/.test(lower)
     && /\b(?:phase 2|event schema|state machine|idempoten|readiness rules?|regression tests?)\b/.test(lower);
@@ -148,6 +150,7 @@ export function deterministicToolPlan(input = "") {
   if (/\b(invariant|exactly one|duplicate|quarantine|reconciliation coverage)\b/.test(lower) && /\b(apply|submission|sierra|deal|record)\b/.test(lower)) return [{tool:"sierra.reconciliation_invariant",args:{limit:250}}];
   if (/\b(what|which|current|show|check|verify|do you|georgie)\b/.test(lower) && /\b(access|connections?|connected|configured|capabilit(?:y|ies)|current blockers?)\b/.test(lower)) return [{ tool: "system.status", args: {} }];
   if (/\b(show|list|what are|review|check)\b/.test(lower) && /\b(pending )?approvals?\b/.test(lower)) return [{tool:"approvals.list",args:{status:"pending",limit:25}}];
+  const exactPlanApproval=text.match(/^\s*approve(?:d)?\s+plan\s+([0-9a-f-]{20,})\s+(?:under|with|using)\s+approval\s+([0-9a-f-]{20,})\s*$/i);if(exactPlanApproval)return[{tool:"approvals.approve_plan",args:{planId:exactPlanApproval[1],approvalId:exactPlanApproval[2]}}];
   if (isExplicitConversationalApproval(text)) return [{tool:"approvals.continue_latest",args:{utterance:text}}];
   const approvalDecision=text.match(/^\s*(approve|reject|defer)\s+(?:approval\s+)?([0-9a-f-]{20,})(?:\s+because\s+(.+))?\s*$/i);if(approvalDecision)return[{tool:"approvals.decide",args:{approvalId:approvalDecision[2],decision:{approve:"approved",reject:"rejected",defer:"deferred"}[approvalDecision[1].toLowerCase()],note:approvalDecision[3]||""}}];
   if (/\b(neo|email|e-mail|mail)\b/.test(lower) && /\b(configured|connected|working|available|send|outbound|status|verify)\b/.test(lower)) return [{ tool: "email.accounts", args: {} }];

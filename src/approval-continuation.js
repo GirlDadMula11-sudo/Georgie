@@ -52,6 +52,13 @@ export async function listRecoverableApprovalDispatches(userId,{limit=10}={}){
   return(state.plans||[]).filter(plan=>plan.execution&&approvedIds.has(plan.approvalId)&&["pending_authorization","pending","retry_wait","dispatching"].includes(plan.dispatch?.status)&&(!plan.dispatch.nextAttemptAt||new Date(plan.dispatch.nextAttemptAt).getTime()<=current)&&(!plan.dispatch.leaseExpiresAt||new Date(plan.dispatch.leaseExpiresAt).getTime()<=current)).slice(0,Math.max(1,Math.min(Number(limit)||10,50)));
 }
 
+export async function approvePlanById(userId,{planId,approvalId,note="Explicit exact-ID plan approval"}={}){
+  const uid=clean(userId)||"primary",state=await readState(uid),plan=(state.plans||[]).find(item=>item.id===clean(planId));if(!plan)throw new Error("Exact approval plan was not found");if(plan.approvalId!==clean(approvalId))throw new Error("Approval ID is not bound to the requested plan");
+  const pending=await listApprovals(uid,{status:"pending",limit:100}),request=pending.find(item=>item.id===plan.approvalId&&item.evidence?.planId===plan.id);if(!request)throw new Error("Bound approval is not pending or is no longer eligible");
+  const idempotencyKey=`approval:${request.id}:plan:${plan.id}`;plan.dispatch=plan.dispatch||{idempotencyKey,status:"pending_authorization",createdAt:now(),attempts:0,nextAttemptAt:null,receipt:null,lastError:null};await saveState(uid,state);
+  const approval=await decideApproval(uid,request.id,{decision:"approved",note:clean(note).slice(0,1000)});plan.status="approved_dispatch_pending";plan.dispatch={...plan.dispatch,status:"pending",authorizedAt:approval.decidedAt||now(),nextAttemptAt:now()};plan.updatedAt=now();await saveState(uid,state);return{ok:true,status:"approved_dispatch_pending",plan,approval,execution:plan.execution};
+}
+
 export async function recordApprovalDispatch(userId,planId,{status,receipt=null,error=null,retryDelayMs=2000}={}){
   const uid=clean(userId)||"primary",state=await readState(uid),plan=(state.plans||[]).find(item=>item.id===planId);if(!plan)return null;
   const attempts=Number(plan.dispatch?.attempts||0)+(status==="dispatching"?1:0),updated={...(plan.dispatch||{}),status,attempts,lastError:error?clean(error).slice(0,2000):null};
