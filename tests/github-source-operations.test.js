@@ -1,0 +1,97 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import { getBranch, getRepository, readFile, createBranch, githubSourceConfigured } from "../src/integrations/github-source.js";
+
+function withFetch(mock, fn) {
+  const original = globalThis.fetch;
+  globalThis.fetch = mock;
+  return Promise.resolve().then(fn).finally(() => { globalThis.fetch = original; });
+}
+function jsonResponse(status, payload) {
+  return { status, async text() { return JSON.stringify(payload); } };
+}
+
+test("server-side GitHub adapter uses configured credential and returns exact branch SHA", async () => {
+  const old = process.env.GEORGIE_GITHUB_TOKEN;
+  process.env.GEORGIE_GITHUB_TOKEN = "test-token";
+  try {
+    await withFetch(async (url, options) => {
+      assert.match(String(url), /GirlDadMula11-sudo\/Sierra-Partner-Portal\/branches\/main$/);
+      assert.equal(options.headers.authorization, "Bearer test-token");
+      return jsonResponse(200, { name: "main", commit: { sha: "abc123" }, protected: true });
+    }, async () => {
+      const result = await getBranch("GirlDadMula11-sudo/Sierra-Partner-Portal", "main");
+      assert.deepEqual(result, { ok: true, branch: { name: "main", sha: "abc123", protected: true } });
+    });
+  } finally { if (old === undefined) delete process.env.GEORGIE_GITHUB_TOKEN; else process.env.GEORGIE_GITHUB_TOKEN = old; }
+});
+
+test("private repository 404 remains typed not_found and never falls back", async () => {
+  const old = process.env.GEORGIE_GITHUB_TOKEN;
+  process.env.GEORGIE_GITHUB_TOKEN = "test-token";
+  try {
+    let calls = 0;
+    await withFetch(async () => { calls += 1; return jsonResponse(404, { message: "Not Found" }); }, async () => {
+      const result = await getRepository("GirlDadMula11-sudo/Sierra-Partner-Portal");
+      assert.equal(result.ok, false);
+      assert.equal(result.error.code, "not_found");
+      assert.equal(calls, 1);
+    });
+  } finally { if (old === undefined) delete process.env.GEORGIE_GITHUB_TOKEN; else process.env.GEORGIE_GITHUB_TOKEN = old; }
+});
+
+test("secret paths are denied before provider access", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error("fetch must not run"); };
+  try {
+    const result = await readFile("GirlDadMula11-sudo/Georgie", ".env", "main");
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "permission_denied");
+  } finally { globalThis.fetch = original; }
+});
+
+test("GitHub source mutations stay approval-gated in tool registry", () => {
+  const source = fs.readFileSync(new URL("../src/tools.js", import.meta.url), "utf8");
+  for (const name of ["github.branch.create", "github.commit.create", "github.pull_request.create"]) {
+    const at = source.indexOf(`name:\"${name}\"`);
+    assert.ok(at >= 0, `${name} must be registered`);
+    assert.match(source.slice(at, at + 500), /risk:\"sensitive_write\"/);
+  }
+  for (const name of ["github.repository.list", "github.repository.get", "github.branch.list", "github.branch.get", "github.file.read", "github.source.search"]) {
+    const at = source.indexOf(`name:\"${name}\"`);
+    assert.ok(at >= 0, `${name} must be registered`);
+    assert.match(source.slice(at, at + 500), /risk:\"read\"/);
+  }
+  assert.equal(source.includes('name:"github.repository.list"') && source.includes('queueMacAndWait(userId,args,"github.'), false, "GitHub source tools must not use Mac queue");
+});
+
+test("branch creation uses server-side GitHub ref API", async () => {
+  const old = process.env.GEORGIE_GITHUB_TOKEN;
+  process.env.GEORGIE_GITHUB_TOKEN = "test-token";
+  try {
+    const calls = [];
+    await withFetch(async (url, options) => {
+      calls.push({ url: String(url), method: options.method, body: options.body });
+      if (String(url).endsWith("/branches/main")) return jsonResponse(200, { name: "main", commit: { sha: "base-sha" }, protected: false });
+      return jsonResponse(201, { ref: "refs/heads/fix/test", object: { sha: "base-sha" } });
+    }, async () => {
+      const result = await createBranch("GirlDadMula11-sudo/Georgie", "fix/test", "main");
+      assert.equal(result.ok, true);
+      assert.equal(calls.length, 2);
+      assert.match(calls[1].url, /\/git\/refs$/);
+      assert.equal(calls[1].method, "POST");
+    });
+  } finally { if (old === undefined) delete process.env.GEORGIE_GITHUB_TOKEN; else process.env.GEORGIE_GITHUB_TOKEN = old; }
+});
+
+test("configuration truth reflects server credential only", () => {
+  const oldA = process.env.GEORGIE_GITHUB_TOKEN;
+  const oldB = process.env.GITHUB_TOKEN;
+  delete process.env.GEORGIE_GITHUB_TOKEN; delete process.env.GITHUB_TOKEN;
+  assert.equal(githubSourceConfigured(), false);
+  process.env.GEORGIE_GITHUB_TOKEN = "x";
+  assert.equal(githubSourceConfigured(), true);
+  if (oldA === undefined) delete process.env.GEORGIE_GITHUB_TOKEN; else process.env.GEORGIE_GITHUB_TOKEN = oldA;
+  if (oldB === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = oldB;
+});
