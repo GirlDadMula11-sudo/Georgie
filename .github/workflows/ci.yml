@@ -15,4 +15,5 @@ jobs:
           node-version: 24
       - run: npm install
       - run: npm run check
+      - run: npm test
       - run: docker build -t georgie-ci .
