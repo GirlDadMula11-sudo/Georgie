@@ -67,6 +67,21 @@ function compactEvidence(id, value) {
   if (id === "smartlead") return { recordsReturned: Array.isArray(value) ? value.length : Array.isArray(value?.campaigns) ? value.campaigns.length : 0 };
   return value && typeof value === "object" ? { returned: true, status: value.status || value.state || value.readyState || null, observedAt: value.observedAt || value.generatedAt || null } : { returned: true };
 }
+function explicitHealthy(value) { const state = String(value?.status || value?.state || value?.readyState || "").toLowerCase(); return value?.ok === true || value?.healthy === true || ["healthy", "ready", "live", "active", "operational"].includes(state); }
+function systemHealth(id, observation) {
+  if (!observation || observation.state !== "verified") return "unknown";
+  const value = observation.evidence;
+  if (id === "sierra_core") { const status = String(value?.health?.health_status || value?.health?.status || "").toLowerCase(); return ["healthy", "operational", "ok"].includes(status) && explicitHealthy(value?.infrastructure) ? "healthy" : status && !["unknown", "returned"].includes(status) ? "degraded" : "unknown"; }
+  if (id === "capitalapply") return value?.reconciliation?.completeness_proven === true && value?.reconciliation?.authoritative_capitalapply_pass === true ? "healthy" : "unknown";
+  if (id === "capitalmatch") return "unknown";
+  if (id === "supabase") return explicitHealthy(value?.infrastructure) ? "healthy" : "unknown";
+  if (["neo_work", "neo_submissions"].includes(id)) { const mailbox = Array.isArray(value) ? value.find((item) => item.id === (id === "neo_work" ? "work" : "submissions")) : null; return mailbox?.ok === true && mailbox?.imap === true && mailbox?.smtp === true ? "healthy" : "degraded"; }
+  if (id === "background_operations" || id === "revenue_controller") return value?.active === true ? "healthy" : "degraded";
+  if (id === "mac_agent") return Number(value?.onlineDeviceCount || 0) > 0 ? "healthy" : "unavailable";
+  if (id === "operational_state") return value?.enabled === true && value?.degraded !== true ? "healthy" : "degraded";
+  if (id === "smartlead") return "reachable";
+  return explicitHealthy(value) ? "healthy" : "reachable";
+}
 
 export function buildIntelligenceControlMap({ manifest, observations = [], approvals = [], events = [], tasks = [], continuity = {}, maintenance = {}, revenue = {}, background = {}, generatedAt = now() } = {}) {
   const observationById = new Map(observations.map((item) => [item.id, item]));
@@ -74,12 +89,12 @@ export function buildIntelligenceControlMap({ manifest, observations = [], appro
   const observationKey = { sierra_core: "sierra", capitalapply: "sierra", capitalmatch: "sierra", supabase: "providers", georgie_public: "github", vercel: "vercel", render: "render", neo_work: "mailboxes", neo_submissions: "mailboxes", smartlead: "smartlead", operational_state: "operational_state", background_operations: "background", revenue_controller: "revenue", self_evolution: "maintenance", mac_agent: "mac_agent" };
   const systems = SYSTEMS.map(([id, type, owner, authoritativeSource, revenueDependency, criticality]) => {
     const observation = observationById.get(observationKey[id]);
-    return { id, type, owner, authoritativeSource, revenueDependency, criticality, configured: connectionState[id] === "configured", health: observation ? observation.state : "unknown", lastVerifiedAt: observation?.verifiedAt || null, verificationEvidence: observation?.state === "verified" ? compactEvidence(observation.id, observation.evidence) : null, verificationError: observation?.error || null };
+    return { id, type, owner, authoritativeSource, revenueDependency, criticality, configured: connectionState[id] === "configured", evidenceState: observation?.state || "not_observed", health: systemHealth(id, observation), lastVerifiedAt: observation?.verifiedAt || null, verificationEvidence: observation?.state === "verified" ? compactEvidence(observation.id, observation.evidence) : null, verificationError: observation?.error || null };
   });
   const gaps = [];
   for (const system of systems) {
     if (!system.configured) gaps.push({ type: "connection_gap", target: system.id, severity: system.criticality, detail: "Required capability is not configured." });
-    else if (system.health !== "verified") gaps.push({ type: "evidence_gap", target: system.id, severity: system.criticality, detail: "Configured access is not current health proof." });
+    else if (system.health !== "healthy") gaps.push({ type: system.evidenceState === "verified" ? "health_not_certified" : "evidence_gap", target: system.id, severity: system.criticality, detail: system.evidenceState === "verified" ? `Current evidence returned, but health is ${system.health}; explicit healthy semantics were not proven.` : "Configured access is not current health proof." });
   }
   for (const item of [...tasks, ...events].filter((entry) => ["urgent", "high"].includes(entry.priority) || /fail|block|incident|stale|contradict|unfinished/i.test(`${entry.title || ""} ${entry.body || ""} ${entry.notes || ""}`)).slice(0, 100)) gaps.push({ type: "open_work", target: item.id, severity: item.priority || "normal", detail: String(item.title || item.body || "Open work").slice(0, 500), source: item.type || item.source || "durable_work" });
   const unfinished = Array.isArray(continuity?.unfinishedJobs) ? continuity.unfinishedJobs : Array.isArray(continuity?.nodes) ? continuity.nodes.filter((item) => !["completed", "verified", "closed"].includes(item.status)) : [];
@@ -94,7 +109,7 @@ export function buildIntelligenceControlMap({ manifest, observations = [], appro
     notificationRoutes: { critical: ["native_or_web_push", "executive_work_email"], approvalNeeded: ["control_center", "native_or_web_push", "executive_work_email"], routine: ["daily_control_brief"], resolved: ["control_center", "executive_work_email"], quietHours: background?.policy ? { start: background.policy.quietStartHour, end: background.policy.quietEndHour, timeZone: background.policy.timeZone } : null, deliveryCertified: Boolean(background?.lastDeliveryAt) },
     recovery: { durableState: Boolean(manifest?.connections?.durableOperationalState?.enabled), unfinishedWorkRecovery: Boolean(manifest?.sessionRuntime?.unfinishedWorkRecovery), boundedRetries: true, idempotencyRequired: true, independentVerificationRequired: true, rollbackRequiredForRepair: true, globalKillSwitch: { available: true, active: Boolean(manifest?.sessionRuntime?.killSwitchActive), coverage: ["background_operations", "automated_repair", "notification_delivery"] } },
     runtime: { maintenance: { active: maintenance?.active ?? null, lastCycleAt: maintenance?.lastCycleAt || null }, revenueController: { active: Boolean(revenue?.active), phase: revenue?.phase || 0, assignedDeals: revenue?.coverage?.assignedDeals || 0, lastCycleAt: revenue?.lastCycleAt || null }, backgroundOperations: { active: Boolean(background?.active), mode: background?.mode || null, lastCycleAt: background?.lastCycleAt || null } },
-    certification: { systemCount: systems.length, verifiedSystems: systems.filter((item) => item.health === "verified").length, handoffCount: HANDOFFS.length, pendingApprovals: approvals.length, gaps: gaps.length, endToEndCertified: systems.filter((item) => item.criticality === "critical").every((item) => item.health === "verified") && gaps.filter((item) => item.severity === "critical").length === 0 }
+    certification: { systemCount: systems.length, verifiedSystems: systems.filter((item) => item.evidenceState === "verified").length, healthySystems: systems.filter((item) => item.health === "healthy").length, handoffCount: HANDOFFS.length, pendingApprovals: approvals.length, gaps: gaps.length, endToEndCertified: systems.filter((item) => item.criticality === "critical").every((item) => item.health === "healthy") && gaps.filter((item) => item.severity === "critical").length === 0 }
   };
 }
 
@@ -130,11 +145,11 @@ export async function intelligenceControlMapStatus(userId = USER(), { refresh = 
 }
 
 export function intelligenceControlMapBrief(map = {}) {
-  const c = map.certification || {}, critical = (map.gaps || []).filter((item) => item.severity === "critical"), unknown = (map.systems || []).filter((item) => item.health !== "verified");
+  const c = map.certification || {}, critical = (map.gaps || []).filter((item) => item.severity === "critical"), unknown = (map.systems || []).filter((item) => item.health !== "healthy");
   return [
     "INTELLIGENCE AND CONTROL MAP — DURABLE CONTROL BRIEF", "",
     `State: ${c.endToEndCertified ? "CERTIFIED" : "ATTENTION — evidence gaps remain"}`,
-    `Inventory: ${c.systemCount || 0} systems, ${c.handoffCount || 0} revenue-chain handoffs, ${c.verifiedSystems || 0} systems currently verified.`,
+    `Inventory: ${c.systemCount || 0} systems, ${c.handoffCount || 0} revenue-chain handoffs, ${c.verifiedSystems || 0} systems observed and ${c.healthySystems || 0} explicitly healthy.`,
     `Authority: observe, investigate, reconcile, and prepare automatically; consequential execution remains exact-scope approval-gated.`, "",
     `Critical gaps: ${critical.length}. Unknown or stale system health: ${unknown.length}. Pending approvals: ${c.pendingApprovals || 0}.`,
     ...(critical.slice(0, 5).map((item) => `- ${item.target}: ${item.detail}`)), "",
