@@ -38,6 +38,8 @@ export async function enrollNativeDevice({code,deviceId,deviceName="iPhone",plat
  const rawToken=crypto.randomBytes(32).toString("base64url"),tokenHash=hash(rawToken);
  await rest("georgie_mobile_devices?on_conflict=device_id",{method:"POST",headers:{prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({device_id:String(deviceId).slice(0,160),token_hash:tokenHash,device_name:String(deviceName).slice(0,120),platform:String(platform).slice(0,30),last_seen_at:now,revoked_at:null})});
  await rest(`georgie_mobile_enrollment_codes?id=eq.${row.id}`,{method:"PATCH",headers:{prefer:"return=minimal"},body:JSON.stringify({used_at:now,used_device_id:String(deviceId).slice(0,160),active:false})});
+ const device={device_id:String(deviceId).slice(0,160),device_name:String(deviceName).slice(0,120),platform:String(platform).slice(0,30)};
+ await loadCache();verifiedDevices.set(tokenHash,{tokenHash,device,verifiedAt:now});await persistCache();
  return rawToken;
 }
 

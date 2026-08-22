@@ -9,5 +9,7 @@ test("native authentication has a bounded provider-verified fallback without per
   assert.match(source,/providerUnavailableUntil/);
   assert.match(source,/AbortSignal\.timeout\(4000\)/);
   assert.match(source,/rawTokensPersisted:false/);
+  assert.match(source,/verifiedDevices\.set\(tokenHash,\{tokenHash,device,verifiedAt:now\}\)/);
+  assert.match(source,/await persistCache\(\)/);
   assert.doesNotMatch(source,/JSON\.stringify\([^\n]*raw/);
 });
