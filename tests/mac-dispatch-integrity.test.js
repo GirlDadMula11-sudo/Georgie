@@ -33,7 +33,7 @@ test("same-job resume rejects cross-objective, wrong-action, and completed jobs"
 });
 
 test("each verified identity-root handler reopens the exact exhausted mailbox job once",async()=>{
- for(const version of ["2.2.4","2.2.5","2.2.6","2.2.7","2.2.8","2.2.9"]){
+ for(const version of ["2.2.4","2.2.5","2.2.6","2.2.7","2.2.8","2.2.9","2.2.10"]){
   const nonce=`${Date.now()}-${Math.random().toString(16).slice(2)}`,deviceId=`verified-handler-${nonce}`,objectiveId=`objective-${nonce}`;
   const job=await enqueueMacJob({userId:`verified-handler-user-${nonce}`,deviceId,action:"mailbox.read_only_backfill",args:{objectiveId,authority:"read_only"},risk:"read",idempotencyKey:`verified-handler-${nonce}`,maxAttempts:1});
   await claimMacJobs(deviceId,1);await completeMacJob(deviceId,job.id,{error:"NEO_MAILBOX_IDENTITY_NOT_VERIFIED: submissions@sierramarketinginc.com: old handler"});
