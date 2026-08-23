@@ -13,8 +13,14 @@ test("NEO preload is narrowly scoped and runs in the page main world before navi
   assert.deepEqual(manifest.permissions,["scripting"]);
   assert.equal(manifest.background.service_worker,"background.js");
   assert.equal(manifest.background.type,undefined);
-  assert.equal(manifest.content_scripts[0].world,"ISOLATED");
-  assert.equal(manifest.content_scripts[0].run_at,"document_start");
+  const mainScript=manifest.content_scripts.find(item=>item.world==="MAIN");
+  const diagnosticScript=manifest.content_scripts.find(item=>item.world==="ISOLATED");
+  assert.deepEqual(mainScript.matches,["https://app.neo.space/*"]);
+  assert.deepEqual(mainScript.js,["preload.js"]);
+  assert.equal(mainScript.run_at,"document_start");
+  assert.deepEqual(diagnosticScript.matches,["https://app.neo.space/*"]);
+  assert.deepEqual(diagnosticScript.js,["diagnostic.js"]);
+  assert.equal(diagnosticScript.run_at,"document_start");
   assert.match(background,/registerContentScripts/);
   assert.match(background,/runAt: "document_start"/);
   assert.match(background,/world: "MAIN"/);
