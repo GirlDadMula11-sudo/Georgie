@@ -3,8 +3,8 @@ import fs from "node:fs";
 function patch(path, replacements) {
   let source = fs.readFileSync(path, "utf8");
   let changed = false;
-  for (const [from, to, label] of replacements) {
-    if (source.includes(to)) continue;
+  for (const [from, to, label, alreadyInstalled] of replacements) {
+    if (source.includes(to) || (alreadyInstalled && source.includes(alreadyInstalled))) continue;
     if (!source.includes(from)) throw new Error(`domain-aware runtime installer could not find ${label} in ${path}`);
     source = source.replace(from, to);
     changed = true;
@@ -74,7 +74,7 @@ const investmentChanged = patch("src/investment-intelligence.js", [
 
 const v2Changed = patch("src/v2-turn-engine.js", [
   ['import { humanizeResponse } from "./human-response.js";', 'import { humanizeResponse } from "./human-response.js";\nimport { investmentDirectResponse } from "./investment-intelligence.js";', "investment direct import"],
-  ['export async function completeTurnV2({userId,sessionId,input,history=[],onProgress,shouldFinalize=()=>true}){const startedAt=Date.now();let firstResponseMs=0;', 'export async function completeTurnV2({userId,sessionId,input,history=[],onProgress,shouldFinalize=()=>true}){const startedAt=Date.now();let firstResponseMs=0;const quickInvestment=investmentDirectResponse(input,history);if(quickInvestment){const latencyMs=Date.now()-startedAt;setImmediate(()=>Promise.all([appendSessionTurn({userId,sessionId,role:"user",content:input}),appendSessionTurn({userId,sessionId,role:"assistant",content:quickInvestment.text})]).catch(()=>{}));return{...quickInvestment,latencyMs,firstResponseMs:latencyMs,contextReadyMs:latencyMs,actions:[],evidence:[],evidenceFreshness:"not_required",confidence:"policy_backed"};}', "early investment routing"],
+  ['export async function completeTurnV2({userId,sessionId,input,history=[],onProgress,shouldFinalize=()=>true}){const startedAt=Date.now();let firstResponseMs=0;', 'export async function completeTurnV2({userId,sessionId,input,history=[],onProgress,shouldFinalize=()=>true}){const startedAt=Date.now();let firstResponseMs=0;const quickInvestment=investmentDirectResponse(input,history);if(quickInvestment){const latencyMs=Date.now()-startedAt;setImmediate(()=>Promise.all([appendSessionTurn({userId,sessionId,role:"user",content:input}),appendSessionTurn({userId,sessionId,role:"assistant",content:quickInvestment.text})]).catch(()=>{}));return{...quickInvestment,latencyMs,firstResponseMs:latencyMs,contextReadyMs:latencyMs,actions:[],evidence:[],evidenceFreshness:"not_required",confidence:"policy_backed"};}', "early investment routing", 'const quickInvestment=investmentDirectResponse(input,history);'],
   ['direct=verifiedDirectResponse(input,toolResults)||sierraWorkflowDirectResponse(input,toolResults);', 'direct=verifiedDirectResponse(input,toolResults)||sierraWorkflowDirectResponse(input,toolResults)||investmentDirectResponse(input,persistedHistory);', "investment direct routing"]
 ]);
 
