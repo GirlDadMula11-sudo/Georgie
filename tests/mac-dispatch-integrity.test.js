@@ -48,7 +48,15 @@ test("single-tab NEO repair permits one exact fail-closed identity retry only af
   assert.equal(versionRecoverableMailboxJob(afterSingleTab),"neo_account_rail_reader_repaired");
   const afterAccountRail={...base,resumeHistory:[...afterSingleTab.resumeHistory,{reason:"neo_account_rail_reader_repaired"}]};
   assert.equal(versionRecoverableMailboxJob(afterAccountRail),"neo_envelope_bound_reader_repaired");
-  assert.equal(versionRecoverableMailboxJob({...afterAccountRail,resumeHistory:[...afterAccountRail.resumeHistory,{reason:"neo_envelope_bound_reader_repaired"}]}),null);
+  const afterEnvelope={...afterAccountRail,resumeHistory:[...afterAccountRail.resumeHistory,{reason:"neo_envelope_bound_reader_repaired"}]};
+  assert.equal(versionRecoverableMailboxJob(afterEnvelope),"neo_full_body_reader_repaired");
+  assert.equal(versionRecoverableMailboxJob({...afterEnvelope,resumeHistory:[...afterEnvelope.resumeHistory,{reason:"neo_full_body_reader_repaired"}]}),null);
+});
+
+test("same objective can replace one completed snippet batch with the full-body gate",()=>{
+  const job={status:"completed",result:{mailboxEvidenceBatch:{packets:[{bodyComplete:false}],cursor:{}}},resumeHistory:[]};
+  assert.equal(versionRecoverableMailboxJob(job),"neo_full_body_reader_repaired");
+  assert.equal(versionRecoverableMailboxJob({...job,resumeHistory:[{reason:"neo_full_body_reader_repaired"}]}),null);
 });
 
 test("temporary Mac delivery failures retry and missing receipts raise a durable alert",async()=>{

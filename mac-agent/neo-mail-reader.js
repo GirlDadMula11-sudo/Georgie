@@ -79,25 +79,83 @@ function neoMailboxObserver(mailbox, cursors, max) {
     const subjectNode = row.querySelector("[data-subject],[class*='subject'],[aria-label*='Subject']");
     const subject = text(subjectNode?.getAttribute("data-subject") || subjectNode?.textContent || rowText.split(/\n+/)[0], 1200);
     const addresses = [...rowText.matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig)].map(match => match[0].toLowerCase());
-    messages.push({ mailbox, messageId, threadId: text(row.getAttribute("data-thread-id") || messageId, 500), timestamp, sender: addresses[0] || "", recipients: [], subject, content: rowText, attachments: [], sourceUrl: text(location.origin + location.pathname, 1000) });
+    const unreadSignals = [row.getAttribute("data-unread"), row.getAttribute("aria-label"), row.className, getComputedStyle(row).fontWeight].map(value => String(value || "").toLowerCase());
+    const readState = unreadSignals.some(value => value === "true" || /\bunread\b/.test(value) || Number(value) >= 600) ? "unread" : unreadSignals.some(value => value === "false" || /\bread\b/.test(value)) ? "read" : "unknown";
+    messages.push({ mailbox, messageId, threadId: text(row.getAttribute("data-thread-id") || messageId, 500), timestamp, sender: addresses[0] || "", recipients: [], subject, rowExcerpt: rowText, readStateBefore: readState, sourceUrl: text(location.origin + location.pathname, 1000) });
     if (messages.length >= max) break;
   }
   messages.sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.messageId.localeCompare(b.messageId));
   return { messages: messages.slice(0, max), rejected: [...new Set(rejected)].slice(0, 20), readOnly: true, navigationPerformed: false, messageOpeningPerformed: false, mailboxMutation: false };
 }
 
+function neoGuardedMessageOpener(messageId) {
+  const text = value => String(value || "").replace(/\u0000/g, "").trim();
+  const unsafe = (method, url, body) => {
+    const verb = String(method || "GET").toUpperCase();
+    const value = `${url || ""} ${body || ""}`.toLowerCase();
+    let endpoint; try { endpoint = new URL(String(url || ""), location.href); } catch { return true; }
+    return endpoint.origin !== location.origin || !["https:"].includes(endpoint.protocol) || !["GET", "HEAD"].includes(verb) || /(?:token|secret|password|authorization|session)=/i.test(endpoint.search) || /(?:^|[\/_?&=.-])(mark|read|unread|seen|flag|star|archive|delete|trash|spam|move|send|reply|forward|draft|update|mutate|action)(?:$|[\/_?&=.-])/.test(value);
+  };
+  const candidates = [...document.querySelectorAll("[data-message-id],[data-id],[data-thread-id],[role='row']")].filter(element => {
+    const values = [element.getAttribute("data-message-id"), element.getAttribute("data-id"), element.getAttribute("data-thread-id"), element.id].map(text);
+    return values.includes(messageId) && element.getClientRects().length;
+  }).sort((left, right) => left.getBoundingClientRect().width * left.getBoundingClientRect().height - right.getBoundingClientRect().width * right.getBoundingClientRect().height);
+  const row = candidates[0];
+  if (!row) return { opened: false, error: "immutable message row not found", guardInstalled: false, blockedMutationCount: 0 };
+  const state = { installed: true, messageId, blocked: [], startedAt: new Date().toISOString(), original: {} };
+  const block = (channel, detail) => { state.blocked.push({ channel, detail: text(detail).slice(0, 240) }); return true; };
+  state.original.fetch = window.fetch;
+  window.fetch = function(input, init = {}) { const url = typeof input === "string" ? input : input?.url; const method = init.method || input?.method || "GET"; if (unsafe(method, url, init.body)) { block("fetch", `${method} ${url}`); return Promise.reject(new Error("GEORGIE_READ_ONLY_BLOCK")); } return state.original.fetch.apply(this, arguments); };
+  state.original.xhrOpen = XMLHttpRequest.prototype.open; state.original.xhrSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function(method, url) { this.__georgieMethod = method; this.__georgieUrl = url; return state.original.xhrOpen.apply(this, arguments); };
+  XMLHttpRequest.prototype.send = function(body) { if (unsafe(this.__georgieMethod, this.__georgieUrl, body)) { block("xhr", `${this.__georgieMethod} ${this.__georgieUrl}`); this.abort(); return; } return state.original.xhrSend.apply(this, arguments); };
+  state.original.beacon = navigator.sendBeacon?.bind(navigator); if (navigator.sendBeacon) navigator.sendBeacon = function(url) { block("beacon", url); return false; };
+  state.original.wsSend = window.WebSocket?.prototype?.send; if (state.original.wsSend) WebSocket.prototype.send = function(data) { block("websocket", String(data).slice(0, 120)); return; };
+  window.__georgieReadGuard = state;
+  row.click();
+  return { opened: true, guardInstalled: true, method: "guarded_dom_open", blockedMutationCount: state.blocked.length };
+}
+
+function neoFullBodyObserver(message, maxBodyBytes) {
+  const text = (value, limit = maxBodyBytes) => String(value || "").replace(/\u0000/g, "").trim().slice(0, limit);
+  const guard = window.__georgieReadGuard;
+  const restore = () => {
+    if (!guard?.installed) return;
+    if (guard.original.fetch) window.fetch = guard.original.fetch;
+    if (guard.original.xhrOpen) XMLHttpRequest.prototype.open = guard.original.xhrOpen;
+    if (guard.original.xhrSend) XMLHttpRequest.prototype.send = guard.original.xhrSend;
+    if (guard.original.beacon) navigator.sendBeacon = guard.original.beacon;
+    if (guard.original.wsSend) WebSocket.prototype.send = guard.original.wsSend;
+    delete window.__georgieReadGuard;
+  };
+  try {
+    const candidates = [...document.querySelectorAll("[data-message-id],[data-thread-id],[role='main'],[role='article'],article,[class*='message-body'],[class*='mail-body'],[class*='conversation']")].filter(element => element.getClientRects().length).map(element => ({ element, value: text(element.innerText || element.textContent) })).filter(item => item.value.length > String(message.rowExcerpt || "").length + 40).sort((a, b) => b.value.length - a.value.length);
+    const selected = candidates.find(item => [item.element.getAttribute("data-message-id"), item.element.getAttribute("data-thread-id"), item.element.id].map(text).includes(message.messageId));
+    const content = text(selected?.value || "");
+    const attachmentNodes = selected ? [...selected.element.querySelectorAll("[data-attachment-id],[data-filename],[download],[class*='attachment']")].slice(0, 100) : [];
+    const attachments = attachmentNodes.map(node => ({ id: text(node.getAttribute("data-attachment-id") || node.id, 500), name: text(node.getAttribute("data-filename") || node.getAttribute("download") || node.textContent, 500), size: text(node.getAttribute("data-size"), 80) })).filter(item => item.id || item.name);
+    const row = [...document.querySelectorAll("[data-message-id],[data-id],[data-thread-id],[role='row']")].find(element => [element.getAttribute("data-message-id"), element.getAttribute("data-id"), element.getAttribute("data-thread-id"), element.id].map(text).includes(message.messageId));
+    const unreadSignals = row ? [row.getAttribute("data-unread"), row.getAttribute("aria-label"), row.className, getComputedStyle(row).fontWeight].map(value => String(value || "").toLowerCase()) : [];
+    const readStateAfter = unreadSignals.some(value => value === "true" || /\bunread\b/.test(value) || Number(value) >= 600) ? "unread" : unreadSignals.some(value => value === "false" || /\bread\b/.test(value)) ? "read" : "unknown";
+    const readStateNeutral = Boolean(guard?.installed && message.readStateBefore !== "unknown" && message.readStateBefore === readStateAfter);
+    const bodyComplete = Boolean(content && selected && content.length < maxBodyBytes && content.length > String(message.rowExcerpt || "").length + 40);
+    return { ...message, content, attachments, bodyComplete, bodyTruncated: content.length >= maxBodyBytes, retrievalMethod: "guarded_dom_open", readStateAfter, readStateNeutral, transportPolicy: "same_origin_https_get_head_only", blockedMutationCount: guard?.blocked?.length || 0, blockedMutationChannels: [...new Set((guard?.blocked || []).map(item => item.channel))], credentialsTransferred: false, mailboxMutation: false };
+  } finally { restore(); }
+}
+
 export function buildNeoObservationScript({ mailboxes, cursors, limit }) {
   const requested = [...new Set((mailboxes || []).map(value => String(value).toLowerCase()))];
   const boundedLimit = Math.min(25, Math.max(1, Number(limit) || 25));
-  const identityObserver = neoIdentityObserver.toString(), accountActivator = neoAccountActivator.toString(), mailboxObserver = neoMailboxObserver.toString();
-  return `const requested=${JSON.stringify(requested)};const cursors=${JSON.stringify(cursors || {})};const max=${boundedLimit};const identityObserver=${JSON.stringify(identityObserver)};const accountActivator=${JSON.stringify(accountActivator)};const mailboxObserver=${JSON.stringify(mailboxObserver)};const result={provider:'neo_browser',mailboxes:{},messages:[],tabsInspected:0,navigationPerformed:false,accountSelectionPerformed:false,messageOpeningPerformed:false,mailboxMutation:false};const chrome=Application('Google Chrome');function clean(v,n=6000){return String(v||'').replace(/\\u0000/g,'').slice(0,n)}function neo(raw){try{const h=new URL(String(raw)).hostname.toLowerCase();return h==='neo.space'||h.endsWith('.neo.space')}catch{return false}}if(!chrome.running())throw new Error('NEO_BROWSER_NOT_RUNNING');for(const win of chrome.windows()){for(const tab of win.tabs()){const url=String(tab.url()||'');if(!neo(url))continue;result.tabsInspected++;let identities=[];try{identities=JSON.parse(tab.execute({javascript:'JSON.stringify(('+identityObserver+')('+JSON.stringify(requested)+'))'}))}catch(error){continue}for(const identity of identities){if(result.mailboxes[identity]){result.mailboxes[identity]={connected:false,error:'ambiguous mailbox identity across multiple NEO tabs'};continue}let selected;try{selected=JSON.parse(tab.execute({javascript:'JSON.stringify(('+accountActivator+')('+JSON.stringify(identity)+','+JSON.stringify(requested)+'))'}))}catch(error){selected={selected:false,error:clean(error.message||error,500)}}if(!selected.selected||selected.accountRailProof!=='exact_envelope_bound_account_rail'||selected.messageRowsClicked||selected.messageOpened){result.mailboxes[identity]={connected:false,error:selected.error||'safe mailbox account selection failed'};continue}result.accountSelectionPerformed=true;delay(1);let observed;try{observed=JSON.parse(tab.execute({javascript:'JSON.stringify(('+mailboxObserver+')('+JSON.stringify(identity)+','+JSON.stringify(cursors)+','+JSON.stringify(max)+'))'}))}catch(error){observed={messages:[],error:clean(error.message||error,500)}}result.mailboxes[identity]={connected:!observed.error,provider:'neo_browser',readOnly:true,identityProof:selected.accountRailProof,error:observed.error||null,rejected:observed.rejected||[]};for(const message of observed.messages||[])result.messages.push(message)}}}for(const identity of requested)if(!result.mailboxes[identity])result.mailboxes[identity]={connected:false,error:'exact objective-envelope mailbox binding not found in authenticated NEO account rail'};result.messages.sort((a,b)=>a.timestamp.localeCompare(b.timestamp)||a.messageId.localeCompare(b.messageId));result.messages=result.messages.slice(0,max);JSON.stringify(result);`;
+  const identityObserver = neoIdentityObserver.toString(), accountActivator = neoAccountActivator.toString(), mailboxObserver = neoMailboxObserver.toString(), guardedOpener = neoGuardedMessageOpener.toString(), fullBodyObserver = neoFullBodyObserver.toString();
+  return `const requested=${JSON.stringify(requested)};const cursors=${JSON.stringify(cursors || {})};const max=${boundedLimit};const maxBodyBytes=200000;const identityObserver=${JSON.stringify(identityObserver)};const accountActivator=${JSON.stringify(accountActivator)};const mailboxObserver=${JSON.stringify(mailboxObserver)};const guardedOpener=${JSON.stringify(guardedOpener)};const fullBodyObserver=${JSON.stringify(fullBodyObserver)};const result={provider:'neo_browser',mailboxes:{},messages:[],quarantined:[],tabsInspected:0,navigationPerformed:false,accountSelectionPerformed:false,messageOpeningPerformed:false,guardedMessageOpeningPerformed:false,mailboxMutation:false,credentialsTransferred:false,fullBodyGate:true};const chrome=Application('Google Chrome');function clean(v,n=6000){return String(v||'').replace(/\\u0000/g,'').slice(0,n)}function neo(raw){try{const h=new URL(String(raw)).hostname.toLowerCase();return h==='neo.space'||h.endsWith('.neo.space')}catch{return false}}if(!chrome.running())throw new Error('NEO_BROWSER_NOT_RUNNING');for(const win of chrome.windows()){for(const tab of win.tabs()){const url=String(tab.url()||'');if(!neo(url))continue;result.tabsInspected++;let identities=[];try{identities=JSON.parse(tab.execute({javascript:'JSON.stringify(('+identityObserver+')('+JSON.stringify(requested)+'))'}))}catch(error){continue}for(const identity of identities){if(result.mailboxes[identity]){result.mailboxes[identity]={connected:false,error:'ambiguous mailbox identity across multiple NEO tabs'};continue}let selected;try{selected=JSON.parse(tab.execute({javascript:'JSON.stringify(('+accountActivator+')('+JSON.stringify(identity)+','+JSON.stringify(requested)+'))'}))}catch(error){selected={selected:false,error:clean(error.message||error,500)}}if(!selected.selected||selected.accountRailProof!=='exact_envelope_bound_account_rail'||selected.messageRowsClicked||selected.messageOpened){result.mailboxes[identity]={connected:false,error:selected.error||'safe mailbox account selection failed'};continue}result.accountSelectionPerformed=true;delay(1);let observed;try{observed=JSON.parse(tab.execute({javascript:'JSON.stringify(('+mailboxObserver+')('+JSON.stringify(identity)+','+JSON.stringify(cursors)+','+JSON.stringify(max)+'))'}))}catch(error){observed={messages:[],error:clean(error.message||error,500)}}result.mailboxes[identity]={connected:!observed.error,provider:'neo_browser',readOnly:true,identityProof:selected.accountRailProof,fullBodyGate:true,error:observed.error||null,rejected:observed.rejected||[]};for(const metadata of observed.messages||[]){let opened;try{opened=JSON.parse(tab.execute({javascript:'JSON.stringify(('+guardedOpener+')('+JSON.stringify(metadata.messageId)+'))'}))}catch(error){opened={opened:false,error:clean(error.message||error,500)}}if(!opened.opened||!opened.guardInstalled){result.quarantined.push({...metadata,reason:opened.error||'read-state-neutral guarded open failed'});continue}result.guardedMessageOpeningPerformed=true;delay(1);let message;try{message=JSON.parse(tab.execute({javascript:'JSON.stringify(('+fullBodyObserver+')('+JSON.stringify(metadata)+','+maxBodyBytes+'))'}))}catch(error){message={...metadata,bodyComplete:false,readStateNeutral:false,error:clean(error.message||error,500)}}if(!message.bodyComplete||message.bodyTruncated||!message.readStateNeutral||message.mailboxMutation!==false||message.credentialsTransferred!==false){result.quarantined.push({...metadata,reason:message.error||'full body or read-state-neutral proof missing'});continue}result.messages.push(message)}}}}for(const identity of requested)if(!result.mailboxes[identity])result.mailboxes[identity]={connected:false,error:'exact objective-envelope mailbox binding not found in authenticated NEO account rail'};result.messages.sort((a,b)=>a.timestamp.localeCompare(b.timestamp)||a.messageId.localeCompare(b.messageId));result.messages=result.messages.slice(0,max);JSON.stringify(result);`;
 }
 
 export function validateNeoObservation(observed, mailboxes) {
-  if (!observed || observed.provider !== "neo_browser" || observed.navigationPerformed !== false || observed.messageOpeningPerformed !== false || observed.mailboxMutation !== false) throw new Error("NEO_READ_ONLY_PROOF_FAILED");
+  if (!observed || observed.provider !== "neo_browser" || observed.navigationPerformed !== false || observed.messageOpeningPerformed !== false || observed.mailboxMutation !== false || observed.credentialsTransferred !== false || observed.fullBodyGate !== true) throw new Error("NEO_READ_ONLY_PROOF_FAILED");
   for (const mailbox of mailboxes) {
     const connection = observed.mailboxes?.[mailbox];
     if (!connection?.connected || connection.provider !== "neo_browser" || connection.readOnly !== true) throw new Error(`NEO_MAILBOX_IDENTITY_NOT_VERIFIED: ${mailbox}: ${connection?.error || "unknown NEO page state"}`);
   }
+  for (const message of observed.messages || []) if (message.bodyComplete !== true || message.bodyTruncated === true || message.readStateNeutral !== true || message.mailboxMutation !== false || message.credentialsTransferred !== false || message.retrievalMethod !== "guarded_dom_open") throw new Error(`NEO_FULL_BODY_PROOF_FAILED: ${message.messageId || "unknown"}`);
   return observed;
 }
