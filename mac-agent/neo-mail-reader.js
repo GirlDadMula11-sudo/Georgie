@@ -88,11 +88,33 @@ function neoMailboxObserver(mailbox, cursors, max) {
   const selectors = ["[role='row']", "[data-message-id]", "[data-thread-id]", "[data-testid*='message']", "[data-testid*='mail-row']"];
   const rows = [...new Set(selectors.flatMap(selector => [...document.querySelectorAll(selector)]))].filter(visible);
   const messages = [], rejected = [];
+  const stableId = value => { const candidate=text(value,500); return /^[A-Za-z0-9][A-Za-z0-9._~-]{5,499}$/.test(candidate) ? candidate : ""; };
+  const immutableIds = row => {
+    const nodes=[row,...row.querySelectorAll("[data-message-id],[data-mail-id],[data-uid],[data-thread-id],[data-conversation-id],[data-id],a[href]")];
+    const message=[],thread=[];
+    const add=(target,value,source)=>{const id=stableId(value);if(id)target.push({id,source});};
+    for(const node of nodes){
+      add(message,node.getAttribute("data-message-id"),"data-message-id");
+      add(message,node.getAttribute("data-mail-id"),"data-mail-id");
+      add(message,node.getAttribute("data-uid"),"data-uid");
+      add(thread,node.getAttribute("data-thread-id"),"data-thread-id");
+      add(thread,node.getAttribute("data-conversation-id"),"data-conversation-id");
+      if(node===row)add(message,node.getAttribute("data-id")||node.id,"row-provider-id");
+      const rawHref=node.getAttribute("href");
+      if(rawHref){try{const link=new URL(rawHref,location.href);if(link.origin!==location.origin)continue;for(const key of ["messageId","message_id","mailId","mail_id","uid"])add(message,link.searchParams.get(key),"same-origin-link:"+key);for(const key of ["threadId","thread_id","conversationId","conversation_id"])add(thread,link.searchParams.get(key),"same-origin-link:"+key);const match=link.pathname.match(/\/(?:message|mail|thread|conversation)\/([A-Za-z0-9][A-Za-z0-9._~-]{5,499})(?:\/|$)/i);if(match){const target=/thread|conversation/i.test(match[0])?thread:message;add(target,match[1],"same-origin-path");}}catch{}}
+    }
+    const unique=list=>[...new Map(list.map(item=>[item.id,item])).values()];
+    const messages=unique(message),threads=unique(thread);
+    if(messages.length!==1)return {error:messages.length?"ambiguous immutable message id":"missing immutable message id",messageCandidates:messages.length,threadCandidates:threads.length};
+    if(threads.length>1)return {error:"ambiguous immutable thread id",messageCandidates:messages.length,threadCandidates:threads.length};
+    return {messageId:messages[0].id,messageIdSource:messages[0].source,threadId:threads[0]?.id||messages[0].id,threadIdSource:threads[0]?.source||"message-id-fallback"};
+  };
   for (const row of rows) {
     const rowText = text(row.innerText || row.textContent, 6000);
     if (rowText.length < 3) continue;
-    const messageId = text(row.getAttribute("data-message-id") || row.getAttribute("data-id") || row.id, 500);
-    if (!messageId) { rejected.push("missing immutable message id"); continue; }
+    const ids=immutableIds(row);
+    if(ids.error){rejected.push(ids.error);continue}
+    const {messageId,threadId,messageIdSource,threadIdSource}=ids;
     const time = row.querySelector("time");
     const rawTime = time?.getAttribute("datetime") || row.getAttribute("data-received-at") || row.getAttribute("data-date") || time?.textContent || "";
     const parsed = Date.parse(rawTime);
@@ -104,7 +126,7 @@ function neoMailboxObserver(mailbox, cursors, max) {
     const addresses = [...rowText.matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig)].map(match => match[0].toLowerCase());
     const unreadSignals = [row.getAttribute("data-unread"), row.getAttribute("aria-label"), row.className, getComputedStyle(row).fontWeight].map(value => String(value || "").toLowerCase());
     const readState = unreadSignals.some(value => value === "true" || /\bunread\b/.test(value) || Number(value) >= 600) ? "unread" : unreadSignals.some(value => value === "false" || /\bread\b/.test(value)) ? "read" : "unknown";
-    messages.push({ mailbox, messageId, threadId: text(row.getAttribute("data-thread-id") || messageId, 500), timestamp, sender: addresses[0] || "", recipients: [], subject, rowExcerpt: rowText, readStateBefore: readState, sourceUrl: text(location.origin + location.pathname, 1000) });
+    messages.push({ mailbox, messageId, threadId, messageIdSource, threadIdSource, timestamp, sender: addresses[0] || "", recipients: [], subject, rowExcerpt: rowText, readStateBefore: readState, sourceUrl: text(location.origin + location.pathname, 1000) });
     if (messages.length >= max) break;
   }
   messages.sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.messageId.localeCompare(b.messageId));
