@@ -23,11 +23,10 @@ export function terminalPartialResult({startedAt,firstResponseMs=0,reason="turn_
     firstResponseMs:firstResponseMs||latencyMs,
     contextReadyMs:latencyMs,
     completed:false,
-    // terminal describes only this foreground response. The durable objective
-    // remains alive when backgroundContinuation is true.
-    terminal:true,
+    terminal:false,
+    foregroundTerminated:true,
     backgroundContinuation:true,
-    terminalScope:"foreground_response",
+    terminalScope:"foreground_response_only",
     terminalReason:reason,
     failureDetail:String(detail||"").slice(0,300)
   };
