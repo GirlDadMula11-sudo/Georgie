@@ -4,8 +4,8 @@ export function terminalPartialResult({startedAt,firstResponseMs=0,reason="turn_
   const latencyMs=Math.max(0,Date.now()-Number(startedAt||Date.now()));
   const providerTimedOut=reason==="provider_timeout";
   const text=providerTimedOut
-    ? "I accepted and preserved this objective for automatic recovery after the foreground intelligence provider timed out. Unfinished work is not treated as completed, and recovery continues without restating the objective."
-    : "The foreground response window ended before every requested check finished. Accepted work is continuing automatically and late verified results remain eligible for persistence. Unfinished work is not treated as completed.";
+    ? "Still working on this. I’ll continue automatically."
+    : "Still working on this. No action is needed from you.";
   return {
     text,
     responseId:null,
