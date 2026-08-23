@@ -10,7 +10,7 @@ const diagnostic=fs.readFileSync(new URL("../mac-agent/neo-preload-extension/dia
 test("NEO preload is narrowly scoped and runs in the page main world before navigation",()=>{
   assert.equal(manifest.manifest_version,3);
   assert.deepEqual(manifest.host_permissions,["https://app.neo.space/*"]);
-  assert.deepEqual(manifest.permissions,["scripting","webNavigation"]);
+  assert.deepEqual(manifest.permissions,["debugger"]);
   assert.equal(manifest.background.service_worker,"background.js");
   assert.equal(manifest.background.type,undefined);
   assert.equal(manifest.content_scripts.length,1);
@@ -19,20 +19,25 @@ test("NEO preload is narrowly scoped and runs in the page main world before navi
   assert.deepEqual(diagnosticScript.matches,["https://app.neo.space/*"]);
   assert.deepEqual(diagnosticScript.js,["diagnostic.js"]);
   assert.equal(diagnosticScript.run_at,"document_start");
-  assert.match(background,/webNavigation\.onCommitted/);
-  assert.match(background,/executeScript/);
-  assert.match(background,/world: "MAIN"/);
-  assert.match(background,/injectImmediately: true/);
-  assert.match(background,/hostEquals: "app\.neo\.space"/);
+  assert.match(background,/chrome\.debugger\.attach/);
+  assert.match(background,/Runtime\.evaluate/);
+  assert.match(background,/chrome\.debugger\.detach/);
+  assert.match(background,/NEO_DEBUGGER_SESSION_VERIFIED/);
   assert.doesNotMatch(background,/registerContentScripts/);
-  assert.match(source,/preNavigation/);
-  assert.match(source,/performance\.timeOrigin/);
-  assert.match(source,/registered_main_world_document_start/);
   assert.match(background,/GEORGIE_NEO_EXTENSION_DIAGNOSTIC/);
-  assert.match(background,/WEBNAVIGATION_MAIN_INJECTION_FAILED/);
+  assert.match(background,/GEORGIE_NEO_DEBUGGER_VERIFY/);
   assert.match(diagnostic,/georgieNeoExtensionDiagnostic/);
   assert.match(diagnostic,/SERVICE_WORKER_UNREACHABLE/);
   assert.doesNotMatch(diagnostic,/document\\.cookie|authorization|token|request\\.body|message content/i);
+});
+
+test("NEO debugger relay is content-neutral and fail closed",()=>{
+  assert.match(diagnostic,/georgieNeoDebuggerRequest/);
+  assert.match(diagnostic,/georgieNeoDebuggerResult/);
+  assert.match(background,/messageContentAccessed: false/);
+  assert.match(background,/credentialsTransferred: false/);
+  assert.match(background,/mutationPerformed: false/);
+  assert.doesNotMatch(background,/Network\.getAllCookies|Storage\.getCookies|document\.cookie|localStorage|sessionStorage/);
 });
 
 test("NEO preload captures only bounded GET response state and no credentials or request payloads",()=>{
