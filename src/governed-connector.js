@@ -11,6 +11,10 @@ const clean = (value, max = 6000) => String(value || "").trim().slice(0, max);
 const digest = (value) => crypto.createHash("sha256").update(String(value)).digest("hex");
 
 function baseState() { return { schema: SCHEMA, version: 1, commands: [], events: [], receipts: [], updatedAt: null }; }
+export function normalizeConnectorState(value) {
+  const input = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return { ...baseState(), ...input, schema: SCHEMA, version: 1, commands: Array.isArray(input.commands) ? input.commands : [], events: Array.isArray(input.events) ? input.events : [], receipts: Array.isArray(input.receipts) ? input.receipts : [] };
+}
 function commandId(userId, source, key) { return `cmd_${digest(`${userId}:${source}:${key}`).slice(0, 32)}`; }
 function objectiveId(userId, source, supplied, command) { return supplied ? clean(supplied, 160) : `obj_${digest(`${userId}:${source}:${command}`).slice(0, 32)}`; }
 function receiptFor(command, status, payload = {}) {
@@ -42,7 +46,7 @@ export function createGovernedConnector({ executeCommand, emitStatus = async () 
   const writeStore = writeState || ((userId, state) => writeCloudState(String(userId), NS, state));
   const retain = retainObjective || ((userId, input) => upsertOperatingNode(userId, input));
   const transition = transitionObjective || ((userId, id, input) => transitionOperatingNode(userId, id, input));
-  async function read(userId) { return structuredClone(await readStore(userId) || baseState()); }
+  async function read(userId) { return structuredClone(normalizeConnectorState(await readStore(userId))); }
   async function persist(userId, state) { state.updatedAt = now(); await writeStore(userId, state); return state; }
   async function record(userId, command, status, payload = {}) {
     return exclusive(userId, async () => {
