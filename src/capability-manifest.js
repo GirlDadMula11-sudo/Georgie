@@ -1,6 +1,7 @@
 import { cloudStateStatus } from "./cloud-state.js";
 import { listNeoMailboxes, neoMailConfigured } from "./integrations/neo-mail.js";
 import { githubObservabilityConfigured, renderObservabilityConfigured, vercelObservabilityConfigured } from "./integrations/provider-observability.js";
+import { githubSourceConfigured } from "./integrations/github-source.js";
 import { sierraWorkforceConfigured } from "./integrations/sierra-workforce.js";
 import { smartleadConfigured } from "./integrations/smartlead.js";
 import { getMacDeviceStatus } from "./mac/router.js";
@@ -63,6 +64,9 @@ export function getCapabilityManifest() {
       proactiveMaintenance: true,
       governedSelfEvolution: true,
       durableBackgroundOperations: true,
+      sharedEngineeringMission: true,
+      durableAssistantHandoffs: true,
+      backgroundEngineeringCoordinator: true,
       governedTools: true,
       boundedExecution: true
     },
@@ -82,7 +86,7 @@ export function getCapabilityManifest() {
       continuousImprovement: ["capability_gap_detection", "deep_multi_source_research", "historical_context", "trace_review", "held_out_evaluations", "regression_testing", "canary_promotion", "verified_outcome_learning"],
       personalAssistance: ["durable_preferences", "commitment_tracking", "task_coordination", "communication_preparation", "travel_and_purchase_research", "household_planning"],
       operation: ["typed_tool_planning", "approval_gates", "verification", "action_journal", "durable_objective_graph", "unfinished_work_recovery", "ranked_next_actions", "bounded_retries", "kill_switch", "fallback_channels"],
-      technologyDevelopment: ["repository_inspection", "bounded_code_search", "source_reading", "patch_preparation", "hash_bound_approval", "patch_application", "allowlisted_checks"],
+      technologyDevelopment: ["repository_inspection", "bounded_code_search", "source_reading", "patch_preparation", "hash_bound_approval", "patch_application", "allowlisted_checks", "durable_cross_assistant_handoffs", "leased_background_work", "automatic_isolated_branch_commit_policy"],
       economics: { deterministicFirst: true, cachedEvidencePreferred: true, tieredModelRouting: true, frontierOnlyWhenJustified: true }
     },
     investmentIntelligence: investmentCapabilityContract(),
@@ -101,6 +105,7 @@ export function getCapabilityManifest() {
         coverage: sierraWorkforce ? ["portfolio", "deals", "health", "infrastructure", "strategy", "lenders", "offers", "record_level_conflicts", "durable_diagnostics", "deal_evidence_graph", "bounded_repairs"] : [],
         liveHealth: "verify_with_sierra.health_and_sierra.infrastructure"
       },
+      githubSource: { state: configured(githubSourceConfigured()), callableInChat: githubSourceConfigured(), access: githubSourceConfigured() ? "authenticated_allowlisted_server_side" : "none", operations: ["repository.list","repository.get","branch.list","branch.get","file.read","source.search","handoff_issue.list","branch.create","commit.create","pull_request.create"], noMacFallback: true, noPublicWebFallback: true },
       deploymentObservability: {
         github: configured(github),
         vercel: configured(vercel),
@@ -125,7 +130,7 @@ export function getCapabilityManifest() {
           arbitraryShellAllowed: false,
           secretFilesReadable: false,
           patchExecution: "exact_hash_approval_gated",
-          commitPushDeploy: "not_enabled_in_this_release"
+          commitPushDeploy: "verified_low_risk_repairs_may_commit_to_isolated_branches; merge_and_deploy_remain_governed"
         }
       },
       notifications: configured(process.env.GEORGIE_NOTIFICATIONS_ENABLED === "true"),
