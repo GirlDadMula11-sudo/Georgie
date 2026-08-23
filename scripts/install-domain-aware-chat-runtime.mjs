@@ -31,13 +31,24 @@ const appChanged = patch("public/app.js", [
 ]);
 
 const investmentDirect = [
-  'export function investmentDirectResponse(input = "") {',
+  'export function investmentDirectResponse(input = "", history = []) {',
   '  if (!isInvestmentIntent(input)) return null;',
   '  const text = String(input || "").toLowerCase();',
+  '  const recent = Array.isArray(history) ? history.slice(-8).map(item=>String(item?.content||"")).join(" ").toLowerCase() : "";',
+  '  const combined = text + " " + recent;',
+  '  const asksDayTrading = /\\bday\\s*trad(?:e|ing)\\b/.test(text);',
   '  const asksToManage = /\\b(?:can|could|would|will)\\s+you\\s+(?:manage|handle|invest|trade|build|run)\\b/.test(text) || /\\bmanage\\s+my\\s+(?:stocks?|portfolio|investments?)\\b/.test(text);',
-  '  if (!asksToManage) return null;',
-  '  const match = text.match(/\\$\\s?(\\d+(?:,\\d{3})*(?:\\.\\d{1,2})?)/);',
+  '  if (!asksToManage && !asksDayTrading) return null;',
+  '  const match = combined.match(/\\$\\s?(\\d+(?:,\\d{3})*(?:\\.\\d{1,2})?)/);',
   '  const budget = match?.[1]?.replace(/,/g, "") || null;',
+  '  if (asksDayTrading) {',
+  '    const accountText = budget ? "With a $" + budget + " account, " : "With a small account, ";',
+  '    return {',
+  '      text: "Day trading is something I can help you analyze and manage as a disciplined strategy, but " + accountText + "I would treat it as a tightly controlled experiment rather than the core plan. I can screen liquid setups, define entries, exits, stop levels, position size, maximum daily loss, and keep a trade journal, then tell you when the setup no longer has an edge. I will not place real trades on my own; each live order still needs your specific approval. The biggest risks at this size are overtrading, spreads/fees, concentration, and trying to force daily profits. If you want, I can build a $" + (budget || "200") + " day-trading ruleset and a separate longer-term allocation so the two do not contaminate each other.",',
+  '      responseId:null, webSearches:0, model:"deterministic-investment-capability", completed:true, terminalState:"verified",',
+  '      route:{domain:"investment",tier:"fast",reasoningEffort:"low",latencyClass:"instant"}',
+  '    };',
+  '  }',
   '  const budgetText = budget ? "With $" + budget + ", I can build a disciplined starter plan around position sizing, diversification, downside limits, fees, and what each position is supposed to accomplish. " : "I can build and manage the research, allocation plan, risk rules, watchlist, and decision process. ";',
   '  return {',
   '    text: "Yes — I can manage the intelligence and decision process around your stocks at a very high level. " + budgetText + "I can research current opportunities, compare bull/base/bear cases, track the portfolio, tell you when the thesis changes, and prepare exact trades for your approval. I will not place real trades or move money on my own; each real transaction still needs your specific approval. For a small account, I’d focus on avoiding overtrading and concentration before chasing returns. If you want, give me your time horizon and how much of that money you could tolerate losing, and I’ll build the first allocation.",',
@@ -55,7 +66,8 @@ const investmentChanged = patch("src/investment-intelligence.js", [
 
 const v2Changed = patch("src/v2-turn-engine.js", [
   ['import { humanizeResponse } from "./human-response.js";', 'import { humanizeResponse } from "./human-response.js";\nimport { investmentDirectResponse } from "./investment-intelligence.js";', "investment direct import"],
-  ['direct=verifiedDirectResponse(input,toolResults)||sierraWorkflowDirectResponse(input,toolResults);', 'direct=verifiedDirectResponse(input,toolResults)||sierraWorkflowDirectResponse(input,toolResults)||investmentDirectResponse(input);', "investment direct routing"]
+  ['export async function completeTurnV2({userId,sessionId,input,history=[],onProgress,shouldFinalize=()=>true}){const startedAt=Date.now();let firstResponseMs=0;', 'export async function completeTurnV2({userId,sessionId,input,history=[],onProgress,shouldFinalize=()=>true}){const startedAt=Date.now();let firstResponseMs=0;const quickInvestment=investmentDirectResponse(input,history);if(quickInvestment){const latencyMs=Date.now()-startedAt;setImmediate(()=>Promise.all([appendSessionTurn({userId,sessionId,role:"user",content:input}),appendSessionTurn({userId,sessionId,role:"assistant",content:quickInvestment.text})]).catch(()=>{}));return{...quickInvestment,latencyMs,firstResponseMs:latencyMs,contextReadyMs:latencyMs,actions:[],evidence:[],evidenceFreshness:"not_required",confidence:"policy_backed"};}', "early investment routing"],
+  ['direct=verifiedDirectResponse(input,toolResults)||sierraWorkflowDirectResponse(input,toolResults);', 'direct=verifiedDirectResponse(input,toolResults)||sierraWorkflowDirectResponse(input,toolResults)||investmentDirectResponse(input,persistedHistory);', "investment direct routing"]
 ]);
 
 console.log(`[Georgie] Domain-aware chat runtime installed: mobile=${mobileChanged} app=${appChanged} investment=${investmentChanged} engine=${v2Changed}`);
