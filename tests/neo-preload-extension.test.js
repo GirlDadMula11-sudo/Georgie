@@ -38,3 +38,16 @@ test("NEO adapter refuses certification without a completed pre-navigation captu
   assert.match(script,/neo-preload-api:/);
   assert.match(script,/connection\.apiProbe\?\.status !== "completed"/);
 });
+
+
+test("NEO preload health enumerates exact NEO tabs and reports named fail-closed checks",()=>{
+  const agent=fs.readFileSync(new URL("../mac-agent/agent.js",import.meta.url),"utf8");
+  assert.match(agent,/repeat with browserWindow in windows/);
+  assert.match(agent,/repeat with browserTab in tabs of browserWindow/);
+  assert.match(agent,/https:\/\/app\.neo\.space/);
+  assert.match(agent,/NEO_TAB_NOT_FOUND/);
+  assert.match(agent,/NEO_PRELOAD_NOT_LOADED/);
+  assert.match(agent,/NEO_PRE_NAVIGATION_NOT_PROVEN/);
+  assert.match(agent,/NEO_ACCOUNT_BINDING_NOT_PROVEN/);
+  assert.doesNotMatch(agent,/execute active tab of front window javascript/);
+});
