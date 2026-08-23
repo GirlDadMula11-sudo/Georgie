@@ -95,6 +95,13 @@ test("runtime-state identifier repair reopens only after immutable-ID repair and
   assert.equal(versionRecoverableMailboxJob({...afterImmutable,result:{...result,connection:{a:{connected:true,provider:"neo_browser",readOnly:true,rejected:[]}}}}),null);
 });
 
+test("network-cache reader repair follows runtime-state lineage once",()=>{
+ const result={mailboxEvidenceBatch:{packets:[],cursor:{}},connection:{a:{connected:true,provider:"neo_browser",readOnly:true,rejected:["missing immutable message id"]},b:{connected:true,provider:"neo_browser",readOnly:true,rejected:["missing immutable message id"]}}};
+ const job={status:"completed",result,resumeHistory:[{reason:"neo_immutable_id_reader_repaired"},{reason:"neo_runtime_state_reader_repaired"}]};
+ assert.equal(versionRecoverableMailboxJob(job),"neo_network_cache_reader_repaired");
+ assert.equal(versionRecoverableMailboxJob({...job,resumeHistory:[...job.resumeHistory,{reason:"neo_network_cache_reader_repaired"}]}),null);
+});
+
 test("temporary Mac delivery failures retry and missing receipts raise a durable alert",async()=>{
   const nonce=`${Date.now()}-${Math.random().toString(16).slice(2)}`,userId=`test-${nonce}`,deviceId=`retry-mac-${nonce}`;
   const key=`approval:retry:${nonce}`,job=await enqueueMacJob({userId,deviceId,action:"system.info",idempotencyKey:key,approvalId:"approval-2",planId:"plan-2"});
