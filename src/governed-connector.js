@@ -114,7 +114,7 @@ async function executeTypedCapability({ userId, command }) {
     if (!job) throw new Error(`MAC_JOB_NOT_FOUND: ${existingJobId}`);
     if (job.deviceId !== route.target_device || job.action !== "mailbox.read_only_backfill" || job.risk !== "read" || job.args?.authority !== "read_only") throw new Error("MAC_JOB_RESUME_SCOPE_REJECTED");
     if (String(job.args?.objectiveId || "") !== route.objective_id) throw new Error("MAC_JOB_OBJECTIVE_MISMATCH");
-    if (["failed", "dead_letter", "completed"].includes(job.status)) job = await resumeFailedMacJob(route.target_device, existingJobId, { objectiveId: route.objective_id, expectedAction: "mailbox.read_only_backfill" });
+    if (["failed", "dead_letter", "completed"].includes(job.status)) job = await resumeFailedMacJob(route.target_device, existingJobId, { objectiveId: route.objective_id, expectedAction: "mailbox.read_only_backfill", verifiedAgentVersion: clean(command.metadata?.verified_agent_version, 50) || null });
   } else {
     job = await enqueueMacJob({
       userId,
