@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { getBranch, getRepository, readFile, createBranch, githubSourceConfigured, listHandoffIssues } from "../src/integrations/github-source.js";
+import { getBranch, getRepository, readFile, createBranch, githubSourceConfigured, listHandoffIssues, commentHandoffIssue } from "../src/integrations/github-source.js";
 
 function withFetch(mock, fn) {
   const original = globalThis.fetch;
@@ -111,6 +111,25 @@ test("assistant handoff inbox imports only labeled issues and excludes pull requ
       assert.equal(result.ok, true);
       assert.equal(result.issues.length, 1);
       assert.equal(result.issues[0].number, 7);
+    });
+  } finally { if (old === undefined) delete process.env.GEORGIE_GITHUB_TOKEN; else process.env.GEORGIE_GITHUB_TOKEN = old; }
+});
+
+test("Georgie can return a bounded durable receipt to the same handoff issue", async () => {
+  const old = process.env.GEORGIE_GITHUB_TOKEN;
+  process.env.GEORGIE_GITHUB_TOKEN = "test-token";
+  try {
+    let posted=null;
+    await withFetch(async (url,options)=>{
+      assert.match(String(url),/\/issues\/7\/comments$/);
+      assert.equal(options.method,"POST");
+      posted=JSON.parse(options.body);
+      return jsonResponse(201,{id:99,html_url:"https://github.test/issues/7#comment-99"});
+    },async()=>{
+      const result=await commentHandoffIssue("GirlDadMula11-sudo/Georgie",7,{body:"Verified queue recovery.",receiptKey:"handoff-1:completed"});
+      assert.equal(result.ok,true);
+      assert.match(posted.body,/Verified queue recovery/);
+      assert.match(posted.body,/georgie-receipt:handoff-1:completed/);
     });
   } finally { if (old === undefined) delete process.env.GEORGIE_GITHUB_TOKEN; else process.env.GEORGIE_GITHUB_TOKEN = old; }
 });
