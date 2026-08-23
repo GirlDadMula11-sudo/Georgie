@@ -1,7 +1,7 @@
 import "dotenv/config";
 import os from "os";
 import path from "path";
-import { execFile } from "child_process";
+import { execFile, spawn } from "child_process";
 import { promisify } from "util";
 import fs from "fs/promises";
 import crypto from "crypto";
@@ -10,7 +10,7 @@ import { buildNeoObservationScript, validateNeoObservation, buildNeoStaticContra
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.24";
+const AGENT_VERSION = "2.2.25";
 const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;
 const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));
 const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));
@@ -325,8 +325,12 @@ async function execute(job) {
       await runDeveloper("git", ["-C", repo, "fetch", "origin", "main"], { timeout: 120000 });
       await runDeveloper("git", ["-C", repo, "merge", "--ff-only", "origin/main"], { timeout: 120000 });
       const after = await runDeveloper("git", ["-C", repo, "rev-parse", "HEAD"]);
-      const install = await runDeveloper("/bin/bash", [path.join(repo, "mac-agent/install.sh")], { cwd: repo, timeout: 120000 });
-      return { repo, before: before.stdout.trim(), after: after.stdout.trim(), fastForwardOnly: true, install, restartRequested: true };
+      const installer = path.join(repo, "mac-agent/install.sh");
+      setTimeout(() => {
+        const child = spawn("/bin/bash", [installer], { cwd: repo, detached: true, stdio: "ignore", env: process.env });
+        child.unref();
+      }, 3000);
+      return { repo, before: before.stdout.trim(), after: after.stdout.trim(), fastForwardOnly: true, restartScheduled: true, restartDelayMs: 3000 };
     }
     case "developer.install_neo_preload": {
       const repo = assertDeveloperRoot(a.repo);
@@ -358,7 +362,7 @@ async function execute(job) {
       if (health.origin !== "https://app.neo.space") failures.push("NEO_ORIGIN_NOT_PROVEN");
       if (!health.loaded) failures.push("NEO_PRELOAD_NOT_LOADED");
       if (!health.preNavigation) failures.push("NEO_PRE_NAVIGATION_NOT_PROVEN");
-      if (health.extensionDiagnostic?.ok === false) failures.push(`NEO_EXTENSION_REGISTRATION_ERROR:${health.extensionDiagnostic.code||"UNKNOWN"}:${String(health.extensionDiagnostic.message||"no_detail").replace(/[\\r\\n,]/g," ").slice(0,240)}`);
+      if (health.extensionDiagnostic?.ok === false) failures.push(`NEO_EXTENSION_REGISTRATION_ERROR:${health.extensionDiagnostic.code||"UNKNOWN"}:${String(health.extensionDiagnostic.message||"no_detail").replace(/[\r\n,]/g," ").slice(0,240)}`);
       if (!health.extensionDiagnostic) failures.push("NEO_EXTENSION_DIAGNOSTIC_NOT_PRESENT");
       if (health.mutationObserved) failures.push("NEO_MUTATION_OBSERVED");
       for (const mailbox of requested) if (!bound.has(mailbox)) failures.push(`NEO_ACCOUNT_BINDING_NOT_PROVEN:${mailbox}`);

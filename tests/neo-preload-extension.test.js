@@ -12,6 +12,7 @@ test("NEO preload is narrowly scoped and runs in the page main world before navi
   assert.deepEqual(manifest.host_permissions,["https://app.neo.space/*"]);
   assert.deepEqual(manifest.permissions,["scripting"]);
   assert.equal(manifest.background.service_worker,"background.js");
+  assert.equal(manifest.background.type,undefined);
   assert.equal(manifest.content_scripts[0].world,"ISOLATED");
   assert.equal(manifest.content_scripts[0].run_at,"document_start");
   assert.match(background,/registerContentScripts/);
@@ -73,4 +74,12 @@ test("NEO preload installer reopens only the scoped NEO mail page",()=>{
   assert.match(agent,/--load-extension=/);
   assert.match(agent,/https:\/\/app\.neo\.space\/mail\//);
   assert.doesNotMatch(agent,/gmail\.com|mail\.apple\.com/);
+});
+
+test("Mac self-update schedules restart only after returning a completion receipt",()=>{
+  const agent=fs.readFileSync(new URL("../mac-agent/agent.js",import.meta.url),"utf8");
+  assert.match(agent,/setTimeout\(\(\) =>/);
+  assert.match(agent,/spawn\("\/bin\/bash"/);
+  assert.match(agent,/restartScheduled: true/);
+  assert.doesNotMatch(agent,/const install = await runDeveloper\("\/bin\/bash"/);
 });
