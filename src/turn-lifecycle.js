@@ -4,7 +4,7 @@ export function terminalPartialResult({startedAt,firstResponseMs=0,reason="turn_
   const latencyMs=Math.max(0,Date.now()-Number(startedAt||Date.now()));
   const providerTimedOut=reason==="provider_timeout";
   const text=providerTimedOut
-    ? "Still working on this. I’ll continue automatically from the work already retained."
+    ? "Still working on this. I’ll continue automatically."
     : "Still working on this. No action is needed from you.";
   return {
     text,
