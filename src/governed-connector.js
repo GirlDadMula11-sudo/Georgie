@@ -2,7 +2,8 @@ import crypto from "node:crypto";
 import express from "express";
 import { readCloudState, writeCloudState } from "./cloud-state.js";
 import { upsertOperatingNode, transitionOperatingNode } from "./operating-graph.js";
-import { enqueueMacJob } from "./mac/queue.js";
+import { enqueueMacJob, listMacJobs, resumeFailedMacJob } from "./mac/queue.js";
+import { listMailboxPacketManifests } from "./mailbox-evidence-bridge.js";
 
 const NS = "governed_external_connector";
 const SCHEMA = "georgie.governed-connector.v1";
@@ -15,7 +16,13 @@ const CAPABILITIES = Object.freeze({
     targetDevice: "primary-mac",
     authority: "read_only",
     operations: new Set(["connection_verify_and_backfill"]),
-    prohibitedRoutes: new Set(["cm-100", "sierra.diagnostic_investigation", "sierra.continue_diagnostic_investigation"])
+    prohibitedRoutes: new Set(["cm-100", "stale_continuation", "gmail", "apple_mail", "sierra.diagnostic_investigation", "sierra.continue_diagnostic_investigation"])
+  }),
+  "neo_mailbox_evidence_bridge": Object.freeze({
+    targetDevice: "primary-mac",
+    authority: "read_only",
+    operations: new Set(["connection_verify_and_backfill"]),
+    prohibitedRoutes: new Set(["cm-100", "stale_continuation", "gmail", "apple_mail", "sierra.diagnostic_investigation", "sierra.continue_diagnostic_investigation"])
   })
 });
 
@@ -47,12 +54,13 @@ export function validateCommandEnvelope(input = {}) {
   if (!command) throw new Error("A command is required");
   if (kind === "approval" && (!clean(input.planId, 160) || !clean(input.approvalId, 160))) throw new Error("Approval forwarding requires both planId and approvalId");
   const metadata = input.metadata && typeof input.metadata === "object" ? input.metadata : {};
-  const objectiveIdValue = clean(input.objective_id || input.objectiveId, 160) || null;
-  const capability = clean(input.capability || metadata.capability || metadata.requiredCapability, 160).toLowerCase();
-  const targetDevice = clean(input.target_device || input.targetDevice || metadata.target_device || metadata.targetDevice || metadata.deviceId, 160);
-  const operation = clean(input.operation || metadata.operation, 160).toLowerCase();
-  const authority = clean(input.authority || metadata.authority || metadata.mode, 80).toLowerCase();
-  const prohibitedRoutes = [...new Set((input.prohibited_routes || metadata.prohibited_routes || metadata.prohibitedRoutes || []).map((value) => clean(value, 160).toLowerCase()).filter(Boolean))];
+  const nested = metadata.command_envelope && typeof metadata.command_envelope === "object" ? metadata.command_envelope : {};
+  const objectiveIdValue = clean(input.objective_id || input.objectiveId || nested.objective_id || nested.objectiveId, 160) || null;
+  const capability = clean(input.capability || metadata.capability || metadata.requiredCapability || nested.capability, 160).toLowerCase();
+  const targetDevice = clean(input.target_device || input.targetDevice || metadata.target_device || metadata.targetDevice || metadata.deviceId || nested.target_device || nested.targetDevice, 160);
+  const operation = clean(input.operation || metadata.operation || nested.operation, 160).toLowerCase();
+  const authority = clean(input.authority || metadata.authority || metadata.mode || nested.authority, 80).toLowerCase();
+  const prohibitedRoutes = [...new Set((input.prohibited_routes || metadata.prohibited_routes || metadata.prohibitedRoutes || nested.prohibited_routes || nested.prohibitedRoutes || []).map((value) => clean(value, 160).toLowerCase()).filter(Boolean))];
   const typed = Boolean(capability || targetDevice || operation || authority || prohibitedRoutes.length);
   if (typed && !objectiveIdValue) throw new Error("Typed command envelope requires objective_id");
   if (typed && (!capability || !targetDevice || !operation || !authority)) throw new Error("Typed command envelope requires capability, target_device, operation, and authority");
@@ -69,16 +77,26 @@ export function validateCommandEnvelope(input = {}) {
 
 async function executeTypedCapability({ userId, command }) {
   const route = command.routing;
-  if (route.capability !== "primary_mac.mailbox.read_only") throw new Error(`UNSUPPORTED_CAPABILITY: ${route.capability}`);
-  const job = await enqueueMacJob({
-    userId,
-    deviceId: route.target_device,
-    action: "mailbox.read_only_backfill",
-    args: { objectiveId: route.objective_id, operation: route.operation, authority: route.authority, checkpoint: command.metadata?.checkpoint || "connection_verification", mailboxes: command.metadata?.mailboxes || [], batchLimit: Math.min(25, Math.max(1, Number(command.metadata?.batchLimit || 25))) },
-    risk: "read",
-    reason: "Typed governed mailbox backfill",
-    idempotencyKey: `connector:${command.id}:${route.operation}`
-  });
+  if (!["primary_mac.mailbox.read_only", "neo_mailbox_evidence_bridge"].includes(route.capability)) throw new Error(`UNSUPPORTED_CAPABILITY: ${route.capability}`);
+  const existingJobId = clean(command.metadata?.existing_job_id || command.metadata?.existingJobId, 200);
+  let job;
+  if (existingJobId) {
+    job = (await listMacJobs(userId, 500)).find((item) => item.id === existingJobId);
+    if (!job) throw new Error(`MAC_JOB_NOT_FOUND: ${existingJobId}`);
+    if (job.deviceId !== route.target_device || job.action !== "mailbox.read_only_backfill" || job.risk !== "read" || job.args?.authority !== "read_only") throw new Error("MAC_JOB_RESUME_SCOPE_REJECTED");
+    if (String(job.args?.objectiveId || "") !== route.objective_id) throw new Error("MAC_JOB_OBJECTIVE_MISMATCH");
+    if (["failed", "dead_letter", "completed"].includes(job.status)) job = await resumeFailedMacJob(route.target_device, existingJobId, { objectiveId: route.objective_id, expectedAction: "mailbox.read_only_backfill" });
+  } else {
+    job = await enqueueMacJob({
+      userId,
+      deviceId: route.target_device,
+      action: "mailbox.read_only_backfill",
+      args: { objectiveId: route.objective_id, operation: route.operation, authority: route.authority, checkpoint: command.metadata?.checkpoint || "connection_verification", mailboxes: command.metadata?.mailboxes || [], batchLimit: Math.min(25, Math.max(1, Number(command.metadata?.batchLimit || 25))) },
+      risk: "read",
+      reason: "Typed governed mailbox backfill",
+      idempotencyKey: `connector:${command.id}:${route.operation}`
+    });
+  }
   return { terminalState: "in_progress", completed: false, route, job: { id: job.id, status: job.status, deviceId: route.target_device, claimedByDeviceId: job.dispatchReceipt?.deviceId || null, action: job.action, authority: route.authority, dispatchReceipt: job.dispatchReceipt } };
 }
 
@@ -93,7 +111,7 @@ export function createGovernedConnector({ executeCommand, emitStatus = async () 
   async function record(userId, command, status, payload = {}) {
     return exclusive(userId, async () => {
       const state = await read(userId); const item = state.commands.find((row) => row.id === command.id);
-      if (item) { item.status = status; item.updatedAt = now(); if (status === "completed") item.completedAt = item.updatedAt; if (status === "failed") item.error = clean(payload.error, 1000); }
+      if (item) { item.status = status; item.updatedAt = now(); if (status === "completed") item.completedAt = item.updatedAt; if (status === "failed") item.error = clean(payload.error, 1000); if (payload.resultSummary) item.result = payload.resultSummary; }
       const event = { id: crypto.randomUUID(), commandId: command.id, objectiveId: command.objectiveId, status, createdAt: now() };
       const receipt = receiptFor(command, status, payload);
       state.events.push(event); state.receipts.push(receipt); await persist(userId, state);
@@ -108,7 +126,8 @@ export function createGovernedConnector({ executeCommand, emitStatus = async () 
       const result = command.routing
         ? await executeTypedCapability({ userId, command })
         : await executeCommand({ userId, sessionId: `connector:${command.source}:objective:${command.objectiveId}`, input: command.command, connector: { commandId: command.id, objectiveId: command.objectiveId, planId: command.planId, approvalId: command.approvalId } });
-      const evidence = { responseHash: digest(JSON.stringify(result || {})), terminalState: clean(result?.outcome?.terminalState || result?.terminalState || "completed", 80) };
+      const resultSummary = command.routing ? { terminalState: result?.terminalState || null, completed: result?.completed === true, route: result?.route || null, job: result?.job || null } : null;
+      const evidence = { responseHash: digest(JSON.stringify(result || {})), terminalState: clean(result?.outcome?.terminalState || result?.terminalState || "completed", 80), ...(resultSummary ? { resultSummary } : {}) };
       const receipt = await record(userId, command, "completed", evidence);
       await transition(userId, command.operatingNodeId, result?.terminalState === "in_progress" ? { status: "active", nextAction: "Resume the same objective and Mac job checkpoint." } : { status: "verified", verification: `Connector completion receipt ${receipt.receiptId}` }).catch(() => {});
       return { commandId: command.id, objectiveId: command.objectiveId, status: "completed", result, receipt };
@@ -128,10 +147,20 @@ export function createGovernedConnector({ executeCommand, emitStatus = async () 
       command = { id, objectiveId: objective, operatingNodeId: node.id, ...envelope, status: "accepted", attempts: 0, createdAt: now(), updatedAt: now() };
       state.commands.push(command); state.events.push({ id: crypto.randomUUID(), commandId: id, objectiveId: objective, status: "accepted", createdAt: now() }); state.receipts.push(receiptFor(command, "accepted")); await persist(userId, state);
     });
-    if (duplicate) return { commandId: command.id, objectiveId: command.objectiveId, status: command.status, duplicate: true };
+    if (duplicate) return { commandId: command.id, objectiveId: command.objectiveId, status: command.status, duplicate: true, result: command.result || null };
     return run(userId, command);
   }
-  async function status(userId = "primary", id) { const state = await read(userId); const command = state.commands.find((row) => row.id === id); return command ? { ...command, events: state.events.filter((row) => row.commandId === id), receipts: state.receipts.filter((row) => row.commandId === id) } : null; }
+  async function status(userId = "primary", id) {
+    const state = await read(userId); const command = state.commands.find((row) => row.id === id); if (!command) return null;
+    const response = { ...command, events: state.events.filter((row) => row.commandId === id), receipts: state.receipts.filter((row) => row.commandId === id) };
+    const jobId = clean(command.result?.job?.id || command.metadata?.existing_job_id || command.metadata?.existingJobId, 200);
+    if (jobId && command.objectiveId) {
+      const job = (await listMacJobs(userId, 500)).find((item) => item.id === jobId && String(item.args?.objectiveId || "") === command.objectiveId);
+      if (job) response.macJob = { id: job.id, status: job.status, action: job.action, deviceId: job.deviceId, authority: job.args?.authority || null, checkpoint: job.args?.checkpoint || null, attempts: job.attempts, claimedAt: job.claimedAt, completedAt: job.completedAt, error: job.error, dispatchReceipt: job.dispatchReceipt, cursor: job.result?.mailboxEvidenceBatch?.cursor || {}, packetCount: job.result?.mailboxEvidenceBatch?.packets?.length || 0, quarantineCount: job.result?.quarantine?.length || job.result?.mailboxEvidenceBatch?.quarantine?.length || 0, connections: job.result?.connection || null };
+      response.packetManifests = await listMailboxPacketManifests(userId, { objectiveId: command.objectiveId, limit: 25 });
+    }
+    return response;
+  }
   async function resume(userId = "primary") { const state = await read(userId); const pending = state.commands.filter((row) => ["accepted", "running", "failed"].includes(row.status)); const results = []; for (const command of pending) results.push(await run(userId, command)); return results; }
   return { submit, status, resume };
 }
