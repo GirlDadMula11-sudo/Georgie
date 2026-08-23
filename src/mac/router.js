@@ -1,6 +1,7 @@
 import express from "express";
 import crypto from "crypto";
 import { checkpointMacJob, claimMacJobs, completeMacJob, enqueueMacJob, listMacJobs, reconcileMacDispatches } from "./queue.js";
+import { acceptMailboxEvidenceBatch } from "../mailbox-evidence-bridge.js";
 
 const heartbeats = new Map();
 
@@ -53,6 +54,7 @@ export function createMacRouter() {
 
   router.post("/:deviceId/jobs/:jobId/complete", async (req, res) => {
     try {
+      if (req.body?.result?.mailboxEvidenceBatch) await acceptMailboxEvidenceBatch(req.body?.result?.userId || process.env.GEORGIE_PRIMARY_USER_ID || "primary", req.body.result.mailboxEvidenceBatch);
       const job = await completeMacJob(String(req.params.deviceId), String(req.params.jobId), {
         result: req.body?.result ?? null,
         error: req.body?.error ?? null

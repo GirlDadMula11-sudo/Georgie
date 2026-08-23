@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import express from "express";
 import { readCloudState, writeCloudState } from "./cloud-state.js";
 import { upsertOperatingNode, transitionOperatingNode } from "./operating-graph.js";
+import { enqueueMacJob } from "./mac/queue.js";
 
 const NS = "governed_external_connector";
 const SCHEMA = "georgie.governed-connector.v1";
@@ -9,6 +10,14 @@ const locks = new Map();
 const now = () => new Date().toISOString();
 const clean = (value, max = 6000) => String(value || "").trim().slice(0, max);
 const digest = (value) => crypto.createHash("sha256").update(String(value)).digest("hex");
+const CAPABILITIES = Object.freeze({
+  "primary_mac.mailbox.read_only": Object.freeze({
+    targetDevice: "primary-mac",
+    authority: "read_only",
+    operations: new Set(["connection_verify_and_backfill"]),
+    prohibitedRoutes: new Set(["cm-100", "sierra.diagnostic_investigation", "sierra.continue_diagnostic_investigation"])
+  })
+});
 
 function baseState() { return { schema: SCHEMA, version: 1, commands: [], events: [], receipts: [], updatedAt: null }; }
 export function normalizeConnectorState(value) {
@@ -37,7 +46,40 @@ export function validateCommandEnvelope(input = {}) {
   if (!idempotencyKey) throw new Error("An idempotency key is required");
   if (!command) throw new Error("A command is required");
   if (kind === "approval" && (!clean(input.planId, 160) || !clean(input.approvalId, 160))) throw new Error("Approval forwarding requires both planId and approvalId");
-  return { source, idempotencyKey, command, kind, objectiveId: clean(input.objectiveId, 160) || null, planId: clean(input.planId, 160) || null, approvalId: clean(input.approvalId, 160) || null, metadata: input.metadata && typeof input.metadata === "object" ? input.metadata : {} };
+  const metadata = input.metadata && typeof input.metadata === "object" ? input.metadata : {};
+  const objectiveIdValue = clean(input.objective_id || input.objectiveId, 160) || null;
+  const capability = clean(input.capability || metadata.capability || metadata.requiredCapability, 160).toLowerCase();
+  const targetDevice = clean(input.target_device || input.targetDevice || metadata.target_device || metadata.targetDevice || metadata.deviceId, 160);
+  const operation = clean(input.operation || metadata.operation, 160).toLowerCase();
+  const authority = clean(input.authority || metadata.authority || metadata.mode, 80).toLowerCase();
+  const prohibitedRoutes = [...new Set((input.prohibited_routes || metadata.prohibited_routes || metadata.prohibitedRoutes || []).map((value) => clean(value, 160).toLowerCase()).filter(Boolean))];
+  const typed = Boolean(capability || targetDevice || operation || authority || prohibitedRoutes.length);
+  if (typed && !objectiveIdValue) throw new Error("Typed command envelope requires objective_id");
+  if (typed && (!capability || !targetDevice || !operation || !authority)) throw new Error("Typed command envelope requires capability, target_device, operation, and authority");
+  if (typed) {
+    const contract = CAPABILITIES[capability];
+    if (!contract) throw new Error(`UNSUPPORTED_CAPABILITY: ${capability}`);
+    if (targetDevice !== contract.targetDevice) throw new Error(`CAPABILITY_TARGET_MISMATCH: ${capability} requires ${contract.targetDevice}`);
+    if (authority !== contract.authority) throw new Error(`CAPABILITY_AUTHORITY_MISMATCH: ${capability} requires ${contract.authority}`);
+    if (!contract.operations.has(operation)) throw new Error(`UNSUPPORTED_OPERATION: ${capability}/${operation}`);
+    for (const route of prohibitedRoutes) if (!contract.prohibitedRoutes.has(route)) throw new Error(`UNKNOWN_PROHIBITED_ROUTE: ${route}`);
+  }
+  return { source, idempotencyKey, command, kind, objectiveId: objectiveIdValue, planId: clean(input.planId, 160) || null, approvalId: clean(input.approvalId, 160) || null, metadata, routing: typed ? { objective_id: objectiveIdValue, capability, target_device: targetDevice, operation, authority, idempotency_key: idempotencyKey, prohibited_routes: prohibitedRoutes } : null };
+}
+
+async function executeTypedCapability({ userId, command }) {
+  const route = command.routing;
+  if (route.capability !== "primary_mac.mailbox.read_only") throw new Error(`UNSUPPORTED_CAPABILITY: ${route.capability}`);
+  const job = await enqueueMacJob({
+    userId,
+    deviceId: route.target_device,
+    action: "mailbox.read_only_backfill",
+    args: { objectiveId: route.objective_id, operation: route.operation, authority: route.authority, checkpoint: command.metadata?.checkpoint || "connection_verification", mailboxes: command.metadata?.mailboxes || [], batchLimit: Math.min(25, Math.max(1, Number(command.metadata?.batchLimit || 25))) },
+    risk: "read",
+    reason: "Typed governed mailbox backfill",
+    idempotencyKey: `connector:${command.id}:${route.operation}`
+  });
+  return { terminalState: "in_progress", completed: false, route, job: { id: job.id, status: job.status, deviceId: route.target_device, claimedByDeviceId: job.dispatchReceipt?.deviceId || null, action: job.action, authority: route.authority, dispatchReceipt: job.dispatchReceipt } };
 }
 
 export function createGovernedConnector({ executeCommand, emitStatus = async () => {}, readState, writeState, retainObjective, transitionObjective } = {}) {
@@ -63,10 +105,12 @@ export function createGovernedConnector({ executeCommand, emitStatus = async () 
     await record(userId, command, "running");
     await transition(userId, command.operatingNodeId, { status: "active", attempted: true, nextAction: "Execute, verify, and return durable evidence." }).catch(() => {});
     try {
-      const result = await executeCommand({ userId, sessionId: `connector:${command.source}`, input: command.command, connector: { commandId: command.id, objectiveId: command.objectiveId, planId: command.planId, approvalId: command.approvalId } });
+      const result = command.routing
+        ? await executeTypedCapability({ userId, command })
+        : await executeCommand({ userId, sessionId: `connector:${command.source}:objective:${command.objectiveId}`, input: command.command, connector: { commandId: command.id, objectiveId: command.objectiveId, planId: command.planId, approvalId: command.approvalId } });
       const evidence = { responseHash: digest(JSON.stringify(result || {})), terminalState: clean(result?.outcome?.terminalState || result?.terminalState || "completed", 80) };
       const receipt = await record(userId, command, "completed", evidence);
-      await transition(userId, command.operatingNodeId, { status: "verified", verification: `Connector completion receipt ${receipt.receiptId}` }).catch(() => {});
+      await transition(userId, command.operatingNodeId, result?.terminalState === "in_progress" ? { status: "active", nextAction: "Resume the same objective and Mac job checkpoint." } : { status: "verified", verification: `Connector completion receipt ${receipt.receiptId}` }).catch(() => {});
       return { commandId: command.id, objectiveId: command.objectiveId, status: "completed", result, receipt };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error); const receipt = await record(userId, command, "failed", { error: message });
