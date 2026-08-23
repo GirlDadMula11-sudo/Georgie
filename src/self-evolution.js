@@ -29,7 +29,7 @@ export function buildEvolutionProposals(scorecard = {}, benchmark = {}) {
 function defaultState() {
   return { version: "self-evolution.v1", active: true, mode: "governed_continuous_improvement",
     learningPolicy: { currentClaimsRequireFreshSources: true, historicalClaimsRequireProvenance: true, separateFactInferenceForecast: true, contradictoryEvidenceQuarantined: true, verifiedOutcomesLearnedExactlyOnce: true, userCorrectionsOutrankInferredPreferences: true },
-    promotionPolicy: { baselineBeforeChange: true, heldOutEvaluationRequired: true, regressionRequired: true, canaryAndRollbackRequired: true, automaticCodeMutation: false, automaticCredentialChange: false, automaticProductionDeploy: false, consequentialActionsApprovalGated: true },
+    promotionPolicy: { baselineBeforeChange: true, heldOutEvaluationRequired: true, regressionRequired: true, canaryAndRollbackRequired: true, automaticCodeMutation: "isolated_branch_only_when_shared_authority_policy_passes", automaticMainMerge: false, automaticCredentialChange: false, automaticProductionDeploy: false, consequentialActionsApprovalGated: true },
     researchModes: ["current_web_research", "deep_multi_source_research", "historical_context", "primary_source_review", "internal_verified_outcome_learning"], cycles: [], proposals: [], lastCycleAt: null };
 }
 
