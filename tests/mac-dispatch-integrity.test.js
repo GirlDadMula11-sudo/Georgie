@@ -72,6 +72,19 @@ test("same objective can replace one completed snippet batch with the full-body 
   assert.equal(versionRecoverableMailboxJob({...job,resumeHistory:[{reason:"neo_full_body_reader_repaired"}]}),null);
 });
 
+test("completed empty verified NEO immutable-id miss reopens exactly once",async()=>{
+  const nonce=`${Date.now()}-${Math.random().toString(16).slice(2)}`,deviceId=`resume-id-${nonce}`,objectiveId=`objective-${nonce}`;
+  const job=await enqueueMacJob({userId:`resume-id-user-${nonce}`,deviceId,action:"mailbox.read_only_backfill",args:{objectiveId,authority:"read_only"},risk:"read",idempotencyKey:`resume-id-${nonce}`});
+  const emptyIdResult={mailboxEvidenceBatch:{packets:[],cursor:{}},connection:{submissions:{connected:true,provider:"neo_browser",readOnly:true,rejected:["missing immutable message id"]},jason:{connected:true,provider:"neo_browser",readOnly:true,rejected:["missing immutable message id"]}}};
+  await claimMacJobs(deviceId,1);await completeMacJob(deviceId,job.id,{result:emptyIdResult});
+  const resumed=await resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill",verifiedAgentVersion:"2.2.10"});
+  assert.equal(resumed.id,job.id);assert.equal(resumed.status,"queued");assert.equal(resumed.resumeHistory.at(-1).reason,"neo_immutable_id_reader_repaired");
+  await claimMacJobs(deviceId,1);await completeMacJob(deviceId,job.id,{result:emptyIdResult});
+  await assert.rejects(()=>resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill",verifiedAgentVersion:"2.2.10"}),/MAC_JOB_NOT_RESUMABLE: completed/);
+  const control={status:"completed",result:{mailboxEvidenceBatch:{packets:[],cursor:{}},connection:{submissions:{connected:true,provider:"neo_browser",readOnly:true,rejected:[]}}},resumeHistory:[]};
+  assert.equal(versionRecoverableMailboxJob(control),null);
+});
+
 test("temporary Mac delivery failures retry and missing receipts raise a durable alert",async()=>{
   const nonce=`${Date.now()}-${Math.random().toString(16).slice(2)}`,userId=`test-${nonce}`,deviceId=`retry-mac-${nonce}`;
   const key=`approval:retry:${nonce}`,job=await enqueueMacJob({userId,deviceId,action:"system.info",idempotencyKey:key,approvalId:"approval-2",planId:"plan-2"});
