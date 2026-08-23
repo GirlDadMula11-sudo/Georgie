@@ -13,9 +13,10 @@ test("approved Mac dispatch is single-flight and carries a durable receipt",asyn
 });
 
 test("temporary Mac delivery failures retry and missing receipts raise a durable alert",async()=>{
-  const key=`approval:retry:${Date.now()}`,job=await enqueueMacJob({userId:"test",deviceId:"retry-mac",action:"system.info",idempotencyKey:key,approvalId:"approval-2",planId:"plan-2"});
-  const claimed=(await claimMacJobs("retry-mac",5)).find(item=>item.id===job.id);assert.ok(claimed);
-  const retried=await completeMacJob("retry-mac",job.id,{error:"temporary delivery failure"});assert.equal(retried.status,"queued");assert.ok(new Date(retried.availableAt)>new Date(retried.claimedAt));
+  const nonce=`${Date.now()}-${Math.random().toString(16).slice(2)}`,userId=`test-${nonce}`,deviceId=`retry-mac-${nonce}`;
+  const key=`approval:retry:${nonce}`,job=await enqueueMacJob({userId,deviceId,action:"system.info",idempotencyKey:key,approvalId:"approval-2",planId:"plan-2"});
+  const claimed=(await claimMacJobs(deviceId,5)).find(item=>item.id===job.id);assert.ok(claimed);
+  const retried=await completeMacJob(deviceId,job.id,{error:"temporary delivery failure"});assert.equal(retried.status,"queued");assert.ok(new Date(retried.availableAt)>new Date(retried.claimedAt));
   const alerts=await reconcileMacDispatches({nowMs:new Date(retried.availableAt).getTime()+60_001});const alert=alerts.find(item=>item.jobId===job.id);assert.equal(alert?.code,"MAC_DISPATCH_RECEIPT_MISSING");
-  const persisted=(await listMacJobs("test",100)).find(item=>item.id===job.id);assert.equal(persisted.alert.code,"MAC_DISPATCH_RECEIPT_MISSING");
+  const persisted=(await listMacJobs(userId,100)).find(item=>item.id===job.id);assert.equal(persisted.alert.code,"MAC_DISPATCH_RECEIPT_MISSING");
 });
