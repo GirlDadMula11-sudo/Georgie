@@ -5,12 +5,12 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import fs from "fs/promises";
 import crypto from "crypto";
-import { buildNeoObservationScript, validateNeoObservation } from "./neo-mail-reader.js";
+import { buildNeoObservationScript, validateNeoObservation, buildNeoStaticContractInspectionScript, validateNeoStaticContractInspection } from "./neo-mail-reader.js";
 
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.12";
+const AGENT_VERSION = "2.2.13";
 const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;
 const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));
 const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));
@@ -211,6 +211,13 @@ function domains(values=[]){return [...new Set(values.map(value=>String(value).m
 async function readBridgeState(){try{return JSON.parse(await fs.readFile(MAILBOX_BRIDGE_PATH,"utf8"))}catch(error){if(error?.code!=="ENOENT")throw error;return{version:1,objectives:{}}}}
 async function writeBridgeState(state){await fs.mkdir(path.dirname(MAILBOX_BRIDGE_PATH),{recursive:true,mode:0o700});const temporary=`${MAILBOX_BRIDGE_PATH}.${process.pid}.tmp`;await fs.writeFile(temporary,JSON.stringify(state),{mode:0o600});await fs.rename(temporary,MAILBOX_BRIDGE_PATH)}
 function mailboxOutcome(text=""){const value=String(text),amount=value.match(/\$\s?([\d,]+(?:\.\d{2})?)/)?.[1]||null;return{decision:/\bapproved?|offer(?:ed)?\b/i.test(value)?"approval_or_offer":/\bdeclin(?:e|ed)|denied\b/i.test(value)?"decline":/\bfunded|funding complete\b/i.test(value)?"funding":"unknown",amount:amount?Number(amount.replace(/,/g,"")):null,terms:null,stipulations:/\bstip(?:ulation)?s?|conditions?\b/i.test(value)?["source correspondence contains stipulation language"]:[]}}
+async function localNeoStaticContractInvestigation(job){
+  const args=job.args||{},objectiveId=String(args.objectiveId||"").slice(0,160);
+  if(!objectiveId||args.authority!=="read_only"||args.operation!=="static_contract_inspection")throw new Error("NEO_STATIC_CONTRACT_AUTHORIZATION_FAILED");
+  const observed=validateNeoStaticContractInspection(JSON.parse(await runJxa(buildNeoStaticContractInspectionScript({objectiveId}))||"{}"),objectiveId);
+  return{neoStaticContractInspection:observed,objectiveId,targetDevice:"primary-mac",authority:"read_only",credentialsTransferred:false,mailboxDataAccessed:false,mailboxInteractionPerformed:false,authorizedReadSource:null,authorizationBlocked:true};
+}
+
 async function localMailboxBatch(job){
   const args=job.args||{},objectiveId=String(args.objectiveId||"").slice(0,160),authority=String(args.authority||"");
   if(!objectiveId||authority!=="read_only"||args.operation!=="connection_verify_and_backfill")throw new Error("MAILBOX_BRIDGE_AUTHORIZATION_FAILED");
@@ -346,6 +353,8 @@ async function execute(job) {
       return inspectBrowserTabs({ includeContent: a.includeContent !== false });
     case "browser.workflow":
       return executeBrowserWorkflow(job);
+    case "mailbox.neo_static_contract_inspect":
+      return localNeoStaticContractInvestigation(job);
     case "mailbox.read_only_backfill":
       return localMailboxBatch(job);
     case "ui.click": {
