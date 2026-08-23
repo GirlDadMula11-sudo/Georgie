@@ -1,12 +1,20 @@
 import crypto from "crypto";
 import { readCloudState, writeCloudState } from "./cloud-state.js";
+import { alpacaConfigured, certifyAlpacaConnection } from "./integrations/alpaca-market-data.js";
 
 const NS="paper_trading_lab";
 const now=()=>new Date().toISOString();
 
 export function marketDataCapability(){
-  const provider=String(process.env.GEORGIE_MARKET_DATA_PROVIDER||"").trim();
-  return {provider:provider||null,configured:Boolean(provider&&process.env.GEORGIE_MARKET_DATA_API_KEY),liveFeedConnected:false,mode:"paper_only",note:"A provider adapter must independently verify live bid/ask/last/volume timestamps before live scanning is certified."};
+  const provider=String(process.env.GEORGIE_MARKET_DATA_PROVIDER||"").trim().toLowerCase();
+  const configured=provider==="alpaca"?alpacaConfigured():Boolean(provider&&process.env.GEORGIE_MARKET_DATA_API_KEY);
+  return {provider:provider||null,configured,liveFeedConnected:false,mode:"paper_only",note:"Live-feed status is never inferred from credentials alone; the provider adapter must independently verify live bid/ask/last/volume timestamps and pass authoritative freshness certification first."};
+}
+
+export async function certifyConfiguredMarketData(options={}){
+  const provider=String(process.env.GEORGIE_MARKET_DATA_PROVIDER||"").trim().toLowerCase();
+  if(provider!=="alpaca")return{provider:provider||null,configured:false,authenticated:false,certified:false,fresh:false,reason:"unsupported_or_missing_provider",checkedAt:now()};
+  return certifyAlpacaConnection(options);
 }
 
 async function state(userId){return readCloudState(String(userId),NS,{candidates:[],trades:[],updatedAt:null});}
