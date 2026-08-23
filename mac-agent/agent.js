@@ -10,7 +10,7 @@ import { buildNeoObservationScript, validateNeoObservation, buildNeoStaticContra
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.21";
+const AGENT_VERSION = "2.2.22";
 const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;
 const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));
 const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));
@@ -347,7 +347,7 @@ async function execute(job) {
     case "developer.inspect_neo_preload": {
       const repo = assertDeveloperRoot(a.repo);
       if (repo !== "/Users/mac/Georgie") throw new Error("PRIMARY_MAC_REPO_NOT_ALLOWLISTED");
-      const script = `JSON.stringify((()=>{const p=window.__georgieNeoPreload||null;return{origin:location.origin,loaded:Boolean(p&&p.hookVersion),hookVersion:p?.hookVersion||null,preNavigation:p?.preNavigation===true,accountBindings:(p?.accountBindings||[]).map(x=>({email:x.email,accountIdPresent:Boolean(x.accountId),emailField:x.emailField,idField:x.idField,sourceOrigin:x.sourceOrigin,sourceEndpoint:x.sourceEndpoint,sourceMethod:x.sourceMethod})).slice(0,20),sources:(p?.sources||[]).slice(0,40),mutationObserved:p?.mailboxMutation===true,credentialsTransferred:false,requestBodiesCaptured:false}})())`;
+      const script = `JSON.stringify((()=>{const p=window.__georgieNeoPreload||null;let extensionDiagnostic=null;try{extensionDiagnostic=JSON.parse(document.documentElement.dataset.georgieNeoExtensionDiagnostic||"null")}catch{}return{origin:location.origin,loaded:Boolean(p&&p.hookVersion),hookVersion:p?.hookVersion||null,preNavigation:p?.preNavigation===true,extensionDiagnostic,accountBindings:(p?.accountBindings||[]).map(x=>({email:x.email,accountIdPresent:Boolean(x.accountId),emailField:x.emailField,idField:x.idField,sourceOrigin:x.sourceOrigin,sourceEndpoint:x.sourceEndpoint,sourceMethod:x.sourceMethod})).slice(0,20),sources:(p?.sources||[]).slice(0,40),mutationObserved:p?.mailboxMutation===true,credentialsTransferred:false,requestBodiesCaptured:false}})())`;
       const appleScript = `tell application "Google Chrome"\nrepeat with browserWindow in windows\nrepeat with browserTab in tabs of browserWindow\nset tabUrl to URL of browserTab\nif tabUrl starts with "https://app.neo.space/" or tabUrl is "https://app.neo.space" then\nreturn execute browserTab javascript ${JSON.stringify(script)}\nend if\nend repeat\nend repeat\nreturn "{\\\"diagnostic\\\":\\\"NEO_TAB_NOT_FOUND\\\"}"\nend tell`;
       const output = await runDeveloper("/usr/bin/osascript", ["-e", appleScript], { timeout: 15000 });
       const health = JSON.parse(output.stdout.trim());
@@ -358,6 +358,8 @@ async function execute(job) {
       if (health.origin !== "https://app.neo.space") failures.push("NEO_ORIGIN_NOT_PROVEN");
       if (!health.loaded) failures.push("NEO_PRELOAD_NOT_LOADED");
       if (!health.preNavigation) failures.push("NEO_PRE_NAVIGATION_NOT_PROVEN");
+      if (health.extensionDiagnostic?.ok === false) failures.push(`NEO_EXTENSION_REGISTRATION_ERROR:${health.extensionDiagnostic.code||"UNKNOWN"}`);
+      if (!health.extensionDiagnostic) failures.push("NEO_EXTENSION_DIAGNOSTIC_NOT_PRESENT");
       if (health.mutationObserved) failures.push("NEO_MUTATION_OBSERVED");
       for (const mailbox of requested) if (!bound.has(mailbox)) failures.push(`NEO_ACCOUNT_BINDING_NOT_PROVEN:${mailbox}`);
       if (failures.length) throw new Error(`NEO_PRELOAD_HEALTH_NOT_PROVEN:${failures.join(",")}`);
