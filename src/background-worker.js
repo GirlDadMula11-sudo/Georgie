@@ -7,9 +7,11 @@ import { startReconciliationWorkers } from "./reconciliation-workers.js";
 import { startBackgroundOperatingLayer } from "./background-operating-layer.js";
 import { startSelfEvolution } from "./self-evolution.js";
 import { startObjectiveRecoveryWorker } from "./objective-control-plane.js";
+import { startSpecialistExecutionWorker } from "./specialist-execution-worker.js";
 
 startCloudStateRecovery();
 startObjectiveRecoveryWorker();
+startSpecialistExecutionWorker();
 startApprovalDispatchWorker();
 startMaintenanceSentinel();
 startReconciliationWorkers();
