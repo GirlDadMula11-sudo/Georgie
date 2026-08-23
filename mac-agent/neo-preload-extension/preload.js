@@ -7,7 +7,7 @@
     installedAt,
     navigationStart: Number(performance.timeOrigin || 0),
     preNavigation: installedAt - Number(performance.timeOrigin || installedAt) < 5000,
-    records: [], sources: [], responseSchemas: [], webSockets: [], mutations: [], errors: [],
+    records: [], accountBindings: [], sources: [], responseSchemas: [], webSockets: [], mutations: [], errors: [],
     credentialsExported: false, requestBodiesCaptured: false, webSocketPayloadsCaptured: false,
     persistedMessageContent: false, mailboxMutation: false
   };
@@ -41,6 +41,22 @@
     for (const key of keys) { if (forbidden.test(key) || /attachment(?:data|content)|raw/i.test(key)) continue; try { if (value[key] && typeof value[key] === "object") walk(value[key], source, depth + 1, seen); } catch {} }
   };
   const inspectJson = (value, source) => {
+    const scanAccounts = (node, depth = 0, seen = new WeakSet()) => {
+      if (!node || typeof node !== "object" || depth > 7 || seen.has(node)) return;
+      seen.add(node);
+      if (Array.isArray(node)) { for (const item of node.slice(0, 500)) scanAccounts(item, depth + 1, seen); return; }
+      const keys = Object.keys(node).slice(0, 180);
+      const emailKey = keys.find(k => /^(email|emailAddress|address|username|login)$/i.test(k));
+      const idKey = keys.find(k => /^(accountId|account_id|mailboxId|mailbox_id|userId|user_id|id|uid)$/i.test(k) && !forbidden.test(k));
+      const email = emailKey ? scalar(node[emailKey], 320).trim().toLowerCase() : "";
+      const accountId = idKey ? scalar(node[idKey], 500) : "";
+      if (/^[^\s@]+@sierramarketinginc\.com$/i.test(email) && /^[A-Za-z0-9][A-Za-z0-9._~:@/-]{2,499}$/.test(accountId)) {
+        const binding = { email, accountId, emailField: emailKey, idField: idKey, sourceEndpoint: source.path, sourceOrigin: source.origin, sourceMethod: "GET" };
+        if (!state.accountBindings.some(x => x.email === email && x.accountId === accountId)) state.accountBindings.push(binding);
+      }
+      for (const key of keys) { if (forbidden.test(key)) continue; try { if (node[key] && typeof node[key] === "object") scanAccounts(node[key], depth + 1, seen); } catch {} }
+    };
+    scanAccounts(value);
     const sample = Array.isArray(value) ? value.find(x => x && typeof x === "object") : value;
     if (sample && typeof sample === "object") { const fields = Object.keys(sample).filter(k => !forbidden.test(k)).slice(0, 120); state.responseSchemas.push({ ...source, fields, idFields: fields.filter(k => /(?:^|_)(?:message|mail|thread|conversation)?_?(?:id|uid)$/i.test(k)) }); }
     walk(value, source);

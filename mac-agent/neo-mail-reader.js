@@ -49,7 +49,7 @@ function neoIdentityObserver(requested) {
       if (element.tagName === "IFRAME") { try { const frame = element.contentDocument; if (frame && !seen.has(frame)) { seen.add(frame); roots.push(frame); } } catch {} }
     }
   }
-  const matches = new Set();
+  const matches = new Set((window.__georgieNeoPreload?.accountBindings || []).map(item => normalized(item?.email)).filter(identity => requested.includes(identity)));
   for (const identity of requested) {
     if (roots.some(root => matchesIdentity(normalized(root.body?.innerText || root.textContent), identity))) matches.add(identity);
   }
@@ -85,7 +85,13 @@ function neoAccountActivator(identity, requested) {
       if (element.tagName === "IFRAME") { try { const frame = element.contentDocument; if (frame && !seen.has(frame)) { seen.add(frame); roots.push(frame); } } catch {} }
     }
   }
+  const binding = (window.__georgieNeoPreload?.accountBindings || []).find(item => normalized(item?.email) === identity);
   const candidates = roots.flatMap(root => [...(root.querySelectorAll?.("body *, *") || [])]).filter(inAccountRail).filter(element => {
+    if (binding?.accountId) {
+      const id = normalized(binding.accountId);
+      const providerValues = [element.id, element.getAttribute?.("data-id"), element.getAttribute?.("data-account-id"), element.getAttribute?.("data-mailbox-id"), element.getAttribute?.("data-uid")].filter(Boolean).map(normalized);
+      if (providerValues.includes(id)) return true;
+    }
     const hits = requested.filter(requestedIdentity => values(element).some(value => matchesIdentity(value, requestedIdentity)));
     return hits.length === 1 && hits[0] === identity;
   }).sort((left, right) => {
@@ -95,7 +101,7 @@ function neoAccountActivator(identity, requested) {
   const control = candidates[0];
   if (!control) return { selected: false, identity, error: "exact mailbox account rail control not found", messageRowsClicked: false, messageOpened: false };
   control.click();
-  return { selected: true, identity, accountRailProof: "exact_envelope_bound_account_rail", matchBasis: "unique_requested_identity_token", messageRowsClicked: false, messageOpened: false };
+  return { selected: true, identity, accountId: binding?.accountId || null, accountRailProof: "exact_envelope_bound_account_rail", matchBasis: binding?.accountId ? "pre_navigation_account_id_binding" : "unique_requested_identity_token", messageRowsClicked: false, messageOpened: false };
 }
 
 function neoStartReadOnlyApiProbe(){
@@ -117,7 +123,7 @@ function neoStartReadOnlyApiProbe(){
   return{started:true,credentialsExported:false,requestBodiesCaptured:false,methodsObserved:true};
 }
 
-function neoReadApiProbe(){const preload=window.__georgieNeoPreload||null,late=window.__georgieNeoApiProbe||{},states=[preload,late].filter(Boolean),unique=new Map();for(const state of states)for(const record of state.records||[]){const key=record.messageId+"|"+record.sourceOrigin+"|"+record.sourceEndpoint;if(!unique.has(key))unique.set(key,record)}return{status:preload?.preNavigation===true?"completed":"missing_pre_navigation_hook",hookVersion:preload?.hookVersion||null,installedAt:preload?.installedAt||null,preNavigation:preload?.preNavigation===true,records:[...unique.values()].slice(0,500),sources:states.flatMap(state=>state.sources||[]).slice(0,150),responseSchemas:states.flatMap(state=>state.responseSchemas||[]).slice(0,150),webSockets:states.flatMap(state=>state.webSockets||[]).slice(0,50),mutations:states.flatMap(state=>state.mutations||[]).slice(0,50),errors:states.flatMap(state=>state.errors||[]).slice(0,20),credentialsExported:false,requestBodiesCaptured:false,messageBodiesRecorded:false,personalContentRecorded:false,persistedMessageContent:false,sameOriginOnly:false,methods:["GET","HEAD"]}}
+function neoReadApiProbe(){const preload=window.__georgieNeoPreload||null,late=window.__georgieNeoApiProbe||{},states=[preload,late].filter(Boolean),unique=new Map();for(const state of states)for(const record of state.records||[]){const key=record.messageId+"|"+record.sourceOrigin+"|"+record.sourceEndpoint;if(!unique.has(key))unique.set(key,record)}return{status:preload?.preNavigation===true?"completed":"missing_pre_navigation_hook",hookVersion:preload?.hookVersion||null,installedAt:preload?.installedAt||null,preNavigation:preload?.preNavigation===true,accountBindings:(preload?.accountBindings||[]).slice(0,20),records:[...unique.values()].slice(0,500),sources:states.flatMap(state=>state.sources||[]).slice(0,150),responseSchemas:states.flatMap(state=>state.responseSchemas||[]).slice(0,150),webSockets:states.flatMap(state=>state.webSockets||[]).slice(0,50),mutations:states.flatMap(state=>state.mutations||[]).slice(0,50),errors:states.flatMap(state=>state.errors||[]).slice(0,20),credentialsExported:false,requestBodiesCaptured:false,messageBodiesRecorded:false,personalContentRecorded:false,persistedMessageContent:false,sameOriginOnly:false,methods:["GET","HEAD"]}}
 
 function neoMailboxObserver(mailbox, cursors, max, apiProbe) {
   if (apiProbe?.preNavigation !== true || !apiProbe?.hookVersion) return { messages: [], error: "NEO_PRE_NAVIGATION_HOOK_NOT_PROVEN", rejected: ["document-start transport capture was not active before NEO loaded"], identifierDiagnostics: [] };
