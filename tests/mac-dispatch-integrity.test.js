@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { enqueueMacJob, claimMacJobs, completeMacJob, listMacJobs, reconcileMacDispatches, resumeFailedMacJob } from "../src/mac/queue.js";
+import { enqueueMacJob, claimMacJobs, completeMacJob, listMacJobs, reconcileMacDispatches, resumeFailedMacJob, versionRecoverableMailboxJob } from "../src/mac/queue.js";
 
 test("approved Mac dispatch is single-flight and carries a durable receipt",async()=>{
   const key=`approval:test:${Date.now()}`;
@@ -37,6 +37,14 @@ test("completed empty Apple Mail miss resumes in place after the NEO reader is d
   await claimMacJobs(deviceId,1);await completeMacJob(deviceId,job.id,{result:{mailboxEvidenceBatch:{packets:[],cursor:{}},connection:{a:{connected:false,error:"configured account not found"},b:{connected:false,error:"configured account not found"}}}});
   const resumed=await resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill"});
   assert.equal(resumed.id,job.id);assert.equal(resumed.status,"queued");assert.equal(resumed.resumeHistory.at(-1).fromStatus,"completed");assert.equal(resumed.resumeHistory.at(-1).reason,"legacy_reader_replaced");assert.match(resumed.resumeHistory.at(-1).resultHash,/^[a-f0-9]{64}$/);
+});
+
+test("single-tab NEO repair permits one exact fail-closed identity retry only after legacy-reader lineage",()=>{
+  const base={status:"failed",error:"NEO_MAILBOX_IDENTITY_NOT_VERIFIED: submissions@sierramarketinginc.com",resumeHistory:[{reason:"legacy_reader_replaced"}]};
+  assert.equal(versionRecoverableMailboxJob(base),"neo_single_tab_reader_repaired");
+  assert.equal(versionRecoverableMailboxJob({...base,resumeHistory:[]}),null);
+  assert.equal(versionRecoverableMailboxJob({...base,error:"NEO_MAILBOX_IDENTITY_NOT_VERIFIED: other@example.com"}),null);
+  assert.equal(versionRecoverableMailboxJob({...base,resumeHistory:[...base.resumeHistory,{reason:"neo_single_tab_reader_repaired"}]}),null);
 });
 
 test("temporary Mac delivery failures retry and missing receipts raise a durable alert",async()=>{
