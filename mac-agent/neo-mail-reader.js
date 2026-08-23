@@ -117,9 +117,10 @@ function neoStartReadOnlyApiProbe(){
   return{started:true,credentialsExported:false,requestBodiesCaptured:false,methodsObserved:true};
 }
 
-function neoReadApiProbe(){const state=window.__georgieNeoApiProbe||{},unique=new Map();for(const record of state.records||[]){const key=record.messageId+"|"+record.sourceOrigin+"|"+record.sourceEndpoint;if(!unique.has(key))unique.set(key,record)}state.status="completed";return{status:"completed",records:[...unique.values()].slice(0,300),sources:(state.sources||[]).slice(0,100),responseSchemas:(state.responseSchemas||[]).slice(0,100),webSockets:(state.webSockets||[]).slice(0,30),mutations:(state.mutations||[]).slice(0,50),errors:(state.errors||[]).slice(0,20),serviceWorkers:(state.serviceWorkers||[]).slice(0,20),cacheNames:(state.cacheNames||[]).slice(0,50),indexedDatabases:(state.indexedDatabases||[]).slice(0,50),credentialsExported:false,requestBodiesCaptured:false,messageBodiesRecorded:false,personalContentRecorded:false,sameOriginOnly:false,methods:["GET","HEAD"]}}
+function neoReadApiProbe(){const preload=window.__georgieNeoPreload||null,late=window.__georgieNeoApiProbe||{},states=[preload,late].filter(Boolean),unique=new Map();for(const state of states)for(const record of state.records||[]){const key=record.messageId+"|"+record.sourceOrigin+"|"+record.sourceEndpoint;if(!unique.has(key))unique.set(key,record)}return{status:preload?.preNavigation===true?"completed":"missing_pre_navigation_hook",hookVersion:preload?.hookVersion||null,installedAt:preload?.installedAt||null,preNavigation:preload?.preNavigation===true,records:[...unique.values()].slice(0,500),sources:states.flatMap(state=>state.sources||[]).slice(0,150),responseSchemas:states.flatMap(state=>state.responseSchemas||[]).slice(0,150),webSockets:states.flatMap(state=>state.webSockets||[]).slice(0,50),mutations:states.flatMap(state=>state.mutations||[]).slice(0,50),errors:states.flatMap(state=>state.errors||[]).slice(0,20),credentialsExported:false,requestBodiesCaptured:false,messageBodiesRecorded:false,personalContentRecorded:false,persistedMessageContent:false,sameOriginOnly:false,methods:["GET","HEAD"]}}
 
 function neoMailboxObserver(mailbox, cursors, max, apiProbe) {
+  if (apiProbe?.preNavigation !== true || !apiProbe?.hookVersion) return { messages: [], error: "NEO_PRE_NAVIGATION_HOOK_NOT_PROVEN", rejected: ["document-start transport capture was not active before NEO loaded"], identifierDiagnostics: [] };
   if ((apiProbe?.mutations || []).length) return { messages: [], error: "NEO_MUTATION_ENDPOINT_OBSERVED", rejected: ["mutation endpoint observed during inbox load"], identifierDiagnostics: [] };
   if (apiProbe?.credentialsExported !== false || apiProbe?.requestBodiesCaptured !== false || apiProbe?.messageBodiesRecorded !== false || apiProbe?.personalContentRecorded !== false) return { messages: [], error: "NEO_TRANSPORT_CAPTURE_SCOPE_VIOLATION", rejected: ["transport metadata capture scope violation"], identifierDiagnostics: [] };
   window.__georgieCapturedRecords = Object.fromEntries((apiProbe?.records || []).filter(record => record?.messageId).map(record => [record.messageId, record]));
@@ -155,10 +156,9 @@ function neoMailboxObserver(mailbox, cursors, max, apiProbe) {
     const runtimeA=runtimeStateIds(row),runtimeB=runtimeStateIds(row),stableRuntime=(left,right)=>left.filter(item=>right.some(other=>other.id===item.id));message.push(...stableRuntime(runtimeA.message,runtimeB.message));thread.push(...stableRuntime(runtimeA.thread,runtimeB.thread));const norm=v=>String(v||"").replace(/\s+/g," ").trim().toLowerCase();const rowValue=norm(row.innerText||row.textContent);const apiMatches=(apiProbe?.records||[]).filter(record=>{const subject=norm(record.subject);if(subject.length<3||!rowValue.includes(subject))return false;const parsed=Date.parse(record.timestamp||"");if(!Number.isFinite(parsed))return true;const rowTime=row.querySelector("time")?.getAttribute("datetime")||row.getAttribute("data-received-at")||row.getAttribute("data-date")||"";const rowParsed=Date.parse(rowTime);return !Number.isFinite(rowParsed)||Math.abs(rowParsed-parsed)<86400000});if(apiMatches.length===1){message.push({id:apiMatches[0].messageId,source:"same-origin-api:"+apiMatches[0].sourceEndpoint+":"+apiMatches[0].sourcePath});thread.push({id:apiMatches[0].threadId||apiMatches[0].messageId,source:"same-origin-api-thread:"+apiMatches[0].sourceEndpoint})}
     const unique=list=>[...new Map(list.map(item=>[item.id,item])).values()];
     const messages=unique(message),threads=unique(thread),runtimeStateSurfaces=[...new Set([...runtimeA.surfaces,...runtimeB.surfaces])],apiCorrelationCandidates=apiMatches.length;
-    if(messages.length!==1)return {error:messages.length?"ambiguous immutable message id":"missing immutable message id",messageCandidates:messages.length,threadCandidates:threads.length,runtimeStateSurfaces,apiCorrelationCandidates};
-    if(threads.length>1)return {error:"ambiguous immutable thread id",messageCandidates:messages.length,threadCandidates:threads.length,runtimeStateSurfaces};
+    if(apiMatches.length!==1)return {error:apiMatches.length?"ambiguous pre-navigation immutable message id":"missing pre-navigation immutable message id",messageCandidates:messages.length,threadCandidates:threads.length,runtimeStateSurfaces,apiCorrelationCandidates};
     const captured=apiMatches.length===1?apiMatches[0]:null;
-    return {messageId:messages[0].id,messageIdSource:messages[0].source,threadId:threads[0]?.id||messages[0].id,threadIdSource:threads[0]?.source||"message-id-fallback",runtimeStateSurfaces,captured};
+    return {messageId:captured.messageId,messageIdSource:"neo-preload-api:"+captured.sourceEndpoint,threadId:captured.threadId||captured.messageId,threadIdSource:"neo-preload-api-thread:"+captured.sourceEndpoint,runtimeStateSurfaces,captured};
   };
   for (const row of rows) {
     const rowText = text(row.innerText || row.textContent, 6000);
@@ -209,7 +209,7 @@ function neoGuardedMessageOpener(messageId) {
   state.original.beacon = navigator.sendBeacon?.bind(navigator); if (navigator.sendBeacon) navigator.sendBeacon = function(url) { block("beacon", url); return false; };
   state.original.wsSend = window.WebSocket?.prototype?.send; if (state.original.wsSend) WebSocket.prototype.send = function(data) { block("websocket", String(data).slice(0, 120)); return; };
   window.__georgieReadGuard = state;
-  const captured=window.__georgieCapturedRecords?.[messageId];
+  const captured=window.__georgieCapturedRecords?.[messageId]||window.__georgieNeoPreload?.records?.find(record=>record?.messageId===messageId);
   if(captured?.bodyComplete&&captured?.sourceMethod==="GET")return { opened: true, guardInstalled: true, method: "captured_read_only_get", blockedMutationCount: state.blocked.length };
   row.click();
   return { opened: true, guardInstalled: true, method: "guarded_dom_open", blockedMutationCount: state.blocked.length };
@@ -228,7 +228,7 @@ function neoFullBodyObserver(message, maxBodyBytes) {
     delete window.__georgieReadGuard;
   };
   try {
-    const captured=window.__georgieCapturedRecords?.[message.messageId];
+    const captured=window.__georgieCapturedRecords?.[message.messageId]||window.__georgieNeoPreload?.records?.find(record=>record?.messageId===message.messageId);
     if(captured?.bodyComplete&&captured?.sourceMethod==="GET"){
       const row=[...document.querySelectorAll("[data-georgie-message-id]")].find(element=>element.getAttribute("data-georgie-message-id")===message.messageId),signals=row?[row.getAttribute("data-unread"),row.getAttribute("aria-label"),row.className,getComputedStyle(row).fontWeight].map(value=>String(value||"").toLowerCase()):[],readStateAfter=signals.some(value=>value==="true"||/\bunread\b/.test(value)||Number(value)>=600)?"unread":signals.some(value=>value==="false"||/\bread\b/.test(value))?"read":"unknown",content=text(captured.content||"");
       return{...message,content,attachments:[],bodyComplete:Boolean(content&&content.length<maxBodyBytes),bodyTruncated:content.length>=maxBodyBytes,retrievalMethod:"captured_read_only_get",readStateAfter,readStateNeutral:Boolean(guard?.installed&&message.readStateBefore!=="unknown"&&message.readStateBefore===readStateAfter),transportPolicy:"proven_https_get_only",blockedMutationCount:guard?.blocked?.length||0,blockedMutationChannels:[],credentialsTransferred:false,mailboxMutation:false};
@@ -258,8 +258,8 @@ export function validateNeoObservation(observed, mailboxes) {
   if (!observed || observed.provider !== "neo_browser" || observed.navigationPerformed !== false || observed.messageOpeningPerformed !== false || observed.mailboxMutation !== false || observed.credentialsTransferred !== false || observed.fullBodyGate !== true) throw new Error("NEO_READ_ONLY_PROOF_FAILED");
   for (const mailbox of mailboxes) {
     const connection = observed.mailboxes?.[mailbox];
-    if (!connection?.connected || connection.provider !== "neo_browser" || connection.readOnly !== true) throw new Error(`NEO_MAILBOX_IDENTITY_NOT_VERIFIED: ${mailbox}: ${connection?.error || "unknown NEO page state"}`);
+    if (!connection?.connected || connection.provider !== "neo_browser" || connection.readOnly !== true || connection.apiProbe?.status !== "completed") throw new Error(`NEO_MAILBOX_IDENTITY_NOT_VERIFIED: ${mailbox}: ${connection?.error || "pre-navigation hook not proven"}`);
   }
-  for (const message of observed.messages || []) if (message.bodyComplete !== true || message.bodyTruncated === true || message.readStateNeutral !== true || message.mailboxMutation !== false || message.credentialsTransferred !== false || !["guarded_dom_open","captured_read_only_get"].includes(message.retrievalMethod)) throw new Error(`NEO_FULL_BODY_PROOF_FAILED: ${message.messageId || "unknown"}`);
+  for (const message of observed.messages || []) if (message.bodyComplete !== true || message.bodyTruncated === true || message.readStateNeutral !== true || message.mailboxMutation !== false || message.credentialsTransferred !== false || message.retrievalMethod !== "captured_read_only_get" || !String(message.messageIdSource || "").startsWith("neo-preload-api:")) throw new Error(`NEO_FULL_BODY_PROOF_FAILED: ${message.messageId || "unknown"}`);
   return observed;
 }
