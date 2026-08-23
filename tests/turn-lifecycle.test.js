@@ -10,7 +10,7 @@ test("a stalled foreground response remains a durable non-terminal continuation"
   assert.equal(result.backgroundContinuation,true);
   assert.equal(result.completed,false);
   assert.equal(result.confidence,"partial_unverified");
-  assert.match(result.text,/not treated as completed/i);
+  assert.equal(result.text,"Still working on this. No action is needed from you.");
 });
 
 test("a completed turn wins before the deadline",async()=>{
@@ -28,9 +28,9 @@ test("a durable streaming turn is not preempted by the synchronous deadline",asy
   assert.equal(result.text,"late verified result");
 });
 
-test("foreground partial language never claims execution",()=>{
+test("foreground partial language never claims execution or exposes lifecycle jargon",()=>{
   const result=terminalPartialResult({startedAt:Date.now()});
-  assert.doesNotMatch(result.text,/successfully completed|repair completed|fixed/i);
+  assert.doesNotMatch(result.text,/successfully completed|repair completed|fixed|foreground|deadline|persistence|unfinished|terminal/i);
   assert.equal(result.terminalReason,"turn_deadline");
   assert.equal(result.terminalScope,"foreground_response_only");
 });
@@ -42,9 +42,9 @@ test("provider timeout returns a durable automatic recovery result",()=>{
   assert.equal(result.foregroundTerminated,true);
   assert.equal(result.backgroundContinuation,true);
   assert.equal(result.terminalReason,"provider_timeout");
-  assert.match(result.text,/accepted and preserved/i);
-  assert.match(result.text,/without restating/i);
-  assert.doesNotMatch(result.text,/completed successfully|ask me to continue|manually resume/i);
+  assert.match(result.text,/still working on this/i);
+  assert.match(result.text,/continue automatically/i);
+  assert.doesNotMatch(result.text,/completed successfully|ask me to continue|manually resume|foreground|provider timeout|retained|unfinished|persistence/i);
 });
 
 test("interrupted intelligence is recovered with a bounded continuation",()=>{
