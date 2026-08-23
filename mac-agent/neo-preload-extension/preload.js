@@ -4,6 +4,7 @@
   const installedAt = Date.now();
   const state = window.__georgieNeoPreload = {
     hookVersion: "1.0.0",
+    executionBridge: "registered_main_world_document_start",
     installedAt,
     navigationStart: Number(performance.timeOrigin || 0),
     preNavigation: installedAt - Number(performance.timeOrigin || installedAt) < 5000,
