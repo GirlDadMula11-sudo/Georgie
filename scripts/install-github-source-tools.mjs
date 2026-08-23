@@ -24,7 +24,7 @@ if (!manifest.includes("githubSourceConfigured")) {
   if (!manifest.includes(anchor)) throw new Error("github source installer could not find manifest import anchor");
   manifest = manifest.replace(anchor, anchor + manifestImport);
 }
-if (!manifest.includes("sourceOperations:")) {
+if (!manifest.includes("githubSource:")) {
   const anchor = '      deploymentObservability: {\n        github: configured(github),';
   if (!manifest.includes(anchor)) throw new Error("github source installer could not find manifest connection anchor");
   const replacement = '      githubSource: { state: configured(githubSourceConfigured()), callableInChat: githubSourceConfigured(), access: githubSourceConfigured() ? "authenticated_allowlisted_server_side" : "none", operations: ["repository.list","repository.get","branch.list","branch.get","file.read","source.search","branch.create","commit.create","pull_request.create"], noMacFallback: true, noPublicWebFallback: true },\n' + anchor;
