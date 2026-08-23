@@ -159,7 +159,8 @@ function assertDeveloperFile(root, target) {
   return { repo, resolved, relative };
 }
 async function runDeveloper(command, args, options = {}) {
-  const { stdout = "", stderr = "" } = await execFileAsync(command, args, { timeout: options.timeout || 30000, maxBuffer: 4 * 1024 * 1024, cwd: options.cwd });
+  const env = { ...process.env, PATH: [process.env.PATH, "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"].filter(Boolean).join(":") };
+  const { stdout = "", stderr = "" } = await execFileAsync(command, args, { timeout: options.timeout || 30000, maxBuffer: 4 * 1024 * 1024, cwd: options.cwd, env });
   return { stdout: String(stdout).slice(0, 250000), stderr: String(stderr).slice(0, 50000) };
 }
 function patchPaths(patchText) {
@@ -298,6 +299,18 @@ async function execute(job) {
       if (!["check", "test", "benchmark"].includes(script)) throw new Error("Developer check script is not allowlisted");
       const result = await runDeveloper("npm", ["run", script, "--if-present"], { cwd: repo, timeout: 120000 });
       return { repo, script, ...result, verified: true };
+    }
+    case "developer.update_restart_from_main": {
+      const repo = assertDeveloperRoot(a.repo);
+      if (repo !== "/Users/mac/Georgie") throw new Error("PRIMARY_MAC_REPO_NOT_ALLOWLISTED");
+      const before = await runDeveloper("git", ["-C", repo, "rev-parse", "HEAD"]);
+      const status = await runDeveloper("git", ["-C", repo, "status", "--porcelain"]);
+      if (status.stdout.trim()) throw new Error("PRIMARY_MAC_REPO_DIRTY");
+      await runDeveloper("git", ["-C", repo, "fetch", "origin", "main"], { timeout: 120000 });
+      await runDeveloper("git", ["-C", repo, "merge", "--ff-only", "origin/main"], { timeout: 120000 });
+      const after = await runDeveloper("git", ["-C", repo, "rev-parse", "HEAD"]);
+      const install = await runDeveloper("/bin/bash", [path.join(repo, "mac-agent/install.sh")], { cwd: repo, timeout: 120000 });
+      return { repo, before: before.stdout.trim(), after: after.stdout.trim(), fastForwardOnly: true, install, restartRequested: true };
     }
     case "developer.apply_patch": {
       const repo = assertDeveloperRoot(a.repo);

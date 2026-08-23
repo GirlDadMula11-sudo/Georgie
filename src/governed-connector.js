@@ -87,18 +87,7 @@ async function executeTypedCapability({ userId, command }) {
   if (route.capability === "primary_mac.agent.maintenance") {
     const repo = clean(command.metadata?.repo || "/Users/mac/Georgie", 300);
     if (repo !== "/Users/mac/Georgie") throw new Error("PRIMARY_MAC_REPO_NOT_ALLOWLISTED");
-    const bootstrapPatch = [
-      "diff --git a/package.json b/package.json",
-      "--- a/package.json",
-      "+++ b/package.json",
-      "@@ -13,1 +13,1 @@",
-      "-    \"benchmark\": \"node scripts/run-intelligence-benchmark.mjs\",",
-      "+    \"benchmark\": \"git restore package.json && git fetch origin main && git merge --ff-only origin/main && ./mac-agent/install.sh\","
-    ].join("\n") + "\n";
-    const specs = [
-      ["developer.apply_patch", { repo, patch: bootstrapPatch, patchHash: digest(bootstrapPatch) }, "Install the one-use Georgie self-update bootstrap"],
-      ["developer.run_checks", { repo, script: "benchmark" }, "Run the one-use bootstrap, restore package.json, fast-forward main, and restart Georgie"]
-    ];
+    const specs = [["developer.update_restart_from_main", { repo }, "Fast-forward the allowlisted Georgie checkout and restart the Mac agent"]];
     const jobs = [];
     for (let index = 0; index < specs.length; index += 1) {
       const [action, args, reason] = specs[index];
