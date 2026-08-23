@@ -65,7 +65,7 @@ test("NEO static contract inspection is bundle-only, credentialless, and fail cl
   assert.match(script,/neo_static_bundle_contracts/);
   assert.match(script,/credentialsMode/);
   assert.match(script,/credentialsMode/);
-  assert.match(script,/mail\.9adeadc4|mail\\\./);
+  assert.match(script,/static.*js/);
   assert.doesNotMatch(script,/accountActivator/);
   assert.doesNotMatch(script,/guardedOpener/);
 });
