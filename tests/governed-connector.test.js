@@ -25,6 +25,15 @@ test("connector dispatches once and returns objective and evidence receipts", as
   const stored = await connector.status("connector-test", first.commandId); assert.equal(stored.status, "completed"); assert.ok(stored.receipts.length >= 3);
 });
 
+test("typed connector results remain available through the return channel", async () => {
+  const connector = harness({ executeCommand: async () => assert.fail("typed command entered prose router") });
+  const first = await connector.submit("typed-result-return", mailboxEnvelope({ idempotencyKey: "typed-result-return-1" }));
+  const stored = await connector.status("typed-result-return", first.commandId);
+  assert.equal(stored.result.route.target_device, "primary-mac");
+  assert.equal(stored.result.job.authority, "read_only");
+  assert.equal(stored.result.job.id, first.result.job.id);
+});
+
 test("failed work remains resumable under the same command ID", async () => {
   let fail = true; const connector = harness({ executeCommand: async () => { if (fail) throw new Error("temporary outage"); return { terminalState: "completed" }; } });
   const input = { source: "chatgpt", idempotencyKey: `resume-${Date.now()}`, command: "Resume the bounded investigation" };
@@ -72,6 +81,27 @@ test("mailbox commands match only the primary Mac read-only capability", () => {
     idempotency_key: "mailbox-route-1",
     prohibited_routes: ["cm-100", "sierra.continue_diagnostic_investigation"]
   });
+});
+
+test("MCP-safe nested command envelopes route deterministically", () => {
+  const envelope = validateCommandEnvelope({
+    source: "openai",
+    objectiveId: "SIERRA-LI-MBX-20260823-001",
+    idempotencyKey: "nested-mailbox-route",
+    command: "Continue the existing mailbox objective.",
+    metadata: { command_envelope: {
+      objective_id: "SIERRA-LI-MBX-20260823-001",
+      capability: "neo_mailbox_evidence_bridge",
+      target_device: "primary-mac",
+      operation: "connection_verify_and_backfill",
+      authority: "read_only",
+      idempotency_key: "nested-mailbox-route",
+      prohibited_routes: ["cm-100", "stale_continuation", "gmail", "apple_mail"]
+    } }
+  });
+  assert.equal(envelope.routing.capability, "neo_mailbox_evidence_bridge");
+  assert.equal(envelope.routing.target_device, "primary-mac");
+  assert.equal(envelope.routing.authority, "read_only");
 });
 
 test("CM-100 prose cannot capture a typed mailbox objective", async () => {
