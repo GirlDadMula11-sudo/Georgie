@@ -25,6 +25,9 @@ test("NEO preload captures only bounded GET response state and no credentials or
   assert.match(source,/state\.mailboxMutation = true/);
   assert.match(source,/api\.flockmail\.com/);
   assert.match(source,/bll\.flockmail\.com/);
+  assert.match(source,/accountBindings/);
+  assert.match(source,/sierramarketinginc\\\.com/);
+  assert.match(source,/accountId/);
   assert.match(source,/authorization/);
 });
 
