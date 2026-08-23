@@ -1,4 +1,4 @@
-const CACHE = "georgie-shell-v7";
+const CACHE = "georgie-shell-v8";
 const SHELL = ["/", "/styles.css", "/sierra.css", "/enrollment.css", "/device-auth-policy.js", "/device-auth.js", "/app.js", "/sierra-desk.js", "/handsfree.js", "/manifest.webmanifest", "/georgie-icon.svg", "/georgie-avatar.svg"];
 self.addEventListener("install",event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL)).then(()=>self.skipWaiting()));});
 self.addEventListener("activate",event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim()));});
