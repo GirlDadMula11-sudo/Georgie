@@ -95,6 +95,19 @@ export async function searchSource(repository, query) {
   if (!result.ok) return result;
   return { ok: true, matches: (Array.isArray(result.data?.items) ? result.data.items : []).map(item => ({ path: item.path, sha: item.sha, url: item.html_url })) };
 }
+export async function listHandoffIssues(repository="GirlDadMula11-sudo/Georgie") {
+  const repo = assertRepository(repository);
+  const result = await request("GET", `/repos/${repo}/issues?state=open&labels=georgie-handoff&per_page=30&sort=updated&direction=asc`);
+  if (!result.ok) return result;
+  return { ok: true, issues: (Array.isArray(result.data) ? result.data : []).filter(issue=>!issue.pull_request).map(issue=>({
+    repository:repo,
+    number:issue.number,
+    title:String(issue.title||"").slice(0,500),
+    body:String(issue.body||"").slice(0,12000),
+    updatedAt:issue.updated_at||null,
+    url:issue.html_url||null
+  })) };
+}
 export async function createBranch(repository, branch, baseRef = "main") {
   const repo = assertRepository(repository);
   const base = await getBranch(repo, baseRef);

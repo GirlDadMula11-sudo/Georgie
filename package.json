@@ -7,6 +7,7 @@
   "scripts": {
     "prestart": "node scripts/install-github-source-tools.mjs && node scripts/install-owner-recovery.mjs && node scripts/repair-server-tail.mjs && node --check src/realtime-relay.js && node --check src/server.js",
     "start": "node src/server.js",
+    "worker": "node src/background-worker.js",
     "dev": "node scripts/install-github-source-tools.mjs && node scripts/install-owner-recovery.mjs && node scripts/repair-server-tail.mjs && node --watch src/server.js",
     "mac-agent": "node mac-agent/agent.js",
     "benchmark": "node scripts/run-intelligence-benchmark.mjs",
