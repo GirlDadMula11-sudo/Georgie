@@ -52,3 +52,9 @@ test("NEO immutable IDs inspect row-bound framework state without storage or cre
   assert.doesNotMatch(script,/localStorage\.getItem|sessionStorage\.getItem|document\.cookie/);
   assert.match(script,/stableRuntime/);
 });
+
+
+test("NEO source probe is same-origin GET-only and excludes credentials and body fields",()=>{
+ const script=buildNeoObservationScript({mailboxes,cursors:{},limit:2});
+ assert.match(script,/sameOriginOnly/);assert.match(script,/methods/);assert.match(script,/GET/);assert.match(script,/credentials/);assert.match(script,/same-origin/);assert.match(script,/mail\|message\|thread\|conversation\|inbox/);assert.match(script,/body\|html\|content\|attachment/);assert.match(script,/token\|secret\|password\|authorization\|session\|cookie/);assert.doesNotMatch(script,/POST|PUT|PATCH|DELETE/);
+});
