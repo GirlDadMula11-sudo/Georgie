@@ -3,7 +3,7 @@ import { runMaintenanceCycle } from "./maintenance-sentinel.js";
 import { executeCertifiedRepair } from "./repair-runbooks.js";
 import { runSelfEvolutionCycle } from "./self-evolution.js";
 import { githubSourceConfigured, listHandoffIssues } from "./integrations/github-source.js";
-import { claimNextHandoff, completeHandoff, deferHandoff, enqueueHandoff, failHandoff, listHandoffs, missionStatus } from "./shared-mission.js";
+import { claimNextHandoff, completeHandoff, deferHandoff, enqueueHandoff, failHandoff, listHandoffs, missionStatus, reconcileHandoffGates } from "./shared-mission.js";
 
 const USER=()=>process.env.GEORGIE_EXECUTIVE_USER_ID||process.env.GEORGIE_PRIMARY_USER_ID||"primary";
 const INTERVAL=Math.max(60_000,Number(process.env.GEORGIE_ENGINEERING_INTERVAL_MS||60_000));
@@ -23,7 +23,7 @@ export async function seedMissionWork(userId=USER()){
     [88,"Exactly-once communication delivery and thread continuity","engineering"]
   ];
   const keys=seeds.map(([,objective])=>`mission:${objective.toLowerCase().replace(/[^a-z0-9]+/g,"-")}`),results=[];
-  for(let index=0;index<seeds.length;index+=1){const[priority,objective,type]=seeds[index];results.push(await enqueueHandoff(userId,{source:"shared_mission",priority,objective,type,dependsOn:index?[keys[index-1]]:[],acceptanceCriteria:["Current authoritative evidence retained","No later mission gate advanced without the preceding gate","Any defect has an exact reproducible repair or remains explicitly held"],dedupeKey:keys[index]}));}return results;
+  for(let index=0;index<seeds.length;index+=1){const[priority,objective,type]=seeds[index];results.push(await enqueueHandoff(userId,{source:"shared_mission",priority,objective,type,dependsOn:index?[keys[index-1]]:[],acceptanceCriteria:["Current authoritative evidence retained","No later mission gate advanced without the preceding gate","Any defect has an exact reproducible repair or remains explicitly held"],dedupeKey:keys[index]}));}await reconcileHandoffGates(userId);return results;
 }
 export async function syncAssistantHandoffs(userId=USER()){
   if(!githubSourceConfigured())return{status:"not_configured",imported:0};
