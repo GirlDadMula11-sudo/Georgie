@@ -1,9 +1,7 @@
 import { dayTradingCapabilityContract } from "./day-trading-intelligence.js";
 
 const INVESTMENT = /\b(stock(?:s)?|equity|equities|crypto(?:currency)?|bitcoin|btc|ethereum|eth|token|blockchain|etf|bond|treasury|fixed income|commodity|gold|oil|forex|currency|option(?:s)?|future(?:s)?|portfolio|brokerage|dividend|earnings|valuation|market cap|short interest|sec filing|10-[kq]|8-k|yield curve|investment|investing|trade|trading)\b/i;
-
 export function isInvestmentIntent(input = "") { return INVESTMENT.test(String(input || "")); }
-
 export function investmentRuntimePrompt(input = "") {
   if (!isInvestmentIntent(input)) return "";
   const dayTrading = /\b(day\s*trad(?:e|ing)|scalp(?:ing)?|intraday|opening range|vwap)\b/i.test(String(input||""));
@@ -21,10 +19,10 @@ ${dayTrading?`- DAY-TRADING MODE: classify regime before setup selection; requir
 - Research, watchlists, alerts, models, draft orders, and paper-trading simulations may be prepared. Any real order, transfer, wallet transaction, staking, lending, leverage, derivatives position, brokerage permission change, API trading activation, or irreversible financial action requires explicit transaction-specific approval plus independent verification of instrument, venue, side, order type, quantity/notional, limit/slippage, fees, account, and maximum loss. Never autonomously trade or custody assets.
 - Disclose important limitations and conflicts. Do not present Georgie as a registered investment adviser, broker, exchange, custodian, tax professional, or fiduciary. Encourage qualified professional review when suitability, taxes, legal status, retirement assets, leverage, or material loss exposure warrants it.`;
 }
-
 export function investmentCapabilityContract() {
   return {
-    schema: "georgie.investment-intelligence.v2",
+    schema: "georgie.investment-intelligence.v1",
+    extensions:["georgie.day-trading.v2"],
     assetClasses: ["equities", "funds", "fixed_income", "rates", "commodities", "fx", "listed_derivatives", "cryptoassets", "stablecoins", "defi"],
     evidence: { currentFactsRequireAsOfTime: true, sourcesRequired: true, delayedDataLabeled: true, primarySourcesPreferred: true, conflictsPreserved: true },
     analysis: ["fundamental", "valuation", "technical_context", "macro", "on_chain", "tokenomics", "portfolio_exposure", "scenario_stress", "risk_budgeting", "intraday_regime", "execution_quality", "setup_expectancy"],
