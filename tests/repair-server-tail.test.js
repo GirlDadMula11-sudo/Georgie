@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
@@ -25,4 +27,29 @@ test("startup tail repair preserves a healthy governed connector registration", 
   assert.equal(digest(after), digest(before));
   assert.match(after, /app\.use\("\/mcp",createPortableMcpRouter/);
   assert.match(after, /startEngineeringCoordinator\(\)/);
+});
+
+test("v2 activation preserves connector routes registered after completeTurn", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "georgie-tail-repair-"));
+  try {
+    await mkdir(path.join(root, "src", "integrations"), { recursive: true });
+    await mkdir(path.join(root, "scripts"), { recursive: true });
+    const source = (await readFile(serverPath, "utf8")).replaceAll('engine:"v2-concurrent"', 'engine:"legacy-test"');
+    const repair = await readFile(repairPath, "utf8");
+    await writeFile(path.join(root, "src", "server.js"), source);
+    await writeFile(path.join(root, "scripts", "repair-server-tail.mjs"), repair);
+
+    const result = spawnSync(process.execPath, [path.join(root, "scripts", "repair-server-tail.mjs")], {
+      cwd: root,
+      encoding: "utf8"
+    });
+    assert.equal(result.status, 0, result.stderr);
+
+    const repaired = await readFile(path.join(root, "src", "server.js"), "utf8");
+    assert.match(repaired, /app\.use\("\/api\/connector",createGovernedConnectorRouter/);
+    assert.match(repaired, /app\.use\("\/mcp",createPortableMcpRouter/);
+    assert.match(repaired, /app\.get\("\/health"/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
