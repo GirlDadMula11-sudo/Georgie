@@ -45,10 +45,13 @@ test("ordinary chat does not expose the execution panel or Sierra-only receipt c
   assert.doesNotMatch(source,/completion awaits terminal business evidence|durable connection active|long-running tool remains durable/i);
 });
 
-test("investment direct response executes before heavyweight turn orchestration",()=>{
+test("investment direct response executes before heavyweight normal-chat orchestration",()=>{
   const source=fs.readFileSync(new URL("../src/v2-turn-engine.js",import.meta.url),"utf8");
-  const quick=source.indexOf("const quickInvestment=investmentDirectResponse(input,history)");
-  const envelope=source.indexOf("prepareUnifiedOperatingTurn({userId,sessionId,input})");
+  const start=source.indexOf("export async function completeTurnV2");
+  assert.ok(start>=0);
+  const normal=source.slice(start);
+  const quick=normal.indexOf("const quickInvestment=investmentDirectResponse(input,history)");
+  const envelope=normal.indexOf("prepareUnifiedOperatingTurn({userId,sessionId,input})");
   assert.ok(quick>=0);
   assert.ok(envelope>=0);
   assert.ok(quick<envelope);
