@@ -1,6 +1,6 @@
 import express from "express";
 import crypto from "crypto";
-import { checkpointMacJob, claimMacJobs, completeMacJob, enqueueMacJob, listMacJobs, reconcileMacDispatches } from "./queue.js";
+import { checkpointMacJob, claimMacJobs, completeMacJob, enqueueMacJob, listMacJobs, reconcileMacDispatches, resumeFailedMacJob } from "./queue.js";
 import { acceptMailboxEvidenceBatch } from "../mailbox-evidence-bridge.js";
 
 const heartbeats = new Map();
@@ -93,6 +93,18 @@ export function createMacRouter() {
       res.status(job ? 200 : 404).json({ ok: Boolean(job), job: job || null });
     } catch (error) {
       res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Could not read Mac job status" });
+    }
+  });
+
+  router.post("/:deviceId/jobs/:jobId/resume", async (req, res) => {
+    try {
+      const job = await resumeFailedMacJob(String(req.params.deviceId), String(req.params.jobId), {
+        objectiveId: String(req.body?.objectiveId || ""),
+        expectedAction: String(req.body?.expectedAction || "")
+      });
+      res.status(job ? 200 : 404).json({ ok: Boolean(job), job: job || null });
+    } catch (error) {
+      res.status(409).json({ ok: false, error: error instanceof Error ? error.message : "Could not resume Mac job" });
     }
   });
 

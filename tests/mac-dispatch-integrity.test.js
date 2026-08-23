@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { enqueueMacJob, claimMacJobs, completeMacJob, listMacJobs, reconcileMacDispatches } from "../src/mac/queue.js";
+import { enqueueMacJob, claimMacJobs, completeMacJob, listMacJobs, reconcileMacDispatches, resumeFailedMacJob } from "../src/mac/queue.js";
 
 test("approved Mac dispatch is single-flight and carries a durable receipt",async()=>{
   const key=`approval:test:${Date.now()}`;
@@ -10,6 +10,25 @@ test("approved Mac dispatch is single-flight and carries a durable receipt",asyn
   const claimed=await claimMacJobs("test-mac",5);const job=claimed.find(item=>item.id===first.id);assert.ok(job);assert.equal(job.status,"claimed");assert.equal(job.dispatchReceipt.deviceId,"test-mac");
   const completed=await completeMacJob("test-mac",first.id,{result:{ok:true}});assert.equal(completed.status,"completed");
   const persisted=(await listMacJobs("test",100)).find(item=>item.id===first.id);assert.equal(persisted.status,"completed");
+});
+
+test("version-repaired mailbox job resumes with the same identity and immutable failure history",async()=>{
+  const nonce=`${Date.now()}-${Math.random().toString(16).slice(2)}`,deviceId=`resume-mac-${nonce}`,objectiveId=`objective-${nonce}`;
+  const job=await enqueueMacJob({userId:`resume-user-${nonce}`,deviceId,action:"mailbox.read_only_backfill",args:{objectiveId,authority:"read_only"},risk:"read",idempotencyKey:`resume-${nonce}`,maxAttempts:1});
+  await claimMacJobs(deviceId,1);const failed=await completeMacJob(deviceId,job.id,{error:"Unsupported Mac action: mailbox.read_only_backfill"});assert.equal(failed.status,"failed");
+  const resumed=await resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill"});
+  assert.equal(resumed.id,job.id);assert.equal(resumed.idempotencyKey,job.idempotencyKey);assert.equal(resumed.status,"queued");assert.equal(resumed.resumeCount,1);assert.equal(resumed.resumeHistory.length,1);assert.equal(resumed.resumeHistory[0].error,"Unsupported Mac action: mailbox.read_only_backfill");assert.ok(resumed.maxAttempts>=resumed.attempts+5);
+});
+
+test("same-job resume rejects cross-objective, wrong-action, and completed jobs",async()=>{
+  const nonce=`${Date.now()}-${Math.random().toString(16).slice(2)}`,deviceId=`resume-isolation-${nonce}`,objectiveId=`objective-${nonce}`;
+  const failedJob=await enqueueMacJob({userId:`resume-isolation-user-${nonce}`,deviceId,action:"mailbox.read_only_backfill",args:{objectiveId,authority:"read_only"},risk:"read",idempotencyKey:`resume-isolation-${nonce}`,maxAttempts:1});
+  await claimMacJobs(deviceId,1);await completeMacJob(deviceId,failedJob.id,{error:"Unsupported Mac action: mailbox.read_only_backfill"});
+  await assert.rejects(()=>resumeFailedMacJob(deviceId,failedJob.id,{objectiveId:"other-objective",expectedAction:"mailbox.read_only_backfill"}),/MAC_JOB_OBJECTIVE_MISMATCH/);
+  await assert.rejects(()=>resumeFailedMacJob(deviceId,failedJob.id,{objectiveId,expectedAction:"browser.workflow"}),/MAC_JOB_ACTION_MISMATCH/);
+  const completedJob=await enqueueMacJob({userId:`resume-completed-user-${nonce}`,deviceId,action:"mailbox.read_only_backfill",args:{objectiveId,authority:"read_only"},risk:"read",idempotencyKey:`resume-completed-${nonce}`});
+  await claimMacJobs(deviceId,1);await completeMacJob(deviceId,completedJob.id,{result:{ok:true}});
+  await assert.rejects(()=>resumeFailedMacJob(deviceId,completedJob.id,{objectiveId,expectedAction:"mailbox.read_only_backfill"}),/MAC_JOB_NOT_RESUMABLE/);
 });
 
 test("temporary Mac delivery failures retry and missing receipts raise a durable alert",async()=>{
