@@ -1,8 +1,10 @@
 import crypto from "node:crypto";
 import { recordAction } from "../action-journal.js";
+import { readCloudState, writeCloudState } from "../cloud-state.js";
 
 const VERCEL_BASE = "https://api.vercel.com";
 const SUPABASE_BASE = "https://api.supabase.com";
+const IDEMPOTENCY_NS = "infrastructure_admin_idempotency";
 const SENSITIVE = /token|secret|password|authorization|cookie|invite.?code|key|credential/i;
 const WRITE_ACTIONS = new Set([
   "vercel.team.member.invite",
@@ -22,7 +24,7 @@ function timeout(ms = 8000) { return AbortSignal.timeout(Math.max(1000, Math.min
 function clean(value, max = 240) { return String(value ?? "").trim().slice(0, max); }
 function isEmail(value) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean(value, 320)); }
 function idempotencyKey(input = {}) {
-  const stable = JSON.stringify({ provider: input.provider, action: input.action, tenant: input.tenant, resource: input.resource, subject: input.subject, role: input.role });
+  const stable = JSON.stringify({ action: input.action, tenant: input.tenant || input.teamId || input.organizationSlug, resource: input.resource || input.projectId, subject: input.subject || input.email || input.uid, role: input.role });
   return clean(input.idempotencyKey, 160) || crypto.createHash("sha256").update(stable).digest("hex");
 }
 
@@ -61,6 +63,7 @@ function normalizeCommand(input = {}) {
   const action = clean(input.action, 120);
   if (!ALLOWED.has(action)) throw new Error("Infrastructure-admin action is not allowlisted");
   const write = WRITE_ACTIONS.has(action);
+  if (write && process.env.GEORGIE_AUTOMATION_KILL_SWITCH === "true") throw new Error("Georgie automation kill switch is active");
   if (write && process.env.GEORGIE_INFRA_ADMIN_WRITES_ENABLED !== "true") throw new Error("Infrastructure-admin writes are disabled");
   if (write && input.approved !== true) throw new Error("Explicit approval is required for infrastructure-admin writes");
   if (write && !clean(input.approvalId, 160)) throw new Error("Approved infrastructure-admin writes require an approvalId");
@@ -85,9 +88,11 @@ export function infrastructureAdminCapabilities() {
       supabaseManagement: Boolean(process.env.GEORGIE_SUPABASE_MANAGEMENT_TOKEN)
     },
     writesEnabled: process.env.GEORGIE_INFRA_ADMIN_WRITES_ENABLED === "true",
+    killSwitchActive: process.env.GEORGIE_AUTOMATION_KILL_SWITCH === "true",
     operations: [...ALLOWED],
     defaultDeny: true,
     explicitApprovalForWrites: true,
+    durableIdempotency: true,
     rawCredentialsModelVisible: false,
     billingAndOwnershipWrites: false,
     projectDeletion: false,
@@ -145,20 +150,40 @@ async function executeSupabase(command) {
   throw new Error("Unsupported Supabase admin action");
 }
 
+async function priorIdempotentResult(userId, key) {
+  const state = await readCloudState(String(userId || "primary"), IDEMPOTENCY_NS, { entries: {} });
+  const entry = state?.entries?.[key];
+  return entry?.status === "completed" ? entry : null;
+}
+
+async function storeIdempotentResult(userId, key, value) {
+  const uid = String(userId || "primary");
+  const state = await readCloudState(uid, IDEMPOTENCY_NS, { entries: {} });
+  const entries = state?.entries && typeof state.entries === "object" ? state.entries : {};
+  entries[key] = { ...value, updatedAt: new Date().toISOString() };
+  const compact = Object.fromEntries(Object.entries(entries).slice(-1000));
+  await writeCloudState(uid, IDEMPOTENCY_NS, { entries: compact, updatedAt: new Date().toISOString() });
+}
+
 export async function executeInfrastructureAdmin(userId, input = {}) {
   const command = normalizeCommand(input);
   const startedAt = new Date().toISOString();
+  if (command.write) {
+    const prior = await priorIdempotentResult(userId, command.idempotencyKey);
+    if (prior) return { ok: true, action: command.action, idempotencyKey: command.idempotencyKey, deduplicated: true, result: prior.result, verifiedAt: prior.updatedAt };
+  }
   try {
     const result = command.provider === "vercel" ? await executeVercel(command) : await executeSupabase(command);
+    if (command.write) await storeIdempotentResult(userId, command.idempotencyKey, { status: "completed", action: command.action, result });
     await recordAction(userId, {
       tool: `infrastructure_admin.${command.action}`,
       risk: command.write ? "high" : "low",
       status: "completed",
       approvalRequired: command.write,
       startedAt,
-      argsSummary: { tenant: command.tenant, resource: command.resource, subject: command.subject, role: command.role, approvalId: command.approvalId, idempotencyKey: command.idempotencyKey }
+      argsSummary: { tenant: command.tenant, resource: command.resource, subject: command.subject, role: command.role, approvalId: command.approvalId, requestIdempotency: command.idempotencyKey }
     });
-    return { ok: true, action: command.action, idempotencyKey: command.idempotencyKey, result, verifiedAt: new Date().toISOString() };
+    return { ok: true, action: command.action, idempotencyKey: command.idempotencyKey, deduplicated: false, result, verifiedAt: new Date().toISOString() };
   } catch (error) {
     await recordAction(userId, {
       tool: `infrastructure_admin.${command.action}`,
@@ -166,7 +191,7 @@ export async function executeInfrastructureAdmin(userId, input = {}) {
       status: "failed",
       approvalRequired: command.write,
       startedAt,
-      argsSummary: { tenant: command.tenant, resource: command.resource, subject: command.subject, role: command.role, approvalId: command.approvalId, idempotencyKey: command.idempotencyKey },
+      argsSummary: { tenant: command.tenant, resource: command.resource, subject: command.subject, role: command.role, approvalId: command.approvalId, requestIdempotency: command.idempotencyKey },
       error: error instanceof Error ? error.message : String(error)
     }).catch(() => {});
     throw error;
