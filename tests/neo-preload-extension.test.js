@@ -10,26 +10,26 @@ const diagnostic=fs.readFileSync(new URL("../mac-agent/neo-preload-extension/dia
 test("NEO preload is narrowly scoped and runs in the page main world before navigation",()=>{
   assert.equal(manifest.manifest_version,3);
   assert.deepEqual(manifest.host_permissions,["https://app.neo.space/*"]);
-  assert.deepEqual(manifest.permissions,["scripting"]);
+  assert.deepEqual(manifest.permissions,["scripting","webNavigation"]);
   assert.equal(manifest.background.service_worker,"background.js");
   assert.equal(manifest.background.type,undefined);
-  const mainScript=manifest.content_scripts.find(item=>item.world==="MAIN");
-  const diagnosticScript=manifest.content_scripts.find(item=>item.world==="ISOLATED");
-  assert.deepEqual(mainScript.matches,["https://app.neo.space/*"]);
-  assert.deepEqual(mainScript.js,["preload.js"]);
-  assert.equal(mainScript.run_at,"document_start");
+  assert.equal(manifest.content_scripts.length,1);
+  const diagnosticScript=manifest.content_scripts[0];
+  assert.equal(diagnosticScript.world,"ISOLATED");
   assert.deepEqual(diagnosticScript.matches,["https://app.neo.space/*"]);
   assert.deepEqual(diagnosticScript.js,["diagnostic.js"]);
   assert.equal(diagnosticScript.run_at,"document_start");
-  assert.match(background,/registerContentScripts/);
-  assert.match(background,/runAt: "document_start"/);
+  assert.match(background,/webNavigation\.onCommitted/);
+  assert.match(background,/executeScript/);
   assert.match(background,/world: "MAIN"/);
-  assert.match(background,/persistAcrossSessions: true/);
+  assert.match(background,/injectImmediately: true/);
+  assert.match(background,/hostEquals: "app\.neo\.space"/);
+  assert.doesNotMatch(background,/registerContentScripts/);
   assert.match(source,/preNavigation/);
   assert.match(source,/performance\.timeOrigin/);
   assert.match(source,/registered_main_world_document_start/);
   assert.match(background,/GEORGIE_NEO_EXTENSION_DIAGNOSTIC/);
-  assert.match(background,/REGISTRATION_EXCEPTION/);
+  assert.match(background,/WEBNAVIGATION_MAIN_INJECTION_FAILED/);
   assert.match(diagnostic,/georgieNeoExtensionDiagnostic/);
   assert.match(diagnostic,/SERVICE_WORKER_UNREACHABLE/);
   assert.doesNotMatch(diagnostic,/document\\.cookie|authorization|token|request\\.body|message content/i);
@@ -57,7 +57,6 @@ test("NEO adapter refuses certification without a completed pre-navigation captu
   assert.match(script,/neo-preload-api:/);
   assert.match(script,/connection\.apiProbe\?\.status !== "completed"/);
 });
-
 
 test("NEO preload health enumerates exact NEO tabs and reports named fail-closed checks",()=>{
   const agent=fs.readFileSync(new URL("../mac-agent/agent.js",import.meta.url),"utf8");

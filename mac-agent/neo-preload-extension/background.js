@@ -1,34 +1,32 @@
-const registration = {
-  id: "georgie-neo-main-world-preload",
-  matches: ["https://app.neo.space/*"],
-  js: ["preload.js"],
-  runAt: "document_start",
-  world: "MAIN",
-  persistAcrossSessions: true
-};
+let lastInjection = null;
 
 function sanitizeMessage(error) {
   return String(error?.message || error || "unknown").replace(/[\r\n]/g, " ").slice(0, 240);
 }
 
-async function register() {
+async function injectMainWorld(details) {
+  if (details.frameId !== 0 || !String(details.url || "").startsWith("https://app.neo.space/")) return;
   try {
-    const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [registration.id] });
-    if (existing.length) await chrome.scripting.unregisterContentScripts({ ids: [registration.id] });
-    await chrome.scripting.registerContentScripts([registration]);
-    const verified = await chrome.scripting.getRegisteredContentScripts({ ids: [registration.id] });
-    if (!verified.length) return { ok: false, code: "REGISTRATION_NOT_READ_BACK", message: "registered content script was not returned" };
-    return { ok: true, code: "REGISTERED", message: null };
+    await chrome.scripting.executeScript({
+      target: { tabId: details.tabId, frameIds: [0] },
+      files: ["preload.js"],
+      world: "MAIN",
+      injectImmediately: true
+    });
+    lastInjection = { ok: true, code: "WEBNAVIGATION_MAIN_INJECTED", message: null, tabId: details.tabId };
   } catch (error) {
-    return { ok: false, code: "REGISTRATION_EXCEPTION", message: sanitizeMessage(error) };
+    lastInjection = { ok: false, code: "WEBNAVIGATION_MAIN_INJECTION_FAILED", message: sanitizeMessage(error), tabId: details.tabId };
   }
 }
 
-chrome.runtime.onInstalled.addListener(() => { void register(); });
-chrome.runtime.onStartup.addListener(() => { void register(); });
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.webNavigation.onCommitted.addListener(
+  details => { void injectMainWorld(details); },
+  { url: [{ schemes: ["https"], hostEquals: "app.neo.space" }] }
+);
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type !== "GEORGIE_NEO_EXTENSION_DIAGNOSTIC") return false;
-  void register().then(sendResponse);
-  return true;
+  const sameTab = lastInjection && sender.tab?.id === lastInjection.tabId;
+  sendResponse(sameTab ? lastInjection : { ok: true, code: "WEBNAVIGATION_MAIN_BRIDGE_ARMED", message: null });
+  return false;
 });
-void register();
