@@ -76,3 +76,17 @@ test("NEO static contract proof authorizes no source and accesses no mailbox dat
   assert.throws(()=>validateNeoStaticContractInspection({...observed,authorizedReadSource:{origin:"https://api.example"}},observed.objectiveId),/PROOF_FAILED/);
   assert.throws(()=>validateNeoStaticContractInspection({...observed,mailboxDataAccessed:true},observed.objectiveId),/PROOF_FAILED/);
 });
+
+
+test("NEO static resolver analyzes only bounded provider-anchor windows",()=>{
+  const script=buildNeoStaticContractInspectionScript({objectiveId:"SIERRA-LI-MBX-20260823-001"});
+  assert.match(script,/api\.flockmail\.com/);
+  assert.match(script,/bll\.flockmail\.com/);
+  assert.match(script,/ae\\\/ws\\\/create|ae\/ws\/create/);
+  assert.match(script,/routeResolutions/);
+  assert.match(script,/immutableIdFields/);
+  assert.match(script,/contextHash/);
+  assert.match(script,/authorizationBlocked:true/);
+  assert.doesNotMatch(script,/accountActivator/);
+  assert.doesNotMatch(script,/messageOpeningPerformed:true/);
+});
