@@ -4,8 +4,8 @@ export function terminalPartialResult({startedAt,firstResponseMs=0,reason="turn_
   const latencyMs=Math.max(0,Date.now()-Number(startedAt||Date.now()));
   const providerTimedOut=reason==="provider_timeout";
   const text=providerTimedOut
-    ? "The foreground intelligence request reached its provider timeout, but this objective remains retained for automatic recovery. I have not marked unfinished work complete. You do not need to restate or manually resume the objective."
-    : "The foreground response window ended before every requested check finished. Accepted work is continuing automatically and late verified results remain eligible for persistence. Nothing unfinished has been marked complete, and you do not need to ask me to continue.";
+    ? "I accepted and preserved this objective for automatic recovery after the foreground intelligence provider timed out. Unfinished work is not treated as completed, and recovery continues without restating the objective."
+    : "The foreground response window ended before every requested check finished. Accepted work is continuing automatically and late verified results remain eligible for persistence. Unfinished work is not treated as completed.";
   return {
     text,
     responseId:null,
@@ -23,8 +23,11 @@ export function terminalPartialResult({startedAt,firstResponseMs=0,reason="turn_
     firstResponseMs:firstResponseMs||latencyMs,
     contextReadyMs:latencyMs,
     completed:false,
-    terminal:false,
+    // terminal describes only this foreground response. The durable objective
+    // remains alive when backgroundContinuation is true.
+    terminal:true,
     backgroundContinuation:true,
+    terminalScope:"foreground_response",
     terminalReason:reason,
     failureDetail:String(detail||"").slice(0,300)
   };
@@ -35,7 +38,7 @@ export async function withTurnDeadline(work,{timeoutMs=TURN_DEADLINE_MS,onDeadli
   const operation=Promise.resolve().then(work);
   // Streaming requests already have durable request identity, reconnect
   // polling, and bounded provider/tool calls. Do not convert their real late
-  // result into a terminal partial merely because the HTTP turn crossed the
+  // result into a foreground partial merely because the HTTP turn crossed the
   // short synchronous-response budget.
   if(timeoutMs===null||timeoutMs===false)return operation;
   // The operation is intentionally not cancelled. The foreground deadline is
