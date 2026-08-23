@@ -22,3 +22,19 @@ try {
 } catch (error) {
   publish({ ok: false, code: "SERVICE_WORKER_UNREACHABLE", message: error?.message });
 }
+
+async function handleDebuggerRequest() {
+  const raw = document.documentElement.dataset.georgieNeoDebuggerRequest;
+  if (!raw) return;
+  let request;
+  try { request = JSON.parse(raw); } catch { return; }
+  if (!request?.id || request.type !== "verify_session") return;
+  delete document.documentElement.dataset.georgieNeoDebuggerRequest;
+  chrome.runtime.sendMessage({ type: "GEORGIE_NEO_DEBUGGER_VERIFY", mailboxes: request.mailboxes }, response => {
+    const result = chrome.runtime.lastError ? { ok: false, code: "NEO_DEBUGGER_RELAY_UNREACHABLE", message: chrome.runtime.lastError.message } : response;
+    document.documentElement.dataset.georgieNeoDebuggerResult = JSON.stringify({ id: request.id, ...result });
+  });
+}
+
+new MutationObserver(handleDebuggerRequest).observe(document.documentElement, { attributes: true, attributeFilter: ["data-georgie-neo-debugger-request"] });
+handleDebuggerRequest();

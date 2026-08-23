@@ -11,7 +11,7 @@ import { verifyNeoCdpSession } from "./neo-cdp-reader.js";
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.27";
+const AGENT_VERSION = "2.2.28";
 const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;
 const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));
 const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));
@@ -339,7 +339,7 @@ async function execute(job) {
       const extension = path.join(repo, "mac-agent/neo-preload-extension");
       const manifestText = await fs.readFile(path.join(extension, "manifest.json"), "utf8");
       const manifest = JSON.parse(manifestText);
-      if (manifest.manifest_version !== 3 || manifest.background?.service_worker !== "background.js" || !manifest.permissions?.includes("scripting") || JSON.stringify(manifest.host_permissions) !== JSON.stringify(["https://app.neo.space/*"])) throw new Error("NEO_PRELOAD_MANIFEST_SCOPE_REJECTED");
+      if (manifest.manifest_version !== 3 || manifest.background?.service_worker !== "background.js" || JSON.stringify(manifest.permissions) !== JSON.stringify(["debugger"]) || JSON.stringify(manifest.host_permissions) !== JSON.stringify(["https://app.neo.space/*"])) throw new Error("NEO_PRELOAD_MANIFEST_SCOPE_REJECTED");
       const preloadText = await fs.readFile(path.join(extension, "preload.js"), "utf8");
       if (/document\.cookie|localStorage|getItem\(|sessionStorage|chrome\.storage|request\.headers|request\.body|init\.body/i.test(preloadText)) throw new Error("NEO_PRELOAD_PRIVACY_GUARD_REJECTED");
       const manifestHash = crypto.createHash("sha256").update(manifestText).digest("hex");
@@ -351,7 +351,7 @@ async function execute(job) {
       const reloadScript = `tell application "Google Chrome"\nrepeat with browserWindow in windows\nrepeat with browserTab in tabs of browserWindow\nset tabUrl to URL of browserTab\nif tabUrl starts with "https://app.neo.space/" or tabUrl is "https://app.neo.space" then\nreload browserTab\nreturn "RELOADED"\nend if\nend repeat\nend repeat\nreturn "NEO_TAB_NOT_FOUND"\nend tell`;
       const reload = await runDeveloper("/usr/bin/osascript", ["-e", reloadScript], { timeout: 15000 });
       if (reload.stdout.trim() !== "RELOADED") throw new Error("NEO_POST_REGISTRATION_RELOAD_FAILED");
-      return { repo, extension, manifestVersion: manifest.version, manifestHash, preloadHash, executionBridge: "registered_main_world_document_start", runAt: "document_start", world: "MAIN", matches: manifest.host_permissions, chromeRelaunched: true, postRegistrationReload: true, credentialsTransferred: false };
+      return { repo, extension, manifestVersion: manifest.version, manifestHash, preloadHash, executionBridge: "chrome_debugger_local_relay", runAt: "document_start", world: "ISOLATED", matches: manifest.host_permissions, chromeRelaunched: true, postRegistrationReload: true, credentialsTransferred: false };
     }
     case "developer.inspect_neo_preload": {
       const repo = assertDeveloperRoot(a.repo);
@@ -376,7 +376,16 @@ async function execute(job) {
     }
     case "mailbox.neo_cdp_verify_session": {
       if (a.authority !== "read_only") throw new Error("NEO_CDP_AUTHORITY_REJECTED");
-      return verifyNeoCdpSession({ mailboxes: a.mailboxes });
+      const requested = (Array.isArray(a.mailboxes) ? a.mailboxes : []).map(value => String(value).trim().toLowerCase());
+      if (!requested.length || requested.some(value => !/^[^@\s]+@sierramarketinginc\.com$/.test(value))) throw new Error("NEO_DEBUGGER_MAILBOX_SCOPE_REJECTED");
+      const requestId = crypto.randomUUID();
+      const browserScript = `JSON.stringify((()=>{const root=document.documentElement;root.dataset.georgieNeoDebuggerRequest=${JSON.stringify(JSON.stringify({id:requestId,type:"verify_session",mailboxes:requested}))};return{queued:true}})())`;
+      const publishScript = `tell application "Google Chrome"\nrepeat with browserWindow in windows\nrepeat with browserTab in tabs of browserWindow\nset tabUrl to URL of browserTab\nif tabUrl starts with "https://app.neo.space/" then\nexecute browserTab javascript ${JSON.stringify(browserScript)}\ndelay 2\nreturn execute browserTab javascript "document.documentElement.dataset.georgieNeoDebuggerResult || ''"\nend if\nend repeat\nend repeat\nreturn ""\nend tell`;
+      const output = await runDeveloper("/usr/bin/osascript", ["-e", publishScript], { timeout: 15000 });
+      if (!output.stdout.trim()) throw new Error("NEO_DEBUGGER_RELAY_NO_RESULT");
+      const result = JSON.parse(output.stdout.trim());
+      if (result.id !== requestId || result.ok !== true) throw new Error(`${result.code||"NEO_DEBUGGER_SESSION_NOT_VERIFIED"}:${result.message||"no_detail"}`);
+      return { provider: result.provider, origin: result.origin, bindings: result.bindings, authority: "read_only", messageContentAccessed: false, credentialsTransferred: false, mutationPerformed: false };
     }
     case "developer.apply_patch": {
       const repo = assertDeveloperRoot(a.repo);
