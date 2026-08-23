@@ -128,6 +128,36 @@ test("unsupported capabilities and mismatched authority fail explicitly", () => 
   assert.throws(() => validateCommandEnvelope(mailboxEnvelope({ metadata: { ...mailboxEnvelope().metadata, authority: "write" } })), /CAPABILITY_AUTHORITY_MISMATCH/);
 });
 
+test("primary Mac maintenance is exact, bounded, and cannot enter mailbox routes", async () => {
+  const input = {
+    source: "chatgpt",
+    objectiveId: "SIERRA-LI-MBX-20260823-001",
+    idempotencyKey: `mac-self-update-${Date.now()}`,
+    command: "Update and restart the local Georgie agent, then resume the existing objective.",
+    metadata: {
+      capability: "primary_mac.agent.maintenance",
+      target_device: "primary-mac",
+      operation: "update_restart_from_main",
+      authority: "local_admin",
+      prohibited_routes: ["cm-100", "stale_continuation", "gmail", "apple_mail", "mailbox.read", "mailbox.write"],
+      repo: "/Users/mac/Georgie",
+      expected_agent_version: "2.2.5"
+    }
+  };
+  const envelope = validateCommandEnvelope(input);
+  assert.equal(envelope.routing.capability, "primary_mac.agent.maintenance");
+  assert.equal(envelope.routing.authority, "local_admin");
+  const connector = harness({ executeCommand: async () => assert.fail("maintenance command entered prose router") });
+  const first = await connector.submit("primary", input);
+  const duplicate = await connector.submit("primary", input);
+  assert.deepEqual(first.result.jobs.map((job) => job.action), ["app.activate", "ui.type_text", "ui.key"]);
+  assert.equal(first.result.jobs.every((job) => job.deviceId === "primary-mac"), true);
+  assert.equal(duplicate.duplicate, true);
+  assert.throws(() => validateCommandEnvelope({ ...input, metadata: { ...input.metadata, operation: "connection_verify_and_backfill" } }), /UNSUPPORTED_OPERATION/);
+  assert.throws(() => validateCommandEnvelope({ ...input, metadata: { ...input.metadata, authority: "read_only" } }), /CAPABILITY_AUTHORITY_MISMATCH/);
+  assert.throws(() => validateCommandEnvelope({ ...input, metadata: { ...input.metadata, prohibited_routes: ["mailbox.read", "cm-100", "arbitrary"] } }), /UNKNOWN_PROHIBITED_ROUTE/);
+});
+
 test("interruption resumes the same objective and step", async () => {
   let fail = true;
   const connector = harness({ executeCommand: async () => { if (fail) throw new Error("interrupted"); return { terminalState: "completed" }; } });
