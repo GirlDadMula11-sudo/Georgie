@@ -27,6 +27,22 @@ test("day trading followup uses recent budget and answers immediately",()=>{
   assert.doesNotMatch(result?.text||"",/still working|durable|terminal|business evidence/i);
 });
 
+test("investment autonomy request answers immediately with near-autopilot boundary",()=>{
+  const history=[
+    {role:"user",content:"Can you manage my stocks with a $200 budget?"},
+    {role:"assistant",content:"Yes."},
+    {role:"user",content:"What about day trading?"}
+  ];
+  const result=investmentDirectResponse("Better yet can we automate it through you where you control it all for me",history);
+  assert.equal(result?.completed,true);
+  assert.equal(result?.route?.domain,"investment");
+  assert.match(result?.text||"",/automate almost the entire trading workflow|near-autopilot/i);
+  assert.match(result?.text||"",/screening|research|risk rules|order preparation/i);
+  assert.match(result?.text||"",/approve|approval/i);
+  assert.match(result?.text||"",/\$200/);
+  assert.doesNotMatch(result?.text||"",/still working|durable|terminal|business evidence/i);
+});
+
 test("ordinary investment research still uses the deeper intelligence path",()=>{
   assert.equal(investmentDirectResponse("Analyze Nvidia valuation and current earnings risk"),null);
 });
