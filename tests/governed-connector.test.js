@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createGovernedConnector, normalizeConnectorState, validateCommandEnvelope } from "../src/governed-connector.js";
+import { createGovernedConnector, normalizeConnectorState, validateCommandEnvelope, summarizeGovernedMacJob } from "../src/governed-connector.js";
 
 function harness(options = {}) {
   let state = { schema: "georgie.governed-connector.v1", version: 1, commands: [], events: [], receipts: [], updatedAt: null };
@@ -179,4 +179,13 @@ test("typed NEO contract inspection is diagnostic-only and cannot dispatch mailb
   assert.equal(result.result.job.action,"mailbox.neo_static_contract_inspect");
   assert.equal(result.result.job.authority,"read_only");
   assert.notEqual(result.result.job.action,"mailbox.read_only_backfill");
+});
+
+
+test("completed NEO static contract diagnostics survive the governed return channel",()=>{
+  const inspection={provider:"neo_static_bundle_contracts",objectiveId:"SIERRA-LI-MBX-20260823-001",authorizationBlocked:true,contracts:[{transport:"https",origin:"https://api.neo.example",path:"/mail/messages"}]};
+  const summary=summarizeGovernedMacJob({id:"job-1",status:"completed",action:"mailbox.neo_static_contract_inspect",args:{authority:"read_only"},result:{neoStaticContractInspection:inspection}});
+  assert.deepEqual(summary.staticContractInspection,inspection);
+  assert.equal(summary.packetCount,0);
+  assert.equal(summary.authority,"read_only");
 });
