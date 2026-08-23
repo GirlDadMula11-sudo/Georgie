@@ -40,3 +40,15 @@ test("NEO observation validation fails closed on identity, mutation, credential 
   assert.equal(validateNeoObservation({...base,messages:[complete]},mailboxes).messages.length,1);
   assert.throws(()=>validateNeoObservation({...base,messages:[{...complete,bodyComplete:false}]},mailboxes),/FULL_BODY_PROOF_FAILED/);
 });
+
+
+test("NEO immutable IDs inspect row-bound framework state without storage or credential export",()=>{
+  const script=buildNeoObservationScript({mailboxes,cursors:{},limit:2});
+  assert.match(script,/row-bound-runtime/);
+  assert.match(script,/reactProps|reactFiber/);
+  assert.match(script,/vueParentComponent/);
+  assert.match(script,/runtimeStateSurfaces/);
+  assert.match(script,/token\|secret\|password\|cookie\|authorization\|session/);
+  assert.doesNotMatch(script,/localStorage\.getItem|sessionStorage\.getItem|document\.cookie/);
+  assert.match(script,/stableRuntime/);
+});
