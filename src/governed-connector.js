@@ -16,7 +16,7 @@ const CAPABILITIES = Object.freeze({
   "primary_mac.mailbox.read_only": Object.freeze({
     targetDevice: "primary-mac",
     authority: "read_only",
-    operations: new Set(["connection_verify_and_backfill"]),
+    operations: new Set(["connection_verify_and_backfill", "static_contract_inspection"]),
     prohibitedRoutes: new Set(["cm-100", "stale_continuation", "gmail", "apple_mail", "sierra.diagnostic_investigation", "sierra.continue_diagnostic_investigation"])
   }),
   "neo_mailbox_evidence_bridge": Object.freeze({
@@ -96,6 +96,10 @@ async function executeTypedCapability({ userId, command }) {
     return { terminalState: "in_progress", completed: false, route, jobs: jobs.map((job) => ({ id: job.id, status: job.status, action: job.action, deviceId: job.deviceId, dispatchReceipt: job.dispatchReceipt })), expectedAgentVersion: clean(command.metadata?.expected_agent_version, 50) || null };
   }
   if (!["primary_mac.mailbox.read_only", "neo_mailbox_evidence_bridge"].includes(route.capability)) throw new Error(`UNSUPPORTED_CAPABILITY: ${route.capability}`);
+  if (route.operation === "static_contract_inspection") {
+    const job = await enqueueMacJob({ userId, deviceId: route.target_device, action: "mailbox.neo_static_contract_inspect", args: { objectiveId: route.objective_id, operation: route.operation, authority: route.authority }, risk: "read", reason: "Fail-closed static inspection of NEO bundle contracts", idempotencyKey: `connector:${command.id}:${route.operation}`, maxAttempts: 1 });
+    return { terminalState: "in_progress", completed: false, route, job: { id: job.id, status: job.status, deviceId: route.target_device, claimedByDeviceId: job.dispatchReceipt?.deviceId || null, action: job.action, authority: route.authority, dispatchReceipt: job.dispatchReceipt } };
+  }
   const existingJobId = clean(command.metadata?.existing_job_id || command.metadata?.existingJobId, 200);
   let job;
   if (existingJobId) {
