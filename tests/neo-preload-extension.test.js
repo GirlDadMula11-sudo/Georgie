@@ -25,6 +25,7 @@ test("NEO preload captures only bounded GET response state and no credentials or
   assert.match(source,/state\.mailboxMutation = true/);
   assert.match(source,/api\.flockmail\.com/);
   assert.match(source,/bll\.flockmail\.com/);
+  assert.match(source,/authorization/);
 });
 
 test("NEO adapter refuses certification without a completed pre-navigation capture",()=>{
