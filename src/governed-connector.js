@@ -29,7 +29,7 @@ const CAPABILITIES = Object.freeze({
   "primary_mac.agent.maintenance": Object.freeze({
     targetDevice: "primary-mac",
     authority: "local_admin",
-    operations: new Set(["update_restart_from_main", "install_neo_preload"]),
+    operations: new Set(["update_restart_from_main", "install_neo_preload", "normalize_generated_lock"]),
     prohibitedRoutes: new Set(["cm-100", "stale_continuation", "gmail", "apple_mail", "mailbox.read", "mailbox.write"])
   })
 });
@@ -88,9 +88,12 @@ async function executeTypedCapability({ userId, command }) {
   if (route.capability === "primary_mac.agent.maintenance") {
     const repo = clean(command.metadata?.repo || "/Users/mac/Georgie", 300);
     if (repo !== "/Users/mac/Georgie") throw new Error("PRIMARY_MAC_REPO_NOT_ALLOWLISTED");
+    const lockPatch = `diff --git a/package-lock.json b/package-lock.json\n--- a/package-lock.json\n+++ b/package-lock.json\n@@ -1,6 +1,6 @@\n {\n   "name": "georgie",\n-  "version": "2.2.22",\n+  "version": "2.2.21",\n   "lockfileVersion": 3,\n   "requires": true,\n   "packages": {\n@@ -6,7 +6,7 @@\n   "packages": {\n     "": {\n       "name": "georgie",\n-      "version": "2.2.22",\n+      "version": "2.2.21",\n       "dependencies": {\n         "dotenv": "^16.4.5",\n         "express": "^4.21.1",\n`;
     const specs = route.operation === "install_neo_preload"
       ? [["developer.install_neo_preload", { repo }, "Install the controlled NEO document-start preload and relaunch Chrome"]]
-      : [["developer.update_restart_from_main", { repo }, "Fast-forward the allowlisted Georgie checkout and restart the Mac agent"]];
+      : route.operation === "normalize_generated_lock"
+        ? [["developer.apply_patch", { repo, patch: lockPatch, patchHash: digest(lockPatch) }, "Normalize the exact installer-generated package-lock version drift"]]
+        : [["developer.update_restart_from_main", { repo }, "Fast-forward the allowlisted Georgie checkout and restart the Mac agent"]];
     const jobs = [];
     for (let index = 0; index < specs.length; index += 1) {
       const [action, args, reason] = specs[index];
