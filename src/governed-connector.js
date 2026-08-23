@@ -87,7 +87,8 @@ async function executeTypedCapability({ userId, command }) {
   if (route.capability === "primary_mac.agent.maintenance") {
     const repo = clean(command.metadata?.repo || "/Users/mac/Georgie", 300);
     if (repo !== "/Users/mac/Georgie") throw new Error("PRIMARY_MAC_REPO_NOT_ALLOWLISTED");
-    const specs = [["developer.update_restart_from_main", { repo }, "Fast-forward the allowlisted Georgie checkout and restart the Mac agent"]];\n    const jobs = [];
+    const specs = [["developer.update_restart_from_main", { repo }, "Fast-forward the allowlisted Georgie checkout and restart the Mac agent"]];
+    const jobs = [];
     for (let index = 0; index < specs.length; index += 1) {
       const [action, args, reason] = specs[index];
       jobs.push(await enqueueMacJob({ userId, deviceId: route.target_device, action, args, risk: "sensitive_write", reason, idempotencyKey: `connector:${command.id}:${route.operation}:developer-bootstrap:${index}`, maxAttempts: 1 }));
