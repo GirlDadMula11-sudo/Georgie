@@ -35,7 +35,7 @@ function neoIdentityObserver(requested) {
   }
   const matches = new Set();
   for (const identity of requested) {
-    if (roots.some(root => normalized(root.body?.innerText || root.textContent).includes(identity))) matches.add(identity);
+    if (roots.some(root => matchesIdentity(normalized(root.body?.innerText || root.textContent), identity))) matches.add(identity);
   }
   for (const element of roots.flatMap(root => [...(root.querySelectorAll?.("body *, *") || [])])) {
     if (!inAccountRail(element)) continue;
