@@ -5,12 +5,15 @@ import fs from "node:fs";
 const manifest=JSON.parse(fs.readFileSync(new URL("../mac-agent/neo-preload-extension/manifest.json",import.meta.url),"utf8"));
 const source=fs.readFileSync(new URL("../mac-agent/neo-preload-extension/preload.js",import.meta.url),"utf8");
 const background=fs.readFileSync(new URL("../mac-agent/neo-preload-extension/background.js",import.meta.url),"utf8");
+const diagnostic=fs.readFileSync(new URL("../mac-agent/neo-preload-extension/diagnostic.js",import.meta.url),"utf8");
 
 test("NEO preload is narrowly scoped and runs in the page main world before navigation",()=>{
   assert.equal(manifest.manifest_version,3);
   assert.deepEqual(manifest.host_permissions,["https://app.neo.space/*"]);
   assert.deepEqual(manifest.permissions,["scripting"]);
   assert.equal(manifest.background.service_worker,"background.js");
+  assert.equal(manifest.content_scripts[0].world,"ISOLATED");
+  assert.equal(manifest.content_scripts[0].run_at,"document_start");
   assert.match(background,/registerContentScripts/);
   assert.match(background,/runAt: "document_start"/);
   assert.match(background,/world: "MAIN"/);
@@ -18,6 +21,11 @@ test("NEO preload is narrowly scoped and runs in the page main world before navi
   assert.match(source,/preNavigation/);
   assert.match(source,/performance\.timeOrigin/);
   assert.match(source,/registered_main_world_document_start/);
+  assert.match(background,/GEORGIE_NEO_EXTENSION_DIAGNOSTIC/);
+  assert.match(background,/REGISTRATION_EXCEPTION/);
+  assert.match(diagnostic,/georgieNeoExtensionDiagnostic/);
+  assert.match(diagnostic,/SERVICE_WORKER_UNREACHABLE/);
+  assert.doesNotMatch(diagnostic,/document\\.cookie|authorization|token|request\\.body|message content/i);
 });
 
 test("NEO preload captures only bounded GET response state and no credentials or request payloads",()=>{
@@ -52,6 +60,8 @@ test("NEO preload health enumerates exact NEO tabs and reports named fail-closed
   assert.match(agent,/NEO_TAB_NOT_FOUND/);
   assert.match(agent,/NEO_PRELOAD_NOT_LOADED/);
   assert.match(agent,/NEO_PRE_NAVIGATION_NOT_PROVEN/);
+  assert.match(agent,/NEO_EXTENSION_REGISTRATION_ERROR/);
+  assert.match(agent,/NEO_EXTENSION_DIAGNOSTIC_NOT_PRESENT/);
   assert.match(agent,/NEO_ACCOUNT_BINDING_NOT_PROVEN/);
   assert.doesNotMatch(agent,/execute active tab of front window javascript/);
 });
