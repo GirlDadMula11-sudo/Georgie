@@ -67,6 +67,7 @@ export function getCapabilityManifest() {
       sharedEngineeringMission: true,
       durableAssistantHandoffs: true,
       backgroundEngineeringCoordinator: true,
+      eliteUniversalTaskKernel: true,
       governedTools: true,
       boundedExecution: true
     },
