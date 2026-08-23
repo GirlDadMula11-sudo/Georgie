@@ -1,12 +1,30 @@
 import crypto from "crypto";
 import { readCloudState, writeCloudState } from "./cloud-state.js";
+import { alpacaConfigured, certifyAlpacaConnection, latestStockSnapshot } from "./integrations/alpaca-market-data.js";
 
 const NS="paper_trading_lab";
 const now=()=>new Date().toISOString();
 
 export function marketDataCapability(){
-  const provider=String(process.env.GEORGIE_MARKET_DATA_PROVIDER||"").trim();
-  return {provider:provider||null,configured:Boolean(provider&&process.env.GEORGIE_MARKET_DATA_API_KEY),liveFeedConnected:false,mode:"paper_only",note:"A provider adapter must independently verify live bid/ask/last/volume timestamps before live scanning is certified."};
+  const provider=String(process.env.GEORGIE_MARKET_DATA_PROVIDER||"alpaca").trim().toLowerCase();
+  const configured=provider==="alpaca"&&alpacaConfigured();
+  return {provider,configured,liveFeedConnected:false,mode:"paper_only",note:configured?"Alpaca credentials are configured; live-feed certification is evaluated from authenticated schema-valid snapshots and per-observation freshness.":"Alpaca adapter is installed but credentials are not yet configured."};
+}
+
+export async function certifyMarketData(input={}){
+  const provider=String(process.env.GEORGIE_MARKET_DATA_PROVIDER||"alpaca").trim().toLowerCase();
+  if(provider!=="alpaca")return{provider,configured:false,certified:false,reason:"unsupported_provider"};
+  return certifyAlpacaConnection({symbol:input.symbol||"AAPL"});
+}
+
+export async function livePaperSnapshot(symbol,options={}){
+  const capability=marketDataCapability();
+  if(capability.provider!=="alpaca")throw new Error("unsupported market data provider");
+  if(!capability.configured)throw new Error("Alpaca market data credentials are not configured");
+  const snapshot=await latestStockSnapshot(symbol,options);
+  if(!snapshot.schemaValid)throw new Error("market data schema validation failed");
+  if(options.requireFresh!==false&&!snapshot.fresh)throw new Error("market data is stale for intraday decisioning");
+  return snapshot;
 }
 
 async function state(userId){return readCloudState(String(userId),NS,{candidates:[],trades:[],updatedAt:null});}
@@ -17,6 +35,11 @@ export async function recordPaperCandidate(userId,input={}){
   const candidates=[...(s.candidates||[]),candidate].slice(-5000);
   await writeCloudState(String(userId),NS,{...s,candidates,updatedAt:now()});
   return candidate;
+}
+
+export async function recordCandidateFromLiveMarket(userId,input={}){
+  const snapshot=await livePaperSnapshot(input.symbol,{requireFresh:true});
+  return recordPaperCandidate(userId,{...input,observedAt:snapshot.observedAt,spreadBps:snapshot.spreadBps,evidence:{...(input.evidence||{}),marketData:snapshot}});
 }
 
 export async function settlePaperTrade(userId,input={}){
