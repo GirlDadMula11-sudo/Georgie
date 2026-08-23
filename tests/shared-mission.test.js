@@ -20,6 +20,25 @@ test("hard-gated work cannot be claimed before its prerequisite passes",async()=
   const claimedSecond=await claimNextHandoff(user,"test");assert.equal(claimedSecond.dedupeKey,"gate:second");
 });
 
+test("typed control dependencies resolve canonical dedupe keys and command IDs",async()=>{
+  for(const dependency of ["ai-control:preflight-key","preflight-command-001"]){
+    const user=`typed-gate-${dependency.includes("command")?"command":"dedupe"}-${Date.now()}-${Math.random()}`;
+    const preflight=await enqueueHandoff(user,{source:"authorized_assistant_control_command",objective:"preflight",dedupeKey:"ai-control:preflight-key",priority:100,scope:{controlCommand:{commandId:"preflight-command-001",idempotencyKey:"preflight-key"}}});
+    await enqueueHandoff(user,{source:"authorized_assistant_control_command",objective:"mutation",dedupeKey:"ai-control:mutation-key",dependsOn:[dependency],priority:99,scope:{controlCommand:{commandId:"mutation-command-001",idempotencyKey:"mutation-key"}}});
+    const claimedPreflight=await claimNextHandoff(user,"test");assert.equal(claimedPreflight.id,preflight.item.id);
+    assert.equal(await claimNextHandoff(user,"test"),null);
+    await completeHandoff(user,claimedPreflight.id,{summary:"passed"});
+    const claimedMutation=await claimNextHandoff(user,"test");assert.equal(claimedMutation.dedupeKey,"ai-control:mutation-key");
+  }
+});
+
+test("exact duplicate typed-command replay collapses by canonical idempotency key",async()=>{
+  const user=`typed-replay-${Date.now()}`;
+  const input={source:"authorized_assistant_control_command",objective:"same command",dedupeKey:"ai-control:exact-replay-key",scope:{controlCommand:{commandId:"replay-command-001",idempotencyKey:"exact-replay-key"}}};
+  const first=await enqueueHandoff(user,input),second=await enqueueHandoff(user,input);
+  assert.equal(first.status,"queued");assert.equal(second.status,"deduplicated");assert.equal(second.item.id,first.item.id);
+});
+
 test("only verified reversible isolated-branch repairs qualify for automatic commit",()=>{
   const eligible=autonomousRepairPolicy({risk:"write",files:["src/parser.js","tests/parser.test.js"],checks:[{status:"passed"}],reversible:true,rollbackPlan:"Revert commit",branch:"repair/parser",customerDataChanged:false,externalSideEffect:false});
   assert.equal(eligible.eligible,true);assert.equal(eligible.action,"commit_to_isolated_branch");assert.equal(eligible.mergeToMain,false);
