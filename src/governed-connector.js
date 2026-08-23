@@ -14,6 +14,12 @@ const clean = (value, max = 6000) => String(value || "").trim().slice(0, max);
 const digest = (value) => crypto.createHash("sha256").update(String(value)).digest("hex");
 export function summarizeGovernedMacJob(job = {}) { return { id: job.id, status: job.status, action: job.action, deviceId: job.deviceId, authority: job.args?.authority || null, checkpoint: job.args?.checkpoint || null, attempts: job.attempts, claimedAt: job.claimedAt, completedAt: job.completedAt, error: job.error, dispatchReceipt: job.dispatchReceipt, cursor: job.result?.mailboxEvidenceBatch?.cursor || {}, packetCount: job.result?.mailboxEvidenceBatch?.packets?.length || 0, quarantineCount: job.result?.quarantine?.length || job.result?.mailboxEvidenceBatch?.quarantine?.length || 0, connections: job.result?.connection || null, staticContractInspection: job.result?.neoStaticContractInspection || null }; }
 const CAPABILITIES = Object.freeze({
+  "primary_mac.neo.cdp_read_only": Object.freeze({
+    targetDevice: "primary-mac",
+    authority: "read_only",
+    operations: new Set(["verify_session"]),
+    prohibitedRoutes: new Set(["cm-100", "stale_continuation", "gmail", "apple_mail", "mailbox.write"])
+  }),
   "primary_mac.mailbox.read_only": Object.freeze({
     targetDevice: "primary-mac",
     authority: "read_only",
@@ -85,6 +91,10 @@ export function validateCommandEnvelope(input = {}) {
 
 async function executeTypedCapability({ userId, command }) {
   const route = command.routing;
+  if (route.capability === "primary_mac.neo.cdp_read_only") {
+    const job = await enqueueMacJob({ userId, deviceId: route.target_device, action: "mailbox.neo_cdp_verify_session", args: { objectiveId: route.objective_id, authority: route.authority, mailboxes: command.metadata?.mailboxes || [] }, risk: "read", reason: "Verify local loopback CDP and exact NEO mailbox bindings without message access", idempotencyKey: `connector:${command.id}:${route.operation}`, maxAttempts: 1 });
+    return { terminalState: "in_progress", completed: false, route, job: { id: job.id, status: job.status, deviceId: route.target_device, action: job.action, authority: route.authority, dispatchReceipt: job.dispatchReceipt } };
+  }
   if (route.capability === "primary_mac.agent.maintenance") {
     const repo = clean(command.metadata?.repo || "/Users/mac/Georgie", 300);
     if (repo !== "/Users/mac/Georgie") throw new Error("PRIMARY_MAC_REPO_NOT_ALLOWLISTED");
