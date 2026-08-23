@@ -82,7 +82,24 @@ function neoAccountActivator(identity, requested) {
   return { selected: true, identity, accountRailProof: "exact_envelope_bound_account_rail", matchBasis: "unique_requested_identity_token", messageRowsClicked: false, messageOpened: false };
 }
 
-function neoMailboxObserver(mailbox, cursors, max) {
+function neoStartReadOnlyApiProbe() {
+  const state={status:"running",startedAt:new Date().toISOString(),records:[],sources:[],errors:[]};window.__georgieNeoApiProbe=state;
+  const forbidden=/token|secret|password|authorization|session|cookie|code/i;
+  const mailish=/mail|message|thread|conversation|inbox/i;
+  const scalar=(value,max=1200)=>typeof value==="string"||typeof value==="number"?String(value).slice(0,max):"";
+  const first=(object,keys)=>{for(const key of keys){const value=scalar(object?.[key]);if(value)return value}return ""};
+  const walk=(value,path,source,depth=0,seen=new WeakSet())=>{if(!value||typeof value!=="object"||depth>8||state.records.length>=300||seen.has(value))return;seen.add(value);if(Array.isArray(value)){for(const item of value.slice(0,500))walk(item,path+"[]",source,depth+1,seen);return}const keys=Object.keys(value).slice(0,160);const idKey=keys.find(key=>/^(?:messageId|message_id|mailId|mail_id|uid|id)$/i.test(key)&&!forbidden.test(key));const threadKey=keys.find(key=>/^(?:threadId|thread_id|conversationId|conversation_id)$/i.test(key)&&!forbidden.test(key));const subject=first(value,["subject","title","mailSubject","messageSubject"]);const timestamp=first(value,["receivedAt","received_at","sentAt","sent_at","date","timestamp","internalDate","createdAt"]);if(idKey&&subject){const messageId=scalar(value[idKey],500),threadId=threadKey?scalar(value[threadKey],500):messageId;if(/^[A-Za-z0-9][A-Za-z0-9._~-]{5,499}$/.test(messageId))state.records.push({messageId,threadId:/^[A-Za-z0-9][A-Za-z0-9._~-]{5,499}$/.test(threadId)?threadId:messageId,subject:subject.slice(0,1200),timestamp:timestamp.slice(0,120),sender:first(value,["from","sender","fromAddress","senderEmail"]).slice(0,500),sourcePath:path+"."+idKey,sourceEndpoint:source})}for(const key of keys){if(forbidden.test(key)||/body|html|content|attachment/i.test(key))continue;let child;try{child=value[key]}catch{continue}if(child&&typeof child==="object")walk(child,path+"."+key,source,depth+1,seen)}};
+  const urls=[...new Set(performance.getEntriesByType("resource").map(entry=>entry.name).filter(raw=>{try{const u=new URL(raw,location.href);return u.origin===location.origin&&u.protocol==="https:"&&mailish.test(u.pathname)&&![...u.searchParams.keys()].some(key=>forbidden.test(key))}catch{return false}}))].slice(-30);
+  state.sources=urls.map(raw=>{const u=new URL(raw);return {path:u.pathname,queryKeys:[...u.searchParams.keys()].sort(),initiator:"performance-resource"}});
+  Promise.allSettled(urls.map(async raw=>{const u=new URL(raw);const response=await fetch(u.href,{method:"GET",credentials:"same-origin",cache:"no-store",redirect:"error",headers:{Accept:"application/json"}});const type=String(response.headers.get("content-type")||"");const length=Number(response.headers.get("content-length")||0);if(!response.ok||!type.includes("json")||(length&&length>2000000))return;const payload=await response.json();walk(payload,"response",u.pathname)})).then(results=>{state.errors=results.filter(item=>item.status==="rejected").map(item=>String(item.reason?.message||item.reason).slice(0,240)).slice(0,20);const unique=new Map();for(const record of state.records){const key=record.messageId+"|"+record.sourceEndpoint;if(!unique.has(key))unique.set(key,record)}state.records=[...unique.values()].slice(0,300);state.status="completed";state.completedAt=new Date().toISOString()});
+  return {started:true,sourceCount:state.sources.length,credentialsExported:false,methods:["GET"],sameOriginOnly:true};
+}
+
+function neoReadApiProbe() {
+  const state=window.__georgieNeoApiProbe||{};return {status:state.status||"missing",records:Array.isArray(state.records)?state.records.slice(0,300):[],sources:Array.isArray(state.sources)?state.sources.slice(0,30):[],errors:Array.isArray(state.errors)?state.errors.slice(0,20):[],credentialsExported:false,sameOriginOnly:true,methods:["GET"]};
+}
+
+function neoMailboxObserver(mailbox, cursors, max, apiProbe) {
   const visible = element => Boolean(element && element.getClientRects().length);
   const text = (value, limit = 6000) => String(value || "").replace(/\u0000/g, "").trim().slice(0, limit);
   const selectors = ["[role='row']", "[data-message-id]", "[data-thread-id]", "[data-testid*='message']", "[data-testid*='mail-row']"];
@@ -112,10 +129,10 @@ function neoMailboxObserver(mailbox, cursors, max) {
       const rawHref=node.getAttribute("href");
       if(rawHref){try{const link=new URL(rawHref,location.href);if(link.origin!==location.origin)continue;for(const key of ["messageId","message_id","mailId","mail_id","uid"])add(message,link.searchParams.get(key),"same-origin-link:"+key);for(const key of ["threadId","thread_id","conversationId","conversation_id"])add(thread,link.searchParams.get(key),"same-origin-link:"+key);const match=link.pathname.match(/\/(?:message|mail|thread|conversation)\/([A-Za-z0-9][A-Za-z0-9._~-]{5,499})(?:\/|$)/i);if(match){const target=/thread|conversation/i.test(match[0])?thread:message;add(target,match[1],"same-origin-path");}}catch{}}
     }
-    const runtimeA=runtimeStateIds(row),runtimeB=runtimeStateIds(row),stableRuntime=(left,right)=>left.filter(item=>right.some(other=>other.id===item.id));message.push(...stableRuntime(runtimeA.message,runtimeB.message));thread.push(...stableRuntime(runtimeA.thread,runtimeB.thread));
+    const runtimeA=runtimeStateIds(row),runtimeB=runtimeStateIds(row),stableRuntime=(left,right)=>left.filter(item=>right.some(other=>other.id===item.id));message.push(...stableRuntime(runtimeA.message,runtimeB.message));thread.push(...stableRuntime(runtimeA.thread,runtimeB.thread));const norm=v=>String(v||"").replace(/\s+/g," ").trim().toLowerCase();const rowValue=norm(row.innerText||row.textContent);const apiMatches=(apiProbe?.records||[]).filter(record=>{const subject=norm(record.subject);if(subject.length<3||!rowValue.includes(subject))return false;const parsed=Date.parse(record.timestamp||"");if(!Number.isFinite(parsed))return true;const rowTime=row.querySelector("time")?.getAttribute("datetime")||row.getAttribute("data-received-at")||row.getAttribute("data-date")||"";const rowParsed=Date.parse(rowTime);return !Number.isFinite(rowParsed)||Math.abs(rowParsed-parsed)<86400000});if(apiMatches.length===1){message.push({id:apiMatches[0].messageId,source:"same-origin-api:"+apiMatches[0].sourceEndpoint+":"+apiMatches[0].sourcePath});thread.push({id:apiMatches[0].threadId||apiMatches[0].messageId,source:"same-origin-api-thread:"+apiMatches[0].sourceEndpoint})}
     const unique=list=>[...new Map(list.map(item=>[item.id,item])).values()];
-    const messages=unique(message),threads=unique(thread),runtimeStateSurfaces=[...new Set([...runtimeA.surfaces,...runtimeB.surfaces])];
-    if(messages.length!==1)return {error:messages.length?"ambiguous immutable message id":"missing immutable message id",messageCandidates:messages.length,threadCandidates:threads.length,runtimeStateSurfaces};
+    const messages=unique(message),threads=unique(thread),runtimeStateSurfaces=[...new Set([...runtimeA.surfaces,...runtimeB.surfaces])],apiCorrelationCandidates=apiMatches.length;
+    if(messages.length!==1)return {error:messages.length?"ambiguous immutable message id":"missing immutable message id",messageCandidates:messages.length,threadCandidates:threads.length,runtimeStateSurfaces,apiCorrelationCandidates};
     if(threads.length>1)return {error:"ambiguous immutable thread id",messageCandidates:messages.length,threadCandidates:threads.length,runtimeStateSurfaces};
     return {messageId:messages[0].id,messageIdSource:messages[0].source,threadId:threads[0]?.id||messages[0].id,threadIdSource:threads[0]?.source||"message-id-fallback",runtimeStateSurfaces};
   };
@@ -123,7 +140,7 @@ function neoMailboxObserver(mailbox, cursors, max) {
     const rowText = text(row.innerText || row.textContent, 6000);
     if (rowText.length < 3) continue;
     const ids=immutableIds(row);
-    if(ids.error){rejected.push(ids.error);identifierDiagnostics.push({reason:ids.error,messageCandidates:ids.messageCandidates||0,threadCandidates:ids.threadCandidates||0,runtimeStateSurfaces:ids.runtimeStateSurfaces||[]});continue}
+    if(ids.error){rejected.push(ids.error);identifierDiagnostics.push({reason:ids.error,messageCandidates:ids.messageCandidates||0,threadCandidates:ids.threadCandidates||0,runtimeStateSurfaces:ids.runtimeStateSurfaces||[],apiCorrelationCandidates:ids.apiCorrelationCandidates||0,apiSources:(apiProbe?.sources||[]).slice(0,10)});continue}
     const {messageId,threadId,messageIdSource,threadIdSource}=ids;
     const time = row.querySelector("time");
     const rawTime = time?.getAttribute("datetime") || row.getAttribute("data-received-at") || row.getAttribute("data-date") || time?.textContent || "";
