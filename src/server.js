@@ -32,6 +32,8 @@ import { startSelfEvolution } from "./self-evolution.js";
 import { startBackgroundOperatingLayer } from "./background-operating-layer.js";
 import { intelligenceControlMapStatus, refreshIntelligenceControlMap, startIntelligenceControlMap } from "./intelligence-control-map.js";
 import { startEngineeringCoordinator } from "./engineering-coordinator.js";
+import { createGovernedConnectorRouter } from "./governed-connector.js";
+import { createPortableMcpRouter } from "./portable-connector-mcp.js";
 
 const app=express();const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:20*1024*1024}});const __dirname=path.dirname(fileURLToPath(import.meta.url));const publicDir=path.resolve(__dirname,"../public");
 app.disable("x-powered-by");app.set("trust proxy",1);app.use(helmet({contentSecurityPolicy:{directives:{defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'"],imgSrc:["'self'","data:","blob:"],mediaSrc:["'self'","blob:","data:"],connectSrc:["'self'"],workerSrc:["'self'","blob:"]}}}));app.use(express.json({limit:"10mb"}));app.use("/api",rateLimit({windowMs:60000,limit:Number(process.env.GEORGIE_RATE_LIMIT||90),standardHeaders:"draft-7",legacyHeaders:false}));app.post("/api/mobile/recovery/request",async(req,res)=>{try{const result=await requestOwnerRecovery({clientKey:req.ip||"unknown"});res.set("Cache-Control","no-store").status(202).json({ok:true,...result});}catch(error){const status=error?.code==="rate_limited"?429:503;res.set("Cache-Control","no-store").status(status).json({ok:false,error:error instanceof Error?error.message:"Recovery request failed"});}});app.use("/api/mobile",createMobileRouter());app.use(express.static(publicDir,{maxAge:process.env.NODE_ENV==="production"?"5m":0}));app.get("/",(_req,res)=>res.set("Cache-Control","no-cache").sendFile(path.join(publicDir,"index.html")));
@@ -58,6 +60,8 @@ async function completeTurn({userId,sessionId,input,history=[]}){
   }
   return completeTurnV2({userId,sessionId,input,history});
 }
+app.use("/api/connector",createGovernedConnectorRouter({executeCommand:({userId,sessionId,input})=>completeTurn({userId,sessionId,input,history:[]})}));
+app.use("/mcp",createPortableMcpRouter({executeCommand:({userId,sessionId,input})=>completeTurn({userId,sessionId,input,history:[]}),userId:String(process.env.GEORGIE_PRIMARY_USER_ID||"primary")}));
 app.get("/health",(_req,res)=>{const r=readinessSnapshot();res.json({ok:true,assistant:"Georgie",version:"1.0.1",ready:r.ready,...r.platform,neoMail:r.connections.neoMail,sierraWorkforce:r.connections.sierraWorkforce,macAgent:r.connections.macAgent,macQueue:r.connections.macQueue,liveWebResearch:r.connections.liveWebResearch,memoryStorage:r.connections.memoryStorage,operationalStorage:r.connections.operationalStorage,configured:r.connections.openAI,activationState:r.activationState,blockers:r.blockers})});
 app.get("/api/intelligence-control-map",async(req,res)=>{try{res.json({ok:true,map:await intelligenceControlMapStatus(getUserId(req))})}catch(error){res.status(500).json({ok:false,error:error instanceof Error?error.message:"Control Map unavailable"})}});
 app.post("/api/intelligence-control-map/refresh",async(req,res)=>{try{res.json({ok:true,map:await refreshIntelligenceControlMap(getUserId(req))})}catch(error){res.status(500).json({ok:false,error:error instanceof Error?error.message:"Control Map refresh failed"})}});
