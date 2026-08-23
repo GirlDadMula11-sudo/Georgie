@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import { terminalPartialResult, withTurnDeadline } from "../src/turn-lifecycle.js";
 import { interruptedStreamRecoveryContext } from "../src/georgie.js";
 
-test("a stalled turn always returns a terminal partial result",async()=>{
+test("a stalled foreground response remains a durable non-terminal continuation",async()=>{
   const result=await withTurnDeadline(()=>new Promise(()=>{}),{timeoutMs:20,onDeadline:()=>terminalPartialResult({startedAt:Date.now()-20})});
-  assert.equal(result.terminal,true);
+  assert.equal(result.terminal,false);
+  assert.equal(result.foregroundTerminated,true);
+  assert.equal(result.backgroundContinuation,true);
   assert.equal(result.completed,false);
   assert.equal(result.confidence,"partial_unverified");
-  assert.match(result.text,/not treated it as completed/i);
+  assert.match(result.text,/not treated as completed/i);
 });
 
 test("a completed turn wins before the deadline",async()=>{
@@ -26,20 +28,23 @@ test("a durable streaming turn is not preempted by the synchronous deadline",asy
   assert.equal(result.text,"late verified result");
 });
 
-test("terminal partial language never claims execution",()=>{
+test("foreground partial language never claims execution",()=>{
   const result=terminalPartialResult({startedAt:Date.now()});
   assert.doesNotMatch(result.text,/successfully completed|repair completed|fixed/i);
   assert.equal(result.terminalReason,"turn_deadline");
+  assert.equal(result.terminalScope,"foreground_response_only");
 });
 
-test("provider timeout returns a durable terminal recovery result",()=>{
+test("provider timeout returns a durable automatic recovery result",()=>{
   const result=terminalPartialResult({startedAt:Date.now()-24,reason:"provider_timeout",detail:"The operation was aborted due to timeout"});
   assert.equal(result.completed,false);
-  assert.equal(result.terminal,true);
+  assert.equal(result.terminal,false);
+  assert.equal(result.foregroundTerminated,true);
+  assert.equal(result.backgroundContinuation,true);
   assert.equal(result.terminalReason,"provider_timeout");
   assert.match(result.text,/accepted and preserved/i);
   assert.match(result.text,/without restating/i);
-  assert.doesNotMatch(result.text,/completed successfully/i);
+  assert.doesNotMatch(result.text,/completed successfully|ask me to continue|manually resume/i);
 });
 
 test("interrupted intelligence is recovered with a bounded continuation",()=>{
