@@ -30,8 +30,27 @@ const appChanged = patch("public/app.js", [
   ['setStatus(timedOut ? "Request stopped at the deadline. A failure report is on screen." : "Request failed. A failure report is on screen.");', 'setStatus(timedOut ? "That took too long. Please try again." : "I couldn’t complete that request.");', "failure status"]
 ]);
 
+const investmentDirect = [
+  'export function investmentDirectResponse(input = "") {',
+  '  if (!isInvestmentIntent(input)) return null;',
+  '  const text = String(input || "").toLowerCase();',
+  '  const asksToManage = /\\b(?:can|could|would|will)\\s+you\\s+(?:manage|handle|invest|trade|build|run)\\b/.test(text) || /\\bmanage\\s+my\\s+(?:stocks?|portfolio|investments?)\\b/.test(text);',
+  '  if (!asksToManage) return null;',
+  '  const match = text.match(/\\$\\s?(\\d+(?:,\\d{3})*(?:\\.\\d{1,2})?)/);',
+  '  const budget = match?.[1]?.replace(/,/g, "") || null;',
+  '  const budgetText = budget ? "With $" + budget + ", I can build a disciplined starter plan around position sizing, diversification, downside limits, fees, and what each position is supposed to accomplish. " : "I can build and manage the research, allocation plan, risk rules, watchlist, and decision process. ";',
+  '  return {',
+  '    text: "Yes — I can manage the intelligence and decision process around your stocks at a very high level. " + budgetText + "I can research current opportunities, compare bull/base/bear cases, track the portfolio, tell you when the thesis changes, and prepare exact trades for your approval. I will not place real trades or move money on my own; each real transaction still needs your specific approval. For a small account, I’d focus on avoiding overtrading and concentration before chasing returns. If you want, give me your time horizon and how much of that money you could tolerate losing, and I’ll build the first allocation.",',
+  '    responseId:null, webSearches:0, model:"deterministic-investment-capability", completed:true, terminalState:"verified",',
+  '    route:{domain:"investment",tier:"fast",reasoningEffort:"low",latencyClass:"instant"}',
+  '  };',
+  '}',
+  '',
+  'export function investmentRuntimePrompt(input = "") {'
+].join("\n");
+
 const investmentChanged = patch("src/investment-intelligence.js", [
-  ['export function investmentRuntimePrompt(input = "") {', `export function investmentDirectResponse(input = "") {\n  if (!isInvestmentIntent(input)) return null;\n  const text = String(input || "").toLowerCase();\n  const asksToManage = /\\b(?:can|could|would|will)\\s+you\\s+(?:manage|handle|invest|trade|build|run)\\b/.test(text) || /\\bmanage\\s+my\\s+(?:stocks?|portfolio|investments?)\\b/.test(text);\n  if (!asksToManage) return null;\n  const budget = text.match(/\\$\\s?(\\d+(?:,\\d{3})*(?:\\.\\d{1,2})?)/)?.[1]?.replace(/,/g, "") || null;\n  const budgetText = budget ? \\`With $\\${budget}, I can build a disciplined starter plan around position sizing, diversification, downside limits, fees, and what each position is supposed to accomplish. \\` : "I can build and manage the research, allocation plan, risk rules, watchlist, and decision process. ";\n  return {\n    text: \\`Yes — I can manage the intelligence and decision process around your stocks at a very high level. \\${budgetText}I can research current opportunities, compare bull/base/bear cases, track the portfolio, tell you when the thesis changes, and prepare exact trades for your approval. I will not place real trades or move money on my own; each real transaction still needs your specific approval. For a small account, I’d focus on avoiding overtrading and concentration before chasing returns. If you want, give me your time horizon and how much of that money you could tolerate losing, and I’ll build the first allocation.\\`,\n    responseId:null, webSearches:0, model:"deterministic-investment-capability", completed:true, terminalState:"verified",\n    route:{domain:"investment",tier:"fast",reasoningEffort:"low",latencyClass:"instant"}\n  };\n}\n\nexport function investmentRuntimePrompt(input = "") {`, "investment direct response"]
+  ['export function investmentRuntimePrompt(input = "") {', investmentDirect, "investment direct response"]
 ]);
 
 const v2Changed = patch("src/v2-turn-engine.js", [
