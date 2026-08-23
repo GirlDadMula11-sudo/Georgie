@@ -3,6 +3,7 @@ import express from "express";
 import { readCloudState, writeCloudState } from "./cloud-state.js";
 import { upsertOperatingNode, transitionOperatingNode } from "./operating-graph.js";
 import { enqueueMacJob, listMacJobs, resumeFailedMacJob } from "./mac/queue.js";
+import { getMacDeviceStatus } from "./mac/router.js";
 import { listMailboxPacketManifests } from "./mailbox-evidence-bridge.js";
 
 const NS = "governed_external_connector";
@@ -23,6 +24,12 @@ const CAPABILITIES = Object.freeze({
     authority: "read_only",
     operations: new Set(["connection_verify_and_backfill"]),
     prohibitedRoutes: new Set(["cm-100", "stale_continuation", "gmail", "apple_mail", "sierra.diagnostic_investigation", "sierra.continue_diagnostic_investigation"])
+  }),
+  "primary_mac.agent.maintenance": Object.freeze({
+    targetDevice: "primary-mac",
+    authority: "local_admin",
+    operations: new Set(["update_restart_from_main"]),
+    prohibitedRoutes: new Set(["cm-100", "stale_continuation", "gmail", "apple_mail", "mailbox.read", "mailbox.write"])
   })
 });
 
@@ -77,6 +84,22 @@ export function validateCommandEnvelope(input = {}) {
 
 async function executeTypedCapability({ userId, command }) {
   const route = command.routing;
+  if (route.capability === "primary_mac.agent.maintenance") {
+    const repo = clean(command.metadata?.repo || "/Users/mac/Georgie", 300);
+    if (repo !== "/Users/mac/Georgie") throw new Error("PRIMARY_MAC_REPO_NOT_ALLOWLISTED");
+    const shellCommand = "cd /Users/mac/Georgie && git fetch origin main && git merge --ff-only origin/main && ./mac-agent/install.sh";
+    const specs = [
+      ["app.activate", { app: "Terminal" }, "Activate Terminal for the approved Georgie self-update"],
+      ["ui.type_text", { text: shellCommand }, "Type the exact allowlisted Georgie update command"],
+      ["ui.key", { key: "return" }, "Start the approved Georgie update and restart"]
+    ];
+    const jobs = [];
+    for (let index = 0; index < specs.length; index += 1) {
+      const [action, args, reason] = specs[index];
+      jobs.push(await enqueueMacJob({ userId, deviceId: route.target_device, action, args, risk: "sensitive_write", reason, idempotencyKey: `connector:${command.id}:${route.operation}:${index}`, maxAttempts: 1 }));
+    }
+    return { terminalState: "in_progress", completed: false, route, jobs: jobs.map((job) => ({ id: job.id, status: job.status, action: job.action, deviceId: job.deviceId, dispatchReceipt: job.dispatchReceipt })), expectedAgentVersion: clean(command.metadata?.expected_agent_version, 50) || null };
+  }
   if (!["primary_mac.mailbox.read_only", "neo_mailbox_evidence_bridge"].includes(route.capability)) throw new Error(`UNSUPPORTED_CAPABILITY: ${route.capability}`);
   const existingJobId = clean(command.metadata?.existing_job_id || command.metadata?.existingJobId, 200);
   let job;
@@ -126,7 +149,7 @@ export function createGovernedConnector({ executeCommand, emitStatus = async () 
       const result = command.routing
         ? await executeTypedCapability({ userId, command })
         : await executeCommand({ userId, sessionId: `connector:${command.source}:objective:${command.objectiveId}`, input: command.command, connector: { commandId: command.id, objectiveId: command.objectiveId, planId: command.planId, approvalId: command.approvalId } });
-      const resultSummary = command.routing ? { terminalState: result?.terminalState || null, completed: result?.completed === true, route: result?.route || null, job: result?.job || null } : null;
+      const resultSummary = command.routing ? { terminalState: result?.terminalState || null, completed: result?.completed === true, route: result?.route || null, job: result?.job || null, jobs: result?.jobs || null, expectedAgentVersion: result?.expectedAgentVersion || null } : null;
       const evidence = { responseHash: digest(JSON.stringify(result || {})), terminalState: clean(result?.outcome?.terminalState || result?.terminalState || "completed", 80), ...(resultSummary ? { resultSummary } : {}) };
       const receipt = await record(userId, command, "completed", evidence);
       await transition(userId, command.operatingNodeId, result?.terminalState === "in_progress" ? { status: "active", nextAction: "Resume the same objective and Mac job checkpoint." } : { status: "verified", verification: `Connector completion receipt ${receipt.receiptId}` }).catch(() => {});
@@ -153,6 +176,11 @@ export function createGovernedConnector({ executeCommand, emitStatus = async () 
   async function status(userId = "primary", id) {
     const state = await read(userId); const command = state.commands.find((row) => row.id === id); if (!command) return null;
     const response = { ...command, events: state.events.filter((row) => row.commandId === id), receipts: state.receipts.filter((row) => row.commandId === id) };
+    if (command.routing?.capability === "primary_mac.agent.maintenance") {
+      const ids = new Set((command.result?.jobs || []).map((job) => job.id));
+      response.macJobs = (await listMacJobs(userId, 500)).filter((job) => ids.has(job.id)).map((job) => ({ id: job.id, status: job.status, action: job.action, deviceId: job.deviceId, attempts: job.attempts, claimedAt: job.claimedAt, completedAt: job.completedAt, error: job.error, dispatchReceipt: job.dispatchReceipt }));
+      response.macDevices = getMacDeviceStatus();
+    }
     const jobId = clean(command.result?.job?.id || command.metadata?.existing_job_id || command.metadata?.existingJobId, 200);
     if (jobId && command.objectiveId) {
       const job = (await listMacJobs(userId, 500)).find((item) => item.id === jobId && String(item.args?.objectiveId || "") === command.objectiveId);
