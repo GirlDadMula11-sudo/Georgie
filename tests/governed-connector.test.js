@@ -168,3 +168,15 @@ test("interruption resumes the same objective and step", async () => {
   assert.equal(resumed[0].commandId, first.commandId);
   assert.equal(resumed[0].objectiveId, "objective-resume");
 });
+
+
+test("typed NEO contract inspection is diagnostic-only and cannot dispatch mailbox backfill", async()=>{
+  const input=mailboxEnvelope({idempotencyKey:"neo-static-contract-1",metadata:{...mailboxEnvelope().metadata,capability:"neo_mailbox_evidence_bridge",operation:"static_contract_inspection",prohibited_routes:["cm-100","stale_continuation","gmail","apple_mail"]}});
+  const envelope=validateCommandEnvelope(input);
+  assert.equal(envelope.routing.operation,"static_contract_inspection");
+  const connector=harness({executeCommand:async()=>assert.fail("typed inspection entered prose router")});
+  const result=await connector.submit("neo-static-contract",input);
+  assert.equal(result.result.job.action,"mailbox.neo_static_contract_inspect");
+  assert.equal(result.result.job.authority,"read_only");
+  assert.notEqual(result.result.job.action,"mailbox.read_only_backfill");
+});
