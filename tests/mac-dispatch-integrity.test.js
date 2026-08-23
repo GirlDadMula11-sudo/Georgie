@@ -80,7 +80,9 @@ test("completed empty verified NEO immutable-id miss reopens exactly once",async
   const resumed=await resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill",verifiedAgentVersion:"2.2.10"});
   assert.equal(resumed.id,job.id);assert.equal(resumed.status,"queued");assert.equal(resumed.resumeHistory.at(-1).reason,"neo_immutable_id_reader_repaired");
   await claimMacJobs(deviceId,1);await completeMacJob(deviceId,job.id,{result:emptyIdResult});
-  await assert.rejects(()=>resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill",verifiedAgentVersion:"2.2.10"}),/MAC_JOB_NOT_RESUMABLE: completed/);
+  const runtimeResumed=await resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill",verifiedAgentVersion:"2.2.11"});assert.equal(runtimeResumed.resumeHistory.at(-1).reason,"neo_runtime_state_reader_repaired");
+  await claimMacJobs(deviceId,1);await completeMacJob(deviceId,job.id,{result:emptyIdResult});
+  await assert.rejects(()=>resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill",verifiedAgentVersion:"2.2.11"}),/MAC_JOB_NOT_RESUMABLE: completed/);
   const control={status:"completed",result:{mailboxEvidenceBatch:{packets:[],cursor:{}},connection:{submissions:{connected:true,provider:"neo_browser",readOnly:true,rejected:[]}}},resumeHistory:[]};
   assert.equal(versionRecoverableMailboxJob(control),null);
 });
