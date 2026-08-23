@@ -5,14 +5,15 @@ let source = fs.readFileSync(file, 'utf8');
 let changed = false;
 
 const marker = 'speech=await synthesizeSpeech(response';
-if (source.includes(marker)) {
+const hasCompleteServerTail = source.includes('const server=app.listen(PORT') && source.includes('attachRealtimeRelay(server)');
+if (source.includes(marker) && !hasCompleteServerTail) {
   const prefix = source.slice(0, source.indexOf(marker));
   const repairedTail = `speech=await synthesizeSpeech(response.text);res.json({ok:true,transcript,text:response.text,response,speechBase64:speech.toString("base64"),contentType:"audio/mpeg"})}catch(error){res.status(500).json({ok:false,error:error instanceof Error?error.message:"Unknown error"})}});\n\nstartProactiveEngine();\nstartEmailIntelligence();\nconst PORT=Number(process.env.PORT||10000);\nconst server=app.listen(PORT,()=>console.log(\`Georgie listening on port \${PORT}\`));\nattachRealtimeRelay(server);\n`;
   source = prefix + repairedTail;
   changed = true;
   console.log('[Georgie] Repaired truncated server.js tail with realtime relay.');
 } else {
-  console.log('[Georgie] server.js tail already intact; no repair needed.');
+  console.log('[Georgie] server.js tail already intact; preserving all registered routes and workers.');
 }
 
 const v2Import = 'import { completeTurnV2 } from "./v2-turn-engine.js";';
