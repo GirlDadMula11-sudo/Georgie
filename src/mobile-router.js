@@ -27,7 +27,6 @@ const sessionIdFor=req=>String(req.headers["x-georgie-session"]||"native").slice
 
 async function complete(userId, sessionId, input, options = {}) {
   const startedAt = Date.now();
-  let expired = false;
   let response;
   try {
     response = await withTurnDeadline(
@@ -38,17 +37,16 @@ async function complete(userId, sessionId, input, options = {}) {
       history: options.history || [],
       attachments: options.attachments || [],
       onProgress: options.onProgress,
-      shouldFinalize: () => !expired,
+      shouldFinalize: () => true,
     }),
     {
       timeoutMs: options.durableStream ? null : undefined,
       onDeadline: () => {
-        expired = true;
         const result = terminalPartialResult({ startedAt });
         options.onProgress?.({
           type: "status",
-          stage: "terminal_partial",
-          message: "I reached the bounded deadline. Accepted tool work remains durable; nothing unfinished is being claimed as complete.",
+          stage: "background_continuation",
+          message: "The foreground response window ended, but the accepted work is still running and its late verified result remains eligible for persistence. No manual resume is required.",
           elapsedMs: result.latencyMs,
         });
         void Promise.race([
@@ -69,7 +67,7 @@ async function complete(userId, sessionId, input, options = {}) {
             }),
           ]),
           new Promise((resolve) => setTimeout(resolve, 2500)),
-        ]).catch((error) => console.warn("Georgie terminal-state persistence delayed:", error instanceof Error ? error.message : error));
+        ]).catch((error) => console.warn("Georgie continuation-state persistence delayed:", error instanceof Error ? error.message : error));
         return result;
       },
     },
@@ -80,10 +78,10 @@ async function complete(userId, sessionId, input, options = {}) {
     response = terminalPartialResult({ startedAt, reason: timedOut ? "provider_timeout" : "turn_execution_failure", detail: message });
     options.onProgress?.({
       type: "status",
-      stage: "terminal_partial",
+      stage: "background_continuation",
       message: timedOut
-        ? "The intelligence provider reached its bounded timeout. I preserved this request for recovery and will not claim unfinished work as complete."
-        : "The active execution path failed safely. I preserved this request for recovery and will not claim unfinished work as complete.",
+        ? "The intelligence provider reached its bounded timeout. The objective remains retained for automatic recovery; no manual resume is required."
+        : "The active execution path failed safely. The objective remains retained for governed recovery and nothing unfinished is being claimed as complete.",
       elapsedMs: response.latencyMs,
     });
     await Promise.race([
@@ -174,7 +172,7 @@ export function startMobileTurnRecovery(){
       const jobs=await listRecoverableTurns(userId);
       for(const job of jobs.filter(item=>Number(item.attempts||0)<3)){
         console.log(`[Georgie] recovering durable read-only turn ${JSON.stringify({requestId:job.requestId,attempts:job.attempts||0})}`);
-        runDurableTurn({job,execute:({onProgress})=>complete(userId,job.sessionId,job.input,{history:job.history||[],onProgress})}).catch(()=>{});
+        runDurableTurn({job,execute:({onProgress})=>complete(userId,job.sessionId,job.input,{history:job.history||[],onProgress,durableStream:true})}).catch(()=>{});
       }
     }catch(error){console.warn("Durable turn recovery scan deferred:",error instanceof Error?error.message:error);}
   },1500).unref?.();
