@@ -8,7 +8,7 @@ const now=()=>new Date().toISOString();
 export function marketDataCapability(){
   const provider=String(process.env.GEORGIE_MARKET_DATA_PROVIDER||"").trim().toLowerCase();
   const configured=provider==="alpaca"?alpacaConfigured():Boolean(provider&&process.env.GEORGIE_MARKET_DATA_API_KEY);
-  return {provider:provider||null,configured,liveFeedConnected:false,mode:"paper_only",note:"Live-feed status is never inferred from credentials alone; an authoritative freshness certification must pass first."};
+  return {provider:provider||null,configured,liveFeedConnected:false,mode:"paper_only",note:"Live-feed status is never inferred from credentials alone; the provider adapter must independently verify live bid/ask/last/volume timestamps and pass authoritative freshness certification first."};
 }
 
 export async function certifyConfiguredMarketData(options={}){
