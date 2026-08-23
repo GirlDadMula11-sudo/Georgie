@@ -4,6 +4,7 @@ import path from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import fs from "fs/promises";
+import crypto from "crypto";
 
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
@@ -197,6 +198,30 @@ async function executeBrowserWorkflow(job){
   return{workflowCompleted:true,projectId,allowedSettings:workflow.allowedSettings,stepCount:steps.length,resumedFrom:Number(job.workflowCheckpoint?.nextStep||0),receipts};
 }
 
+const MAILBOX_BRIDGE_PATH = path.join(os.homedir(), "Library", "Application Support", "Georgie", "mailbox-evidence-cursors.json");
+const ALLOWED_BRIDGE_MAILBOX_DOMAIN = "sierramarketinginc.com";
+const allowedBridgeMailbox = value => String(value||"").toLowerCase().endsWith(`@${ALLOWED_BRIDGE_MAILBOX_DOMAIN}`);
+const sha256 = value => crypto.createHash("sha256").update(typeof value === "string" ? value : JSON.stringify(value)).digest("hex");
+function redactMailboxText(value="") { return String(value).replace(/\b\d{3}-?\d{2}-?\d{4}\b/g,"[REDACTED_SSN]").replace(/\b\d{2}-?\d{7}\b/g,"[REDACTED_EIN]").replace(/\b(?:0?[1-9]|1[0-2])[\/-](?:0?[1-9]|[12]\d|3[01])[\/-](?:19|20)\d{2}\b/g,"[REDACTED_DOB]").replace(/\b\d{8,17}\b/g,"[REDACTED_FINANCIAL_NUMBER]").replace(/(?:password|passcode|api[_ -]?key|secret|access[_ -]?token|refresh[_ -]?token|authorization)\s*[:=]?\s*\S+/ig,"[REDACTED_CREDENTIAL]").slice(0,1200); }
+function domains(values=[]){return [...new Set(values.map(value=>String(value).match(/@([^>\s,;]+)/)?.[1]?.toLowerCase()).filter(Boolean))].slice(0,20)}
+async function readBridgeState(){try{return JSON.parse(await fs.readFile(MAILBOX_BRIDGE_PATH,"utf8"))}catch(error){if(error?.code!=="ENOENT")throw error;return{version:1,objectives:{}}}}
+async function writeBridgeState(state){await fs.mkdir(path.dirname(MAILBOX_BRIDGE_PATH),{recursive:true,mode:0o700});const temporary=`${MAILBOX_BRIDGE_PATH}.${process.pid}.tmp`;await fs.writeFile(temporary,JSON.stringify(state),{mode:0o600});await fs.rename(temporary,MAILBOX_BRIDGE_PATH)}
+function mailboxOutcome(text=""){const value=String(text),amount=value.match(/\$\s?([\d,]+(?:\.\d{2})?)/)?.[1]||null;return{decision:/\bapproved?|offer(?:ed)?\b/i.test(value)?"approval_or_offer":/\bdeclin(?:e|ed)|denied\b/i.test(value)?"decline":/\bfunded|funding complete\b/i.test(value)?"funding":"unknown",amount:amount?Number(amount.replace(/,/g,"")):null,terms:null,stipulations:/\bstip(?:ulation)?s?|conditions?\b/i.test(value)?["source correspondence contains stipulation language"]:[]}}
+async function localMailboxBatch(job){
+  const args=job.args||{},objectiveId=String(args.objectiveId||"").slice(0,160),authority=String(args.authority||"");
+  if(!objectiveId||authority!=="read_only"||args.operation!=="connection_verify_and_backfill")throw new Error("MAILBOX_BRIDGE_AUTHORIZATION_FAILED");
+  const mailboxes=(args.mailboxes||[]).map(v=>String(v).toLowerCase());if(!mailboxes.length||mailboxes.some(v=>!allowedBridgeMailbox(v)))throw new Error("MAILBOX_BRIDGE_SCOPE_INVALID");
+  const limit=Math.min(25,Math.max(1,Number(args.batchLimit||25))),state=await readBridgeState(),objective=state.objectives[objectiveId]||{cursors:{},records:{}};
+  const cursor=objective.cursors||{},script=`const requested=${JSON.stringify(mailboxes)};const cursors=${JSON.stringify(cursor)};const max=${limit};const out={mailboxes:{},messages:[]};const mail=Application('Mail');function s(v,n=12000){return String(v||'').replace(/\\u0000/g,'').slice(0,n)};for(const identity of requested){let matched=null;for(const account of mail.accounts()){const addresses=(account.emailAddresses()||[]).map(v=>String(v).toLowerCase());if(addresses.includes(identity)){matched=account;break}}if(!matched){out.mailboxes[identity]={connected:false,error:'configured account not found'};continue}let inbox=null;for(const box of matched.mailboxes()){if(String(box.name()).toLowerCase()==='inbox'){inbox=box;break}}if(!inbox){out.mailboxes[identity]={connected:false,error:'inbox not found'};continue}out.mailboxes[identity]={connected:true,account:String(matched.name())};const rows=[];for(const m of inbox.messages()){const mid=s(m.messageId(),500)||('mail-id:'+s(m.id(),200));const received=new Date(m.dateReceived()).toISOString();if(cursors[identity]&&(received<cursors[identity].timestamp||(received===cursors[identity].timestamp&&mid<=cursors[identity].messageId)))continue;rows.push({mailbox:identity,messageId:mid,threadId:s(m.conversationId?.()||mid,500),timestamp:received,sender:s(m.sender(),500),recipients:(m.toRecipients()||[]).map(r=>s(r.address(),500)),subject:s(m.subject(),1200),content:s(m.content(),6000),attachments:(m.mailAttachments()||[]).map(a=>({name:s(a.name(),500),size:Number(a.fileSize?.()||0)}))})}rows.sort((a,b)=>a.timestamp.localeCompare(b.timestamp)||a.messageId.localeCompare(b.messageId));out.messages.push(...rows)}out.messages.sort((a,b)=>a.timestamp.localeCompare(b.timestamp)||a.messageId.localeCompare(b.messageId));out.messages=out.messages.slice(0,max);JSON.stringify(out);`;
+  const observed=JSON.parse(await runJxa(script)||"{}"),batchId=`mbxbatch_${sha256(`${objectiveId}:${job.id}:${Date.now()}`).slice(0,32)}`,packets=[];
+  for(const message of observed.messages||[]){const combined=`${message.subject||""}\n${message.content||""}`,subject=redactMailboxText(String(message.subject||"").replace(/^(?:re|fw|fwd):\s*/ig,"").replace(/\s+/g," "));
+    const packet={objectiveId,batchId,packetId:`mbxpkt_${sha256(`${objectiveId}:${message.mailbox}:${message.messageId}`).slice(0,32)}`,mailbox:message.mailbox,messageId:message.messageId,threadId:message.threadId||message.messageId,timestamp:message.timestamp,senderDomains:domains([message.sender]),recipientDomains:domains(message.recipients),normalizedSubject:subject,dealCandidates:[],lenderCandidates:[],evidenceClass:"lender_communication",outcome:mailboxOutcome(combined),attachmentHashes:[],sourceLocator:`local-mail://${message.mailbox}/message/${encodeURIComponent(message.messageId)}`,confidence:0.5,conflicts:(message.attachments||[]).length?["attachment hashes require a separately verified local content-read step"]:[],excerpt:redactMailboxText(message.content||""),observedAt:new Date().toISOString()};
+    const key=`${packet.mailbox}:${packet.messageId}`,prior=objective.records[key];if(prior&&prior.packetHash!==packet.packetHash)packet.conflicts.push("canonical message amendment observed");objective.records[key]={packetId:packet.packetId,packetHash:sha256(packet),amendments:prior?[...(prior.amendments||[]),{at:new Date().toISOString(),priorHash:prior.packetHash}].slice(-50):[]};packets.push(packet);objective.cursors[packet.mailbox]={timestamp:packet.timestamp,messageId:packet.messageId};
+  }
+  state.objectives[objectiveId]=objective;await writeBridgeState(state);
+  return{mailboxEvidenceBatch:{objectiveId,batchId,targetDevice:"primary-mac",authority:"read_only",mailboxes,cursor:objective.cursors,packets},connection:observed.mailboxes||{},localCursorPath:"Application Support/Georgie/mailbox-evidence-cursors.json",credentialsTransferred:false,mailboxMutation:false};
+}
+
 async function execute(job) {
   const a = job.args || {};
   switch (job.action) {
@@ -302,6 +327,8 @@ async function execute(job) {
       return inspectBrowserTabs({ includeContent: a.includeContent !== false });
     case "browser.workflow":
       return executeBrowserWorkflow(job);
+    case "mailbox.read_only_backfill":
+      return localMailboxBatch(job);
     case "ui.click": {
       const x = Math.max(0, Math.min(10000, Math.round(Number(a.x) || 0)));
       const y = Math.max(0, Math.min(10000, Math.round(Number(a.y) || 0)));
