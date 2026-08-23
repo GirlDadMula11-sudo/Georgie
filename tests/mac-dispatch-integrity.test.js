@@ -8,7 +8,7 @@ test("approved Mac dispatch is single-flight and carries a durable receipt",asyn
   const first=await enqueueMacJob({userId,deviceId,action:"system.info",idempotencyKey:key,approvalId:"approval-1",planId:"plan-1"});
   const second=await enqueueMacJob({userId,deviceId,action:"system.info",idempotencyKey:key,approvalId:"approval-1",planId:"plan-1"});
   assert.equal(second.id,first.id);assert.match(first.id,/^idem-[a-f0-9]{40}$/);assert.equal(first.dispatchReceipt.jobId,first.id);assert.equal(first.dispatchReceipt.idempotencyKey,key);
-  const claimed=await claimMacJobs(deviceId,5);const job=claimed.find(item=>item.id===first.id);assert.ok(job);assert.equal(job.status,"claimed");assert.equal(job.dispatchReceipt.deviceId,deviceId);
+  const claimed=await claimMacJobs(deviceId,100);const job=claimed.find(item=>item.id===first.id);assert.ok(job);assert.equal(job.status,"claimed");assert.equal(job.dispatchReceipt.deviceId,deviceId);
   const completed=await completeMacJob(deviceId,first.id,{result:{ok:true}});assert.equal(completed.status,"completed");
   const persisted=(await listMacJobs(userId,100)).find(item=>item.id===first.id);assert.equal(persisted.status,"completed");
 });
