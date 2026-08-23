@@ -8,7 +8,7 @@ const now=()=>new Date().toISOString();
 export function marketDataCapability(){
   const provider=String(process.env.GEORGIE_MARKET_DATA_PROVIDER||"alpaca").trim().toLowerCase();
   const configured=provider==="alpaca"&&alpacaConfigured();
-  return {provider,configured,liveFeedConnected:false,mode:"paper_only",note:configured?"Alpaca credentials are configured; live-feed certification is evaluated from authenticated schema-valid snapshots and per-observation freshness.":"Alpaca adapter is installed but credentials are not yet configured."};
+  return {provider,configured,liveFeedConnected:false,mode:"paper_only",note:configured?"Alpaca credentials are configured; Georgie must independently verify live bid/ask/last/volume timestamps and per-observation freshness before intraday scanning is certified.":"Alpaca adapter is installed but credentials are not yet configured; Georgie must independently verify live bid/ask/last/volume timestamps before live scanning is certified."};
 }
 
 export async function certifyMarketData(input={}){
