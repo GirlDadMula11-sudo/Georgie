@@ -43,3 +43,68 @@ test("legacy or partial durable state normalizes before command processing", asy
     unrelated: true
   });
 });
+
+const mailboxEnvelope = (overrides = {}) => ({
+  source: "chatgpt",
+  objectiveId: "SIERRA-LI-MBX-20260823-001",
+  idempotencyKey: "mailbox-route-1",
+  command: "Resume mailbox evidence certification; rejected CM-100 receipts remain unrelated.",
+  metadata: {
+    capability: "primary_mac.mailbox.read_only",
+    target_device: "primary-mac",
+    operation: "connection_verify_and_backfill",
+    authority: "read_only",
+    prohibited_routes: ["cm-100", "sierra.continue_diagnostic_investigation"],
+    mailboxes: ["mailbox-one@sierramarketinginc.com", "mailbox-two@sierramarketinginc.com"],
+    batchLimit: 25
+  },
+  ...overrides
+});
+
+test("mailbox commands match only the primary Mac read-only capability", () => {
+  const envelope = validateCommandEnvelope(mailboxEnvelope());
+  assert.deepEqual(envelope.routing, {
+    objective_id: "SIERRA-LI-MBX-20260823-001",
+    capability: "primary_mac.mailbox.read_only",
+    target_device: "primary-mac",
+    operation: "connection_verify_and_backfill",
+    authority: "read_only",
+    idempotency_key: "mailbox-route-1",
+    prohibited_routes: ["cm-100", "sierra.continue_diagnostic_investigation"]
+  });
+});
+
+test("CM-100 prose cannot capture a typed mailbox objective", async () => {
+  let proseCalls = 0;
+  const connector = harness({ executeCommand: async () => { proseCalls += 1; return { terminalState: "completed" }; } });
+  const result = await connector.submit("typed-mailbox-route", mailboxEnvelope());
+  assert.equal(proseCalls, 0);
+  assert.equal(result.result.route.capability, "primary_mac.mailbox.read_only");
+  assert.equal(result.result.job.deviceId, "primary-mac");
+  assert.equal(result.result.job.authority, "read_only");
+});
+
+test("duplicate typed commands create one logical execution", async () => {
+  const connector = harness({ executeCommand: async () => assert.fail("typed command entered prose router") });
+  const first = await connector.submit("typed-mailbox-dedupe", mailboxEnvelope());
+  const second = await connector.submit("typed-mailbox-dedupe", mailboxEnvelope());
+  assert.equal(second.duplicate, true);
+  assert.equal(second.commandId, first.commandId);
+  assert.equal(second.objectiveId, first.objectiveId);
+});
+
+test("unsupported capabilities and mismatched authority fail explicitly", () => {
+  assert.throws(() => validateCommandEnvelope(mailboxEnvelope({ metadata: { ...mailboxEnvelope().metadata, capability: "sierra.deal" } })), /UNSUPPORTED_CAPABILITY/);
+  assert.throws(() => validateCommandEnvelope(mailboxEnvelope({ metadata: { ...mailboxEnvelope().metadata, authority: "write" } })), /CAPABILITY_AUTHORITY_MISMATCH/);
+});
+
+test("interruption resumes the same objective and step", async () => {
+  let fail = true;
+  const connector = harness({ executeCommand: async () => { if (fail) throw new Error("interrupted"); return { terminalState: "completed" }; } });
+  const input = { source: "chatgpt", objectiveId: "objective-resume", idempotencyKey: "resume-same-step", command: "continue" };
+  const first = await connector.submit("objective-isolation", input);
+  fail = false;
+  const resumed = await connector.resume("objective-isolation");
+  assert.equal(resumed[0].commandId, first.commandId);
+  assert.equal(resumed[0].objectiveId, "objective-resume");
+});
