@@ -82,7 +82,9 @@ test("completed empty verified NEO immutable-id miss reopens exactly once",async
   await claimMacJobs(deviceId,1);await completeMacJob(deviceId,job.id,{result:emptyIdResult});
   const runtimeResumed=await resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill",verifiedAgentVersion:"2.2.11"});assert.equal(runtimeResumed.resumeHistory.at(-1).reason,"neo_runtime_state_reader_repaired");
   await claimMacJobs(deviceId,1);await completeMacJob(deviceId,job.id,{result:emptyIdResult});
-  await assert.rejects(()=>resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill",verifiedAgentVersion:"2.2.11"}),/MAC_JOB_NOT_RESUMABLE: completed/);
+  const networkResumed=await resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill",verifiedAgentVersion:"2.2.12"});assert.equal(networkResumed.resumeHistory.at(-1).reason,"neo_network_cache_reader_repaired");
+  await claimMacJobs(deviceId,1);await completeMacJob(deviceId,job.id,{result:emptyIdResult});
+  await assert.rejects(()=>resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill",verifiedAgentVersion:"2.2.12"}),/MAC_JOB_NOT_RESUMABLE: completed/);
   const control={status:"completed",result:{mailboxEvidenceBatch:{packets:[],cursor:{}},connection:{submissions:{connected:true,provider:"neo_browser",readOnly:true,rejected:[]}}},resumeHistory:[]};
   assert.equal(versionRecoverableMailboxJob(control),null);
 });
@@ -91,7 +93,7 @@ test("runtime-state identifier repair reopens only after immutable-ID repair and
   const result={mailboxEvidenceBatch:{packets:[],cursor:{}},connection:{a:{connected:true,provider:"neo_browser",readOnly:true,rejected:["missing immutable message id"]},b:{connected:true,provider:"neo_browser",readOnly:true,rejected:["missing immutable message id"]}}};
   const afterImmutable={status:"completed",result,resumeHistory:[{reason:"neo_immutable_id_reader_repaired"}]};
   assert.equal(versionRecoverableMailboxJob(afterImmutable),"neo_runtime_state_reader_repaired");
-  assert.equal(versionRecoverableMailboxJob({...afterImmutable,resumeHistory:[...afterImmutable.resumeHistory,{reason:"neo_runtime_state_reader_repaired"}]}),null);
+  assert.equal(versionRecoverableMailboxJob({...afterImmutable,resumeHistory:[...afterImmutable.resumeHistory,{reason:"neo_runtime_state_reader_repaired"}]}),"neo_network_cache_reader_repaired");
   assert.equal(versionRecoverableMailboxJob({...afterImmutable,result:{...result,connection:{a:{connected:true,provider:"neo_browser",readOnly:true,rejected:[]}}}}),null);
 });
 
