@@ -10,7 +10,7 @@ import { buildNeoObservationScript, validateNeoObservation, buildNeoStaticContra
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.17";
+const AGENT_VERSION = "2.2.18";
 const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;
 const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));
 const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));
@@ -311,7 +311,16 @@ async function execute(job) {
       const repo = assertDeveloperRoot(a.repo);
       if (repo !== "/Users/mac/Georgie") throw new Error("PRIMARY_MAC_REPO_NOT_ALLOWLISTED");
       const before = await runDeveloper("git", ["-C", repo, "rev-parse", "HEAD"]);
-      const status = await runDeveloper("git", ["-C", repo, "status", "--porcelain"]);
+      let status = await runDeveloper("git", ["-C", repo, "status", "--porcelain"]);
+      if (status.stdout.trim() === "M package-lock.json") {
+        const lockDiff = await runDeveloper("git", ["-C", repo, "diff", "--unified=0", "--", "package-lock.json"]);
+        const changed = lockDiff.stdout.split("\n").filter(line => /^[+-]/.test(line) && !/^(---|\+\+\+)/.test(line));
+        const generatedVersionOnly = changed.length > 0 && changed.length <= 4 && changed.every(line => /^[+-]\s+"version":\s+"\d+\.\d+\.\d+",?$/.test(line));
+        if (generatedVersionOnly) {
+          await runDeveloper("git", ["-C", repo, "restore", "--", "package-lock.json"]);
+          status = await runDeveloper("git", ["-C", repo, "status", "--porcelain"]);
+        }
+      }
       if (status.stdout.trim()) throw new Error("PRIMARY_MAC_REPO_DIRTY");
       await runDeveloper("git", ["-C", repo, "fetch", "origin", "main"], { timeout: 120000 });
       await runDeveloper("git", ["-C", repo, "merge", "--ff-only", "origin/main"], { timeout: 120000 });

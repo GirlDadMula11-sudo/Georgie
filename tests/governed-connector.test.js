@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { createGovernedConnector, normalizeConnectorState, validateCommandEnvelope, summarizeGovernedMacJob } from "../src/governed-connector.js";
 
 function harness(options = {}) {
@@ -164,6 +165,15 @@ test("controlled NEO preload installation routes only to local maintenance",asyn
   const result=await connector.submit("primary-preload",input);
   assert.deepEqual(result.result.jobs.map(job=>job.action),["developer.install_neo_preload"]);
   assert.equal(result.result.route.target_device,"primary-mac");
+});
+
+test("Mac self-update source only permits generated package-lock version drift cleanup",()=>{
+  const source=fs.readFileSync(new URL("../mac-agent/agent.js",import.meta.url),"utf8");
+  assert.match(source,/status\.stdout\.trim\(\) === "M package-lock\.json"/);
+  assert.match(source,/generatedVersionOnly/);
+  assert.match(source,/changed\.length <= 4/);
+  assert.match(source,/git", \["-C", repo, "restore", "--", "package-lock\.json"\]/);
+  assert.match(source,/PRIMARY_MAC_REPO_DIRTY/);
 });
 
 test("interruption resumes the same objective and step", async () => {
