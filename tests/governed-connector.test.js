@@ -158,6 +158,14 @@ test("primary Mac maintenance is exact, bounded, and cannot enter mailbox routes
   assert.throws(() => validateCommandEnvelope({ ...input, metadata: { ...input.metadata, prohibited_routes: ["mailbox.read", "cm-100", "arbitrary"] } }), /UNKNOWN_PROHIBITED_ROUTE/);
 });
 
+test("controlled NEO preload installation routes only to local maintenance",async()=>{
+  const input={source:"chatgpt",objectiveId:"SIERRA-LI-MBX-20260823-001",idempotencyKey:"neo-preload-install-1",command:"Install the controlled pre-navigation NEO hook.",metadata:{capability:"primary_mac.agent.maintenance",target_device:"primary-mac",operation:"install_neo_preload",authority:"local_admin",prohibited_routes:["cm-100","stale_continuation","gmail","apple_mail","mailbox.read","mailbox.write"],repo:"/Users/mac/Georgie"}};
+  const connector=harness({executeCommand:async()=>assert.fail("maintenance command entered prose router")});
+  const result=await connector.submit("primary-preload",input);
+  assert.deepEqual(result.result.jobs.map(job=>job.action),["developer.install_neo_preload"]);
+  assert.equal(result.result.route.target_device,"primary-mac");
+});
+
 test("interruption resumes the same objective and step", async () => {
   let fail = true;
   const connector = harness({ executeCommand: async () => { if (fail) throw new Error("interrupted"); return { terminalState: "completed" }; } });

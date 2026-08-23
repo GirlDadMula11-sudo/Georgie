@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Georgie NEO Read-Only Preload",
+  "version": "1.0.0",
+  "description": "Local, pre-navigation read-only transport capture for the governed NEO evidence bridge.",
+  "content_scripts": [
+    {
+      "matches": ["https://app.neo.space/*"],
+      "js": ["preload.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ]
+}

@@ -22,21 +22,21 @@ test("NEO observation script supports exact multi-account identity and guarded f
   assert.match(script,/unique_requested_identity_token/);assert.match(script,/identityProbeErrors/);assert.match(script,/NEO browser identity probe failed/);
   assert.match(script,/messageRowsClicked/);assert.match(script,/guardedMessageOpeningPerformed/);assert.match(script,/row\.click\s*\(/);
   assert.match(script,/GEORGIE_READ_ONLY_BLOCK/);assert.match(script,/same_origin_https_get_head_only/);assert.match(script,/endpoint\.origin !== location\.origin/);assert.match(script,/navigator\.sendBeacon/);assert.match(script,/WebSocket\.prototype\.send/);
-  assert.match(script,/bodyComplete/);assert.match(script,/bodyTruncated/);assert.match(script,/maxBodyBytes=200000/);assert.match(script,/data-message-id/);assert.match(script,/data-thread-id/);assert.match(script,/same-origin-link/);assert.match(script,/messageIdSource/);assert.match(script,/threadIdSource/);assert.match(script,/ambiguous immutable message id/);assert.doesNotMatch(script,/messageId.*sha256|messageId.*rowIndex|messageId.*Date\.now/);
+  assert.match(script,/bodyComplete/);assert.match(script,/bodyTruncated/);assert.match(script,/maxBodyBytes=200000/);assert.match(script,/data-message-id/);assert.match(script,/data-thread-id/);assert.match(script,/same-origin-link/);assert.match(script,/messageIdSource/);assert.match(script,/threadIdSource/);assert.match(script,/ambiguous pre-navigation immutable message id/);assert.doesNotMatch(script,/messageId.*sha256|messageId.*rowIndex|messageId.*Date\.now/);
   assert.doesNotMatch(script,/location\s*=/);assert.match(script,/navigationPerformed:false/);assert.match(script,/mailboxMutation:false/);assert.match(script,/credentialsTransferred:false/);
   assert.ok(script.includes('[\\"GET\\", \\"HEAD\\"]'));assert.match(script,/blockedMutationCount/);
   assert.match(script,/message\.readStateBefore !== \\"unknown\\"/);assert.match(script,/message\.readStateBefore === readStateAfter/);
 });
 
 test("NEO observation validation fails closed on identity, mutation, credential transfer, or partial bodies",()=>{
-  const connected=Object.fromEntries(mailboxes.map(mailbox=>[mailbox,{connected:true,provider:"neo_browser",readOnly:true}]));
+  const connected=Object.fromEntries(mailboxes.map(mailbox=>[mailbox,{connected:true,provider:"neo_browser",readOnly:true,apiProbe:{status:"completed"}}]));
   const base={provider:"neo_browser",navigationPerformed:false,messageOpeningPerformed:false,mailboxMutation:false,credentialsTransferred:false,fullBodyGate:true,mailboxes:connected,messages:[]};
   assert.equal(validateNeoObservation(base,mailboxes).provider,"neo_browser");
   assert.throws(()=>validateNeoObservation({...base,mailboxes:{}},mailboxes),/IDENTITY_NOT_VERIFIED/);
   assert.throws(()=>validateNeoObservation({...base,navigationPerformed:true},mailboxes),/READ_ONLY_PROOF_FAILED/);
   assert.throws(()=>validateNeoObservation({...base,messageOpeningPerformed:true},mailboxes),/READ_ONLY_PROOF_FAILED/);
   assert.throws(()=>validateNeoObservation({...base,credentialsTransferred:true},mailboxes),/READ_ONLY_PROOF_FAILED/);
-  const complete={messageId:"m1",bodyComplete:true,bodyTruncated:false,readStateNeutral:true,mailboxMutation:false,credentialsTransferred:false,retrievalMethod:"guarded_dom_open"};
+  const complete={messageId:"m1",messageIdSource:"neo-preload-api:/mail",bodyComplete:true,bodyTruncated:false,readStateNeutral:true,mailboxMutation:false,credentialsTransferred:false,retrievalMethod:"captured_read_only_get"};
   assert.equal(validateNeoObservation({...base,messages:[complete]},mailboxes).messages.length,1);
   assert.throws(()=>validateNeoObservation({...base,messages:[{...complete,bodyComplete:false}]},mailboxes),/FULL_BODY_PROOF_FAILED/);
 });
@@ -101,9 +101,9 @@ test("NEO static resolver fetches bounded same-origin source maps without creden
 });
 
 test("NEO accepts the proven GET capture path but rejects unproven retrieval",()=>{
-  const connected=Object.fromEntries(mailboxes.map(mailbox=>[mailbox,{connected:true,provider:"neo_browser",readOnly:true}]));
+  const connected=Object.fromEntries(mailboxes.map(mailbox=>[mailbox,{connected:true,provider:"neo_browser",readOnly:true,apiProbe:{status:"completed"}}]));
   const base={provider:"neo_browser",navigationPerformed:false,messageOpeningPerformed:false,mailboxMutation:false,credentialsTransferred:false,fullBodyGate:true,mailboxes:connected};
-  const message={messageId:"provider-immutable-1",bodyComplete:true,bodyTruncated:false,readStateNeutral:true,mailboxMutation:false,credentialsTransferred:false,retrievalMethod:"captured_read_only_get"};
+  const message={messageId:"provider-immutable-1",messageIdSource:"neo-preload-api:/mail",bodyComplete:true,bodyTruncated:false,readStateNeutral:true,mailboxMutation:false,credentialsTransferred:false,retrievalMethod:"captured_read_only_get"};
   assert.equal(validateNeoObservation({...base,messages:[message]},mailboxes).messages[0].retrievalMethod,"captured_read_only_get");
   assert.throws(()=>validateNeoObservation({...base,messages:[{...message,retrievalMethod:"captured_post"}]},mailboxes),/FULL_BODY_PROOF_FAILED/);
 });
