@@ -13,9 +13,10 @@ test("NEO adapter accepts only neo.space browser origins",()=>{
 
 test("NEO observation script supports exact multi-account identity in one tab and bounded account-only selection",()=>{
   const script=buildNeoObservationScript({mailboxes,cursors:{},limit:999});
-  assert.match(script,/neo_browser/);assert.match(script,/exact mailbox identity not found/);assert.match(script,/messages:messages\.slice\(0,max\)/);
-  assert.match(script,/accountSelectionPerformed/);assert.match(script,/exact mailbox account control not found/);
-  assert.match(script,/messageRowsClicked:false/);assert.match(script,/messageOpeningPerformed:false/);
+  assert.match(script,/neo_browser/);assert.match(script,/exact mailbox identity not found/);assert.match(script,/messages:\s*messages\.slice\(0,\s*max\)/);
+  assert.match(script,/accountSelectionPerformed/);assert.match(script,/exact mailbox account rail control not found/);
+  assert.match(script,/exact_identity_left_rail/);assert.match(script,/innerWidth \* 0\.38/);
+  assert.match(script,/messageRowsClicked/);assert.match(script,/messageOpeningPerformed/);
   assert.doesNotMatch(script,/row\.click\s*\(/);assert.doesNotMatch(script,/location\s*=/);assert.doesNotMatch(script,/fetch\s*\(/);assert.doesNotMatch(script,/XMLHttpRequest/);
   assert.match(script,/navigationPerformed:false/);assert.match(script,/mailboxMutation:false/);
 });
