@@ -67,3 +67,13 @@ test("temporary Mac delivery failures retry and missing receipts raise a durable
   const alerts=await reconcileMacDispatches({nowMs:new Date(retried.availableAt).getTime()+60_001});const alert=alerts.find(item=>item.jobId===job.id);assert.equal(alert?.code,"MAC_DISPATCH_RECEIPT_MISSING");
   const persisted=(await listMacJobs(userId,100)).find(item=>item.id===job.id);assert.equal(persisted.alert.code,"MAC_DISPATCH_RECEIPT_MISSING");
 });
+
+test("non-transient NEO identity failures stop immediately at the exact resume point",async()=>{
+  const deviceId="identity-fail-mac",objectiveId="SIERRA-LI-MBX-20260823-001";
+  const job=await enqueueMacJob({userId:"primary",deviceId,action:"mailbox.read_only_backfill",args:{objectiveId,authority:"read_only",checkpoint:"connection_verification"},risk:"read",idempotencyKey:`identity-fail-${Date.now()}`,maxAttempts:5});
+  await claimMacJobs(deviceId,1);
+  const failed=await completeMacJob(deviceId,job.id,{error:"NEO_MAILBOX_IDENTITY_NOT_VERIFIED: submissions@sierramarketinginc.com"});
+  assert.equal(failed.status,"failed");
+  assert.equal(failed.attempts,1);
+  assert.equal(failed.args.checkpoint,"connection_verification");
+});

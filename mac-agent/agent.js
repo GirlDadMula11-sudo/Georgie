@@ -10,6 +10,7 @@ import { buildNeoObservationScript, validateNeoObservation } from "./neo-mail-re
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
+const AGENT_VERSION = "2.2.4";
 const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;
 const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));
 const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));
@@ -361,7 +362,7 @@ async function execute(job) {
 
 async function cycle() {
   try {
-    await api(`/api/mac/${encodeURIComponent(DEVICE_ID)}/heartbeat`, { method: "POST", body: JSON.stringify({ hostname: os.hostname(), platform: os.platform(), arch: os.arch() }) });
+    await api(`/api/mac/${encodeURIComponent(DEVICE_ID)}/heartbeat`, { method: "POST", body: JSON.stringify({ hostname: os.hostname(), platform: os.platform(), arch: os.arch(), agentVersion: AGENT_VERSION }) });
     const payload = await api(`/api/mac/${encodeURIComponent(DEVICE_ID)}/jobs?limit=5`);
     for (const job of payload.jobs || []) {
       try {

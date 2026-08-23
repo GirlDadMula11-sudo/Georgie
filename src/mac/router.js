@@ -38,6 +38,7 @@ export function createMacRouter() {
       hostname: String(req.body?.hostname || "").slice(0, 160),
       platform: String(req.body?.platform || "macOS").slice(0, 50),
       arch: String(req.body?.arch || "").slice(0, 50),
+      agentVersion: String(req.body?.agentVersion || "unknown").slice(0, 50),
       lastSeenAt: new Date().toISOString()
     });
     res.json({ ok: true, serverTime: new Date().toISOString() });
