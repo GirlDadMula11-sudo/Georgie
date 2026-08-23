@@ -22,7 +22,7 @@ const CAPABILITIES = Object.freeze({
   "neo_mailbox_evidence_bridge": Object.freeze({
     targetDevice: "primary-mac",
     authority: "read_only",
-    operations: new Set(["connection_verify_and_backfill"]),
+    operations: new Set(["connection_verify_and_backfill", "static_contract_inspection"]),
     prohibitedRoutes: new Set(["cm-100", "stale_continuation", "gmail", "apple_mail", "sierra.diagnostic_investigation", "sierra.continue_diagnostic_investigation"])
   }),
   "primary_mac.agent.maintenance": Object.freeze({
