@@ -1,11 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Georgie NEO Read-Only Preload",
-  "version": "1.5.0",
-  "description": "Local, pre-navigation read-only transport capture for the governed NEO evidence bridge.",
+  "version": "1.6.0",
+  "description": "Local read-only Chrome debugger relay for the governed NEO evidence bridge.",
   "permissions": [
-    "scripting",
-    "webNavigation"
+    "debugger"
   ],
   "host_permissions": [
     "https://app.neo.space/*"
