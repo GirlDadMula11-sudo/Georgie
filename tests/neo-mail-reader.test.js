@@ -54,9 +54,12 @@ test("NEO immutable IDs inspect row-bound framework state without storage or cre
 });
 
 
-test("NEO source probe is same-origin GET-only and excludes credentials and body fields",()=>{
+test("NEO transport capture records metadata only and fail-closes mutation methods",()=>{
  const script=buildNeoObservationScript({mailboxes,cursors:{},limit:2});
- assert.match(script,/sameOriginOnly/);assert.match(script,/methods/);assert.match(script,/GET/);assert.match(script,/credentials/);assert.match(script,/same-origin/);assert.match(script,/mail\|message\|thread\|conversation\|inbox/);assert.match(script,/body\|html\|content\|attachment/);assert.match(script,/token\|secret\|password\|authorization\|session\|cookie/);assert.doesNotMatch(script,/POST|PUT|PATCH|DELETE/);
+ assert.match(script,/responseSchemas/);assert.match(script,/webSockets/);assert.match(script,/serviceWorkers/);assert.match(script,/cacheNames/);assert.match(script,/indexedDatabases/);
+ assert.match(script,/requestBodiesCaptured:false/);assert.match(script,/messageBodiesRecorded:false/);assert.match(script,/personalContentRecorded:false/);assert.match(script,/payloadCaptured:false/);
+ assert.match(script,/NEO_MUTATION_ENDPOINT_OBSERVED/);assert.ok(script.includes('\\"GET\\",\\"HEAD\\"'));assert.match(script,/mutations/);
+ assert.match(script,/token\|secret\|password\|authorization\|session\|cookie/);assert.doesNotMatch(script,/document\.cookie|localStorage\.getItem|sessionStorage\.getItem/);
 });
 
 
@@ -85,8 +88,22 @@ test("NEO static resolver analyzes only bounded provider-anchor windows",()=>{
   assert.match(script,/ae\\\/ws\\\/create|ae\/ws\/create/);
   assert.match(script,/routeResolutions/);
   assert.match(script,/immutableIdFields/);
-  assert.match(script,/contextHash/);
+  assert.match(script,/sha256/);
   assert.match(script,/authorizationBlocked:true/);
   assert.doesNotMatch(script,/accountActivator/);
   assert.doesNotMatch(script,/messageOpeningPerformed:true/);
+});
+
+test("NEO static resolver fetches bounded same-origin source maps without credentials",()=>{
+  const script=buildNeoStaticContractInspectionScript({objectiveId:"SIERRA-LI-MBX-20260823-001"});
+  assert.match(script,/sourceMappingURL/);assert.match(script,/sourceMaps/);assert.match(script,/12000000/);
+  assert.match(script,/mapUrl/);assert.match(script,/location/);assert.ok(script.includes('credentials:\\\"omit\\\"'));
+});
+
+test("NEO accepts the proven GET capture path but rejects unproven retrieval",()=>{
+  const connected=Object.fromEntries(mailboxes.map(mailbox=>[mailbox,{connected:true,provider:"neo_browser",readOnly:true}]));
+  const base={provider:"neo_browser",navigationPerformed:false,messageOpeningPerformed:false,mailboxMutation:false,credentialsTransferred:false,fullBodyGate:true,mailboxes:connected};
+  const message={messageId:"provider-immutable-1",bodyComplete:true,bodyTruncated:false,readStateNeutral:true,mailboxMutation:false,credentialsTransferred:false,retrievalMethod:"captured_read_only_get"};
+  assert.equal(validateNeoObservation({...base,messages:[message]},mailboxes).messages[0].retrievalMethod,"captured_read_only_get");
+  assert.throws(()=>validateNeoObservation({...base,messages:[{...message,retrievalMethod:"captured_post"}]},mailboxes),/FULL_BODY_PROOF_FAILED/);
 });
