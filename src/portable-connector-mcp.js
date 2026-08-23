@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import express from "express";
 import { createGovernedConnector } from "./governed-connector.js";
 import { verifyConnectorAccessToken } from "./connector-oauth.js";
+import { getMailboxEvidencePacket, listMailboxPacketManifests } from "./mailbox-evidence-bridge.js";
 
 const SERVER = { name: "georgie-governed-connector", version: "1.0.0" };
 const PROTOCOL = "2025-03-26";
@@ -27,6 +28,20 @@ export const GEORGIE_CONNECTOR_TOOLS = Object.freeze([
     title: "Get Georgie command status",
     description: "Use this when the user wants the current status, events, or evidence receipts for a previously dispatched Georgie command.",
     inputSchema: { type: "object", additionalProperties: false, required: ["commandId"], properties: { commandId: { type: "string", minLength: 1, maxLength: 160 } } },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false, idempotentHint: true },
+  },
+  {
+    name: "georgie_mailbox_packet_manifests",
+    title: "List mailbox evidence packet manifests",
+    description: "List redacted packet manifests for one exact governed objective. This cannot search or export a mailbox.",
+    inputSchema: { type: "object", additionalProperties: false, required: ["objectiveId"], properties: { objectiveId: { type: "string", minLength: 1, maxLength: 160 }, mailbox: { type: "string", maxLength: 320 }, limit: { type: "integer", minimum: 1, maximum: 500 } } },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false, idempotentHint: true },
+  },
+  {
+    name: "georgie_mailbox_evidence_packet",
+    title: "Get one mailbox evidence packet",
+    description: "Retrieve one redacted evidence packet by exact objective and packet ID. This cannot expose arbitrary mailbox content.",
+    inputSchema: { type: "object", additionalProperties: false, required: ["objectiveId", "packetId"], properties: { objectiveId: { type: "string", minLength: 1, maxLength: 160 }, packetId: { type: "string", minLength: 1, maxLength: 200 } } },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false, idempotentHint: true },
   },
 ]);
@@ -62,6 +77,15 @@ export function createPortableMcpHandler({ connector, userId = "primary" } = {})
         const command = await connector.status(userId, clean(args.commandId, 160));
         if (!command) return { jsonrpc: "2.0", id, result: textResult({ found: false, commandId: clean(args.commandId, 160) }, "That Georgie command was not found.", true) };
         return { jsonrpc: "2.0", id, result: textResult({ found: true, command }, `Georgie command ${command.id} is ${command.status}.`) };
+      }
+      if (name === "georgie_mailbox_packet_manifests") {
+        const manifests = await listMailboxPacketManifests(userId, args);
+        return { jsonrpc: "2.0", id, result: textResult(manifests, `Returned ${manifests.packets.length} redacted mailbox packet manifest(s).`) };
+      }
+      if (name === "georgie_mailbox_evidence_packet") {
+        const packet = await getMailboxEvidencePacket(userId, args);
+        if (!packet) return { jsonrpc: "2.0", id, result: textResult({ found: false, objectiveId: clean(args.objectiveId, 160), packetId: clean(args.packetId, 200) }, "That evidence packet was not found in the specified objective.", true) };
+        return { jsonrpc: "2.0", id, result: textResult({ found: true, packet }, "Returned one redacted governed mailbox evidence packet.") };
       }
       return { jsonrpc: "2.0", id, result: textResult({ tool: name }, "Unknown Georgie connector tool.", true) };
     } catch (error) {
