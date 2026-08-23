@@ -24,7 +24,10 @@ const canonical = (packet) => ({
   evidenceClass: CLASSES.has(packet.evidenceClass) ? packet.evidenceClass : "unknown", outcome: packet.outcome && typeof packet.outcome === "object" ? packet.outcome : {},
   attachmentHashes: (packet.attachmentHashes || []).map(v => clean(v, 128).toLowerCase()).filter(v => /^[a-f0-9]{64}$/.test(v)).slice(0, 100),
   sourceLocator: clean(packet.sourceLocator, 800), confidence: Math.max(0, Math.min(1, Number(packet.confidence || 0))),
-  conflicts: (packet.conflicts || []).map(v => redact(v)).filter(Boolean).slice(0, 50), excerpt: redact(packet.excerpt), observedAt: clean(packet.observedAt, 80)
+  conflicts: (packet.conflicts || []).map(v => redact(v)).filter(Boolean).slice(0, 50), excerpt: redact(packet.excerpt),
+  bodyHash: clean(packet.bodyHash, 64).toLowerCase(), bodyComplete: packet.bodyComplete === true, retrievalMethod: clean(packet.retrievalMethod, 80),
+  readStateProof: packet.readStateProof && typeof packet.readStateProof === "object" ? { before: clean(packet.readStateProof.before, 20), after: clean(packet.readStateProof.after, 20), neutral: packet.readStateProof.neutral === true, transportPolicy: clean(packet.readStateProof.transportPolicy, 80), blockedMutationCount: Math.max(0, Math.min(10000, Number(packet.readStateProof.blockedMutationCount || 0))) } : {}, credentialsTransferred: packet.credentialsTransferred === false ? false : true, mailboxMutation: packet.mailboxMutation === false ? false : true,
+  observedAt: clean(packet.observedAt, 80)
 });
 
 export function validateMailboxEvidencePacket(packet = {}, scope = {}) {
@@ -32,6 +35,7 @@ export function validateMailboxEvidencePacket(packet = {}, scope = {}) {
   if (!value.objectiveId || value.objectiveId !== clean(scope.objectiveId, 160)) throw new Error("MAILBOX_PACKET_OBJECTIVE_MISMATCH");
   if (!allowedMailbox(value.mailbox) || (scope.mailboxes?.length && !scope.mailboxes.map(v => clean(v, 320).toLowerCase()).includes(value.mailbox))) throw new Error("MAILBOX_PACKET_SCOPE_MISMATCH");
   if (!value.batchId || !value.packetId || !value.messageId || !value.timestamp || !value.sourceLocator) throw new Error("MALFORMED_MAILBOX_PACKET");
+  if (!value.bodyComplete || !/^[a-f0-9]{64}$/.test(value.bodyHash) || value.retrievalMethod !== "guarded_dom_open" || value.readStateProof?.neutral !== true || value.credentialsTransferred !== false || value.mailboxMutation !== false) throw new Error("MAILBOX_FULL_BODY_READ_STATE_PROOF_REQUIRED");
   value.outcome = JSON.parse(redact(JSON.stringify(value.outcome)) || "{}");
   const packetHash = hash(value);
   if (packet.packetHash && clean(packet.packetHash, 64) !== packetHash) throw new Error("MAILBOX_PACKET_HASH_MISMATCH");
@@ -40,7 +44,7 @@ export function validateMailboxEvidencePacket(packet = {}, scope = {}) {
 
 export async function acceptMailboxEvidenceBatch(userId, input = {}) {
   const objectiveId = clean(input.objectiveId, 160), batchId = clean(input.batchId, 160);
-  if (!objectiveId || !batchId || input.authority !== "read_only" || input.targetDevice !== "primary-mac") throw new Error("MAILBOX_BATCH_AUTHORIZATION_FAILED");
+  if (!objectiveId || !batchId || input.authority !== "read_only" || input.targetDevice !== "primary-mac" || input.fullBodyGate !== true) throw new Error("MAILBOX_BATCH_AUTHORIZATION_FAILED");
   const mailboxes = (input.mailboxes || []).map(v => clean(v, 320).toLowerCase());
   if (!mailboxes.length || mailboxes.some(v => !allowedMailbox(v))) throw new Error("MAILBOX_BATCH_SCOPE_INVALID");
   const packets = (input.packets || []).map(packet => validateMailboxEvidencePacket(packet, { objectiveId, mailboxes }));
