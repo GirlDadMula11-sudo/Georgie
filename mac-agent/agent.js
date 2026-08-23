@@ -6,11 +6,12 @@ import { promisify } from "util";
 import fs from "fs/promises";
 import crypto from "crypto";
 import { buildNeoObservationScript, validateNeoObservation, buildNeoStaticContractInspectionScript, validateNeoStaticContractInspection } from "./neo-mail-reader.js";
+import { verifyNeoCdpSession } from "./neo-cdp-reader.js";
 
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.26";
+const AGENT_VERSION = "2.2.27";
 const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;
 const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));
 const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));
@@ -372,6 +373,10 @@ async function execute(job) {
       for (const mailbox of requested) if (!bound.has(mailbox)) failures.push(`NEO_ACCOUNT_BINDING_NOT_PROVEN:${mailbox}`);
       if (failures.length) throw new Error(`NEO_PRELOAD_HEALTH_NOT_PROVEN:${failures.join(",")}`);
       return { repo, health, mailboxContentAccessed: false, credentialsTransferred: false, mutationPerformed: false };
+    }
+    case "mailbox.neo_cdp_verify_session": {
+      if (a.authority !== "read_only") throw new Error("NEO_CDP_AUTHORITY_REJECTED");
+      return verifyNeoCdpSession({ mailboxes: a.mailboxes });
     }
     case "developer.apply_patch": {
       const repo = assertDeveloperRoot(a.repo);
