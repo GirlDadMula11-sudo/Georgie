@@ -101,7 +101,7 @@ function neoMailboxObserver(mailbox, cursors, max) {
       add(thread,node.getAttribute("data-conversation-id"),"data-conversation-id");
       if(node===row)add(message,node.getAttribute("data-id")||node.id,"row-provider-id");
       const rawHref=node.getAttribute("href");
-      if(rawHref){try{const link=new URL(rawHref,location.href);if(link.origin!==location.origin)continue;for(const key of ["messageId","message_id","mailId","mail_id","uid"])add(message,link.searchParams.get(key),"same-origin-link:"+key);for(const key of ["threadId","thread_id","conversationId","conversation_id"])add(thread,link.searchParams.get(key),"same-origin-link:"+key);const match=link.pathname.match(/\\/(?:message|mail|thread|conversation)\\/([A-Za-z0-9][A-Za-z0-9._~-]{5,499})(?:\\/|$)/i);if(match)add(/thread|conversation/i.test(match[0])?thread:message,match[1],"same-origin-path");}catch{}}
+      if(rawHref){try{const link=new URL(rawHref,location.href);if(link.origin!==location.origin)continue;for(const key of ["messageId","message_id","mailId","mail_id","uid"])add(message,link.searchParams.get(key),"same-origin-link:"+key);for(const key of ["threadId","thread_id","conversationId","conversation_id"])add(thread,link.searchParams.get(key),"same-origin-link:"+key);const match=link.pathname.match(/\\/(?:message|mail|thread|conversation)\\/([A-Za-z0-9][A-Za-z0-9._~-]{5,499})(?:\\/|$)/i);if(match){const target=/thread|conversation/i.test(match[0])?thread:message;add(target,match[1],"same-origin-path");}}catch{}}
     }
     const unique=list=>[...new Map(list.map(item=>[item.id,item])).values()];
     const messages=unique(message),threads=unique(thread);
