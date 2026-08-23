@@ -1,6 +1,6 @@
 {
   "name": "georgie",
-  "version": "2.2.5",
+  "version": "2.2.6",
   "private": true,
   "description": "Voice-first personal AI assistant operating system",
   "type": "module",
