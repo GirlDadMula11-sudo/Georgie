@@ -44,7 +44,9 @@ test("single-tab NEO repair permits one exact fail-closed identity retry only af
   assert.equal(versionRecoverableMailboxJob(base),"neo_single_tab_reader_repaired");
   assert.equal(versionRecoverableMailboxJob({...base,resumeHistory:[]}),null);
   assert.equal(versionRecoverableMailboxJob({...base,error:"NEO_MAILBOX_IDENTITY_NOT_VERIFIED: other@example.com"}),null);
-  assert.equal(versionRecoverableMailboxJob({...base,resumeHistory:[...base.resumeHistory,{reason:"neo_single_tab_reader_repaired"}]}),null);
+  const afterSingleTab={...base,resumeHistory:[...base.resumeHistory,{reason:"neo_single_tab_reader_repaired"}]};
+  assert.equal(versionRecoverableMailboxJob(afterSingleTab),"neo_account_rail_reader_repaired");
+  assert.equal(versionRecoverableMailboxJob({...afterSingleTab,resumeHistory:[...afterSingleTab.resumeHistory,{reason:"neo_account_rail_reader_repaired"}]}),null);
 });
 
 test("temporary Mac delivery failures retry and missing receipts raise a durable alert",async()=>{
