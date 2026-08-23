@@ -3,13 +3,14 @@ import assert from "node:assert/strict";
 import { enqueueMacJob, claimMacJobs, completeMacJob, listMacJobs, reconcileMacDispatches, resumeFailedMacJob, versionRecoverableMailboxJob } from "../src/mac/queue.js";
 
 test("approved Mac dispatch is single-flight and carries a durable receipt",async()=>{
-  const key=`approval:test:${Date.now()}`;
-  const first=await enqueueMacJob({userId:"test",deviceId:"test-mac",action:"system.info",idempotencyKey:key,approvalId:"approval-1",planId:"plan-1"});
-  const second=await enqueueMacJob({userId:"test",deviceId:"test-mac",action:"system.info",idempotencyKey:key,approvalId:"approval-1",planId:"plan-1"});
+  const nonce=`${Date.now()}-${Math.random().toString(16).slice(2)}`,userId=`dispatch-user-${nonce}`,deviceId=`dispatch-mac-${nonce}`;
+  const key=`approval:test:${nonce}`;
+  const first=await enqueueMacJob({userId,deviceId,action:"system.info",idempotencyKey:key,approvalId:"approval-1",planId:"plan-1"});
+  const second=await enqueueMacJob({userId,deviceId,action:"system.info",idempotencyKey:key,approvalId:"approval-1",planId:"plan-1"});
   assert.equal(second.id,first.id);assert.match(first.id,/^idem-[a-f0-9]{40}$/);assert.equal(first.dispatchReceipt.jobId,first.id);assert.equal(first.dispatchReceipt.idempotencyKey,key);
-  const claimed=await claimMacJobs("test-mac",5);const job=claimed.find(item=>item.id===first.id);assert.ok(job);assert.equal(job.status,"claimed");assert.equal(job.dispatchReceipt.deviceId,"test-mac");
-  const completed=await completeMacJob("test-mac",first.id,{result:{ok:true}});assert.equal(completed.status,"completed");
-  const persisted=(await listMacJobs("test",100)).find(item=>item.id===first.id);assert.equal(persisted.status,"completed");
+  const claimed=await claimMacJobs(deviceId,100);const job=claimed.find(item=>item.id===first.id);assert.ok(job);assert.equal(job.status,"claimed");assert.equal(job.dispatchReceipt.deviceId,deviceId);
+  const completed=await completeMacJob(deviceId,first.id,{result:{ok:true}});assert.equal(completed.status,"completed");
+  const persisted=(await listMacJobs(userId,100)).find(item=>item.id===first.id);assert.equal(persisted.status,"completed");
 });
 
 test("version-repaired mailbox job resumes with the same identity and immutable failure history",async()=>{
