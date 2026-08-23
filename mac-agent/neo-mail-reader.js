@@ -13,7 +13,7 @@ function neoIdentityObserver(requested) {
   const normalized = value => String(value || "").replace(/\u0000/g, "").replace(/[\u200B-\u200D\u2060\uFEFF]/g, "").replace(/\u2026/g, "...").replace(/\s*@\s*/g, "@").replace(/\s+/g, " ").trim().toLowerCase();
   const inAccountRail = element => {
     const rect = element?.getBoundingClientRect?.();
-    return Boolean(rect && rect.width > 0 && rect.height > 0 && rect.left < innerWidth * 0.6);
+    return Boolean(rect && rect.width > 0 && rect.height > 0);
   };
   const values = element => [element.getAttribute?.("data-email"), element.getAttribute?.("data-account"), element.getAttribute?.("data-address"), element.getAttribute?.("data-testid"), element.getAttribute?.("aria-label"), element.getAttribute?.("title"), element.textContent].filter(Boolean).map(normalized);
   const matchesIdentity = (value, identity) => {
@@ -49,7 +49,7 @@ function neoAccountActivator(identity, requested) {
   const normalized = value => String(value || "").replace(/\u0000/g, "").replace(/[\u200B-\u200D\u2060\uFEFF]/g, "").replace(/\u2026/g, "...").replace(/\s*@\s*/g, "@").replace(/\s+/g, " ").trim().toLowerCase();
   const inAccountRail = element => {
     const rect = element?.getBoundingClientRect?.();
-    return Boolean(rect && rect.width > 0 && rect.height > 0 && rect.left < innerWidth * 0.6);
+    return Boolean(rect && rect.width > 0 && rect.height > 0);
   };
   const values = element => [element.getAttribute?.("data-email"), element.getAttribute?.("data-account"), element.getAttribute?.("data-address"), element.getAttribute?.("data-testid"), element.getAttribute?.("aria-label"), element.getAttribute?.("title"), element.textContent].filter(Boolean).map(normalized);
   const matchesIdentity = (value, requestedIdentity) => {
@@ -74,7 +74,7 @@ function neoAccountActivator(identity, requested) {
     return hits.length === 1 && hits[0] === identity;
   }).sort((left, right) => {
     const a = left.getBoundingClientRect(), b = right.getBoundingClientRect();
-    return a.width * a.height - b.width * b.height;
+    return (a.left - b.left) || (a.width * a.height - b.width * b.height);
   });
   const control = candidates[0];
   if (!control) return { selected: false, identity, error: "exact mailbox account rail control not found", messageRowsClicked: false, messageOpened: false };
