@@ -71,10 +71,35 @@ async function processItem(userId,item){
 async function publishControlOutcome(userId,item,outcome){const objectiveId=item.scope?.controlObjectiveId;if(!objectiveId)return null;const evidence=await appendEvidence(userId,{objectiveId,source:"georgie-background",kind:"handoff_outcome",claim:bounded(outcome?.summary||outcome?.status||"Background handoff updated"),refs:[`handoff:${item.id}`],confidence:"verified_runtime_receipt",metadata:{sharedHandoffId:item.id,status:outcome?.status||null}});return recordCallback(userId,{objectiveId,from:"georgie",to:"chatgpt",type:"handoff_result",status:outcome?.status||"available",summary:bounded(outcome?.summary||"Background handoff updated"),evidenceRefs:[evidence.id],deliveryMode:"github_plus_durable_pull"});}
 async function relayIssueReceipt(item,outcome){if(item.source!=="authorized_assistant_github_issue"||!item.scope?.repository||!item.scope?.issueNumber)return null;const status=bounded(outcome?.status||"updated",80),summary=bounded(outcome?.summary||"Georgie advanced this handoff.",2500);return commentHandoffIssue(item.scope.repository,item.scope.issueNumber,{receiptKey:`${item.id}:${status}`,body:["### Georgie execution receipt",`Status: **${status}**`,`Handoff: \`${item.id}\``,item.scope.controlObjectiveId?`Control objective: \`${item.scope.controlObjectiveId}\``:null,"",summary,"","Authority note: this receipt records governed internal engineering work; it does not expand production, credential, lender, financial, destructive, or external-business authority."].filter(v=>v!==null).join("\n")});}
 
+async function processClaimedItem(uid,item){
+  if(!item)return{status:"idle",observedAt:now()};
+  if(item.scope?.controlHandoffId)await acknowledgeControlHandoff(uid,{handoffId:item.scope.controlHandoffId,participant:"georgie"}).catch(()=>null);
+  try{
+    const outcome=await processItem(uid,item);
+    await Promise.allSettled([publishControlOutcome(uid,item,outcome),relayIssueReceipt(item,outcome),enqueueEvent({userId:uid,type:"engineering.handoff_progress",title:"Georgie advanced background engineering work",body:`${item.objective}: ${outcome?.summary||outcome?.status||"updated"}`,priority:item.priority>=95?"high":"normal",dedupeKey:`handoff:${item.id}:${outcome?.status}`,data:{handoffId:item.id,status:outcome?.status,source:item.source,controlObjectiveId:item.scope?.controlObjectiveId||null}})]);
+    return{status:"processed",handoffId:item.id,outcome};
+  }catch(error){
+    const failed=await failHandoff(uid,item.id,error);
+    if(failed?.status==="quarantined")await Promise.allSettled([publishControlOutcome(uid,item,{status:"quarantined",summary:failed.lastError||"Repeated failure quarantined for review."}),relayIssueReceipt(item,{status:"quarantined",summary:failed.lastError||"Repeated failure quarantined for review."})]);
+    return{status:failed?.status||"failed",handoffId:item.id,error:error instanceof Error?error.message:String(error)};
+  }
+}
+
 export async function engineeringCoordinatorStatus(userId=USER()){const[state,queue]=await Promise.all([missionStatus(userId),listHandoffs(userId,{status:"all",limit:500})]);const counts=queue.items.reduce((out,item)=>(out[item.status]=(out[item.status]||0)+1,out),{});return{active:state.active,mission:state.mission,counts,lastCycleAt:state.lastCycleAt,authority:state.mission.authority,next:queue.items.filter(item=>!["completed","cancelled","quarantined"].includes(item.status)).slice(0,10)};}
 export async function runEngineeringCoordinatorCycle(userId=USER()){
   if(running)return{status:"already_running"};running=true;const uid=String(userId);
-  try{const state=await missionStatus(uid);if(!state.active)return{status:"inactive"};await seedMissionWork(uid);await syncAssistantHandoffs(uid);await syncTypedAIControlCommands(uid);const item=await claimNextHandoff(uid);if(!item)return{status:"idle",observedAt:now()};if(item.scope?.controlHandoffId)await acknowledgeControlHandoff(uid,{handoffId:item.scope.controlHandoffId,participant:"georgie"}).catch(()=>null);try{const outcome=await processItem(uid,item);await Promise.allSettled([publishControlOutcome(uid,item,outcome),relayIssueReceipt(item,outcome),enqueueEvent({userId:uid,type:"engineering.handoff_progress",title:"Georgie advanced background engineering work",body:`${item.objective}: ${outcome?.summary||outcome?.status||"updated"}`,priority:item.priority>=95?"high":"normal",dedupeKey:`handoff:${item.id}:${outcome?.status}`,data:{handoffId:item.id,status:outcome?.status,source:item.source,controlObjectiveId:item.scope?.controlObjectiveId||null}})]);return{status:"processed",handoffId:item.id,outcome};}catch(error){const failed=await failHandoff(uid,item.id,error);if(failed?.status==="quarantined")await Promise.allSettled([publishControlOutcome(uid,item,{status:"quarantined",summary:failed.lastError||"Repeated failure quarantined for review."}),relayIssueReceipt(item,{status:"quarantined",summary:failed.lastError||"Repeated failure quarantined for review."})]);return{status:failed?.status||"failed",handoffId:item.id,error:error instanceof Error?error.message:String(error)};}}
-  finally{running=false;}
+  try{
+    const state=await missionStatus(uid);if(!state.active)return{status:"inactive"};
+    const typedSync=await syncTypedAIControlCommands(uid).catch(error=>({status:"unavailable",imported:0,error:error instanceof Error?error.message:String(error)}));
+    let item=await claimNextHandoff(uid);
+    if(item?.source==="authorized_assistant_control_command"){
+      void Promise.allSettled([seedMissionWork(uid),syncAssistantHandoffs(uid)]).catch(()=>{});
+      return processClaimedItem(uid,item);
+    }
+    const housekeeping=await Promise.allSettled([seedMissionWork(uid),syncAssistantHandoffs(uid)]);
+    if(!item)item=await claimNextHandoff(uid);
+    const result=await processClaimedItem(uid,item);
+    return{...result,typedSync,housekeeping:housekeeping.map(entry=>entry.status)};
+  }finally{running=false;}
 }
 export function startEngineeringCoordinator(){if(timer||process.env.NODE_ENV==="test"||process.env.GEORGIE_ENGINEERING_COORDINATOR_ENABLED==="false")return timer;const execute=()=>runEngineeringCoordinatorCycle().catch(error=>console.warn("Engineering coordinator delayed:",error instanceof Error?error.message:error));setTimeout(execute,25_000).unref?.();timer=setInterval(execute,INTERVAL);timer.unref?.();return timer;}
