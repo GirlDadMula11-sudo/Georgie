@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildNeoObservationScript, isAllowedNeoUrl, validateNeoObservation } from "../mac-agent/neo-mail-reader.js";
+import { buildNeoObservationScript, isAllowedNeoUrl, validateNeoObservation, buildNeoStaticContractInspectionScript, validateNeoStaticContractInspection } from "../mac-agent/neo-mail-reader.js";
 
 const mailboxes=["submissions@sierramarketinginc.com","jasonsierra@sierramarketinginc.com"];
 
@@ -57,4 +57,22 @@ test("NEO immutable IDs inspect row-bound framework state without storage or cre
 test("NEO source probe is same-origin GET-only and excludes credentials and body fields",()=>{
  const script=buildNeoObservationScript({mailboxes,cursors:{},limit:2});
  assert.match(script,/sameOriginOnly/);assert.match(script,/methods/);assert.match(script,/GET/);assert.match(script,/credentials/);assert.match(script,/same-origin/);assert.match(script,/mail\|message\|thread\|conversation\|inbox/);assert.match(script,/body\|html\|content\|attachment/);assert.match(script,/token\|secret\|password\|authorization\|session\|cookie/);assert.doesNotMatch(script,/POST|PUT|PATCH|DELETE/);
+});
+
+
+test("NEO static contract inspection is bundle-only, credentialless, and fail closed",()=>{
+  const script=buildNeoStaticContractInspectionScript({objectiveId:"SIERRA-LI-MBX-20260823-001"});
+  assert.match(script,/neo_static_bundle_contracts/);
+  assert.match(script,/credentialsMode/);
+  assert.match(script,/credentials:"omit"/);
+  assert.match(script,/mail\.9adeadc4|mail\\\./);
+  assert.doesNotMatch(script,/accountActivator/);
+  assert.doesNotMatch(script,/guardedOpener/);
+});
+
+test("NEO static contract proof authorizes no source and accesses no mailbox data",()=>{
+  const observed={provider:"neo_static_bundle_contracts",objectiveId:"SIERRA-LI-MBX-20260823-001",tabsInspected:1,inspections:[{status:"completed",credentialsTransferred:false,mailboxDataAccessed:false,mailboxInteractionPerformed:false,authorizationBlocked:true,bundles:[{path:"/static/js/mail.9adeadc4.js",sha256:"a".repeat(64),bytes:10}],contracts:[],stores:[]}],credentialsTransferred:false,mailboxDataAccessed:false,mailboxInteractionPerformed:false,authorizedReadSource:null,authorizationBlocked:true};
+  assert.equal(validateNeoStaticContractInspection(observed,observed.objectiveId),observed);
+  assert.throws(()=>validateNeoStaticContractInspection({...observed,authorizedReadSource:{origin:"https://api.example"}},observed.objectiveId),/PROOF_FAILED/);
+  assert.throws(()=>validateNeoStaticContractInspection({...observed,mailboxDataAccessed:true},observed.objectiveId),/PROOF_FAILED/);
 });
