@@ -150,7 +150,7 @@ test("primary Mac maintenance is exact, bounded, and cannot enter mailbox routes
   const connector = harness({ executeCommand: async () => assert.fail("maintenance command entered prose router") });
   const first = await connector.submit("primary", input);
   const duplicate = await connector.submit("primary", input);
-  assert.deepEqual(first.result.jobs.map((job) => job.action), ["app.activate", "ui.type_text", "ui.key"]);
+  assert.deepEqual(first.result.jobs.map((job) => job.action), ["developer.apply_patch", "developer.run_checks"]);
   assert.equal(first.result.jobs.every((job) => job.deviceId === "primary-mac"), true);
   assert.equal(duplicate.duplicate, true);
   assert.throws(() => validateCommandEnvelope({ ...input, metadata: { ...input.metadata, operation: "connection_verify_and_backfill" } }), /UNSUPPORTED_OPERATION/);
