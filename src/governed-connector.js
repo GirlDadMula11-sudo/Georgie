@@ -12,6 +12,7 @@ const locks = new Map();
 const now = () => new Date().toISOString();
 const clean = (value, max = 6000) => String(value || "").trim().slice(0, max);
 const digest = (value) => crypto.createHash("sha256").update(String(value)).digest("hex");
+export function summarizeGovernedMacJob(job = {}) { return { id: job.id, status: job.status, action: job.action, deviceId: job.deviceId, authority: job.args?.authority || null, checkpoint: job.args?.checkpoint || null, attempts: job.attempts, claimedAt: job.claimedAt, completedAt: job.completedAt, error: job.error, dispatchReceipt: job.dispatchReceipt, cursor: job.result?.mailboxEvidenceBatch?.cursor || {}, packetCount: job.result?.mailboxEvidenceBatch?.packets?.length || 0, quarantineCount: job.result?.quarantine?.length || job.result?.mailboxEvidenceBatch?.quarantine?.length || 0, connections: job.result?.connection || null, staticContractInspection: job.result?.neoStaticContractInspection || null }; }
 const CAPABILITIES = Object.freeze({
   "primary_mac.mailbox.read_only": Object.freeze({
     targetDevice: "primary-mac",
@@ -183,7 +184,7 @@ export function createGovernedConnector({ executeCommand, emitStatus = async () 
     const jobId = clean(command.result?.job?.id || command.metadata?.existing_job_id || command.metadata?.existingJobId, 200);
     if (jobId && command.objectiveId) {
       const job = (await listMacJobs(userId, 500)).find((item) => item.id === jobId && String(item.args?.objectiveId || "") === command.objectiveId);
-      if (job) response.macJob = { id: job.id, status: job.status, action: job.action, deviceId: job.deviceId, authority: job.args?.authority || null, checkpoint: job.args?.checkpoint || null, attempts: job.attempts, claimedAt: job.claimedAt, completedAt: job.completedAt, error: job.error, dispatchReceipt: job.dispatchReceipt, cursor: job.result?.mailboxEvidenceBatch?.cursor || {}, packetCount: job.result?.mailboxEvidenceBatch?.packets?.length || 0, quarantineCount: job.result?.quarantine?.length || job.result?.mailboxEvidenceBatch?.quarantine?.length || 0, connections: job.result?.connection || null };
+      if (job) response.macJob = summarizeGovernedMacJob(job);
       response.packetManifests = await listMailboxPacketManifests(userId, { objectiveId: command.objectiveId, limit: 25 });
     }
     return response;
