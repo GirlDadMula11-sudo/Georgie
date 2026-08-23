@@ -31,6 +31,14 @@ test("same-job resume rejects cross-objective, wrong-action, and completed jobs"
   await assert.rejects(()=>resumeFailedMacJob(deviceId,completedJob.id,{objectiveId,expectedAction:"mailbox.read_only_backfill"}),/MAC_JOB_NOT_RESUMABLE/);
 });
 
+test("completed empty Apple Mail miss resumes in place after the NEO reader is deployed",async()=>{
+  const nonce=`${Date.now()}-${Math.random().toString(16).slice(2)}`,deviceId=`resume-neo-${nonce}`,objectiveId=`objective-${nonce}`;
+  const job=await enqueueMacJob({userId:`resume-neo-user-${nonce}`,deviceId,action:"mailbox.read_only_backfill",args:{objectiveId,authority:"read_only"},risk:"read",idempotencyKey:`resume-neo-${nonce}`});
+  await claimMacJobs(deviceId,1);await completeMacJob(deviceId,job.id,{result:{mailboxEvidenceBatch:{packets:[],cursor:{}},connection:{a:{connected:false,error:"configured account not found"},b:{connected:false,error:"configured account not found"}}}});
+  const resumed=await resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill"});
+  assert.equal(resumed.id,job.id);assert.equal(resumed.status,"queued");assert.equal(resumed.resumeHistory.at(-1).fromStatus,"completed");assert.equal(resumed.resumeHistory.at(-1).reason,"legacy_reader_replaced");assert.match(resumed.resumeHistory.at(-1).resultHash,/^[a-f0-9]{64}$/);
+});
+
 test("temporary Mac delivery failures retry and missing receipts raise a durable alert",async()=>{
   const nonce=`${Date.now()}-${Math.random().toString(16).slice(2)}`,userId=`test-${nonce}`,deviceId=`retry-mac-${nonce}`;
   const key=`approval:retry:${nonce}`,job=await enqueueMacJob({userId,deviceId,action:"system.info",idempotencyKey:key,approvalId:"approval-2",planId:"plan-2"});
