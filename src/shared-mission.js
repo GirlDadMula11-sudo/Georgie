@@ -60,7 +60,9 @@ export function enqueueHandoff(userId=USER(),input={}){return serialized(userId,
   const created={id:crypto.randomUUID(),dedupeKey,...item,status:"queued",attempts:0,lease:null,createdAt:now(),updatedAt:now(),nextAttemptAt:null,lastError:null,result:null};
   state.items=[...state.items,created].slice(-2000);state.updatedAt=now();await save(uid,state);return{status:"queued",item:structuredClone(created)};
 });}
-export async function listHandoffs(userId=USER(),{status="active",limit=100}={}){const state=await missionStatus(userId),items=state.items.filter(item=>status==="all"||(status==="active"?!["completed","cancelled","quarantined"].includes(item.status):item.status===status)).sort((a,b)=>b.priority-a.priority||String(a.createdAt).localeCompare(String(b.createdAt))).slice(0,Math.max(1,Math.min(Number(limit)||100,500)));return{mission:state.mission,active:state.active,items,lastCycleAt:state.lastCycleAt};}
+function dispatchRank(item){return item?.source==="authorized_assistant_control_command"?1:0;}
+export function compareHandoffPriority(a,b){return dispatchRank(b)-dispatchRank(a)||b.priority-a.priority||String(a.createdAt).localeCompare(String(b.createdAt));}
+export async function listHandoffs(userId=USER(),{status="active",limit=100}={}){const state=await missionStatus(userId),items=state.items.filter(item=>status==="all"||(status==="active"?!["completed","cancelled","quarantined"].includes(item.status):item.status===status)).sort(compareHandoffPriority).slice(0,Math.max(1,Math.min(Number(limit)||100,500)));return{mission:state.mission,active:state.active,items,lastCycleAt:state.lastCycleAt};}
 export function claimNextHandoff(userId=USER(),workerId="georgie-background"){return serialized(userId,async()=>{
   const uid=String(userId),state=await missionStatus(uid),at=Date.now();
   for(const item of state.items)if(item.status==="running"&&Date.parse(item.lease?.expiresAt||0)<=at)item.status="queued";
@@ -71,7 +73,7 @@ export function claimNextHandoff(userId=USER(),workerId="georgie-background"){re
     if(row.status==="queued"&&!passed){row.status="blocked_by_dependency";row.updatedAt=now();}
     else if(row.status==="blocked_by_dependency"&&passed){row.status="queued";row.updatedAt=now();}
   }
-  const item=state.items.filter(row=>row.status==="queued"&&(!row.nextAttemptAt||Date.parse(row.nextAttemptAt)<=at)&&row.attempts<MAX_ATTEMPTS).sort((a,b)=>b.priority-a.priority||String(a.createdAt).localeCompare(String(b.createdAt)))[0];
+  const item=state.items.filter(row=>row.status==="queued"&&(!row.nextAttemptAt||Date.parse(row.nextAttemptAt)<=at)&&row.attempts<MAX_ATTEMPTS).sort(compareHandoffPriority)[0];
   if(!item){state.lastCycleAt=now();state.updatedAt=now();await save(uid,state);return null;}
   item.status="running";item.attempts+=1;item.lease={workerId:bounded(workerId,100),claimedAt:now(),expiresAt:new Date(at+LEASE_MS).toISOString()};item.updatedAt=now();state.lastCycleAt=now();state.updatedAt=now();await save(uid,state);return structuredClone(item);
 });}
