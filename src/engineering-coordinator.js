@@ -22,7 +22,8 @@ export async function seedMissionWork(userId=USER()){
     [90,"CapitalMatch accuracy regeneration and miss analysis","verification"],
     [88,"Exactly-once communication delivery and thread continuity","engineering"]
   ];
-  const results=[];for(const[priority,objective,type]of seeds)results.push(await enqueueHandoff(userId,{source:"shared_mission",priority,objective,type,acceptanceCriteria:["Current authoritative evidence retained","No later mission gate advanced without the preceding gate","Any defect has an exact reproducible repair or remains explicitly held"],dedupeKey:`mission:${objective.toLowerCase().replace(/[^a-z0-9]+/g,"-")}`}));return results;
+  const keys=seeds.map(([,objective])=>`mission:${objective.toLowerCase().replace(/[^a-z0-9]+/g,"-")}`),results=[];
+  for(let index=0;index<seeds.length;index+=1){const[priority,objective,type]=seeds[index];results.push(await enqueueHandoff(userId,{source:"shared_mission",priority,objective,type,dependsOn:index?[keys[index-1]]:[],acceptanceCriteria:["Current authoritative evidence retained","No later mission gate advanced without the preceding gate","Any defect has an exact reproducible repair or remains explicitly held"],dedupeKey:keys[index]}));}return results;
 }
 export async function syncAssistantHandoffs(userId=USER()){
   if(!githubSourceConfigured())return{status:"not_configured",imported:0};
@@ -56,7 +57,7 @@ export async function runEngineeringCoordinatorCycle(userId=USER()){
   if(running)return{status:"already_running"};running=true;const uid=String(userId);
   try{
     const state=await missionStatus(uid);if(!state.active)return{status:"inactive"};
-    if(!state.items.length)await seedMissionWork(uid);
+    await seedMissionWork(uid);
     await syncAssistantHandoffs(uid);
     const item=await claimNextHandoff(uid);if(!item)return{status:"idle",observedAt:now()};
     try{const outcome=await processItem(uid,item);await enqueueEvent({userId:uid,type:"engineering.handoff_progress",title:"Georgie advanced background engineering work",body:`${item.objective}: ${outcome?.summary||outcome?.status||"updated"}`,priority:item.priority>=95?"high":"normal",dedupeKey:`handoff:${item.id}:${outcome?.status}`,data:{handoffId:item.id,status:outcome?.status,source:item.source}});return{status:"processed",handoffId:item.id,outcome};}

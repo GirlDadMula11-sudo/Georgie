@@ -38,7 +38,7 @@ function fingerprint(item){return crypto.createHash("sha256").update(JSON.string
 function normalize(input={}){
   const objective=bounded(input.objective,4000);if(!objective)throw new Error("A handoff objective is required");
   const type=["investigation","engineering","verification","certified_repair","capability_gap"].includes(input.type)?input.type:"engineering";
-  return{objective,type,source:bounded(input.source||"georgie",100),priority:Math.max(1,Math.min(100,Number(input.priority)||50)),scope:input.scope&&typeof input.scope==="object"?input.scope:{},acceptanceCriteria:Array.isArray(input.acceptanceCriteria)?input.acceptanceCriteria.map(v=>bounded(v,1000)).filter(Boolean).slice(0,30):[],evidence:input.evidence&&typeof input.evidence==="object"?input.evidence:{},requestedAuthority:bounded(input.requestedAuthority||"automatic_safe_work",100)};
+  return{objective,type,source:bounded(input.source||"georgie",100),priority:Math.max(1,Math.min(100,Number(input.priority)||50)),scope:input.scope&&typeof input.scope==="object"?input.scope:{},dependsOn:Array.isArray(input.dependsOn)?[...new Set(input.dependsOn.map(v=>bounded(v,200)).filter(Boolean))].slice(0,20):[],acceptanceCriteria:Array.isArray(input.acceptanceCriteria)?input.acceptanceCriteria.map(v=>bounded(v,1000)).filter(Boolean).slice(0,30):[],evidence:input.evidence&&typeof input.evidence==="object"?input.evidence:{},requestedAuthority:bounded(input.requestedAuthority||"automatic_safe_work",100)};
 }
 export function autonomousRepairPolicy(input={}){
   const risk=String(input.risk||"").toLowerCase(),files=Array.isArray(input.files)?input.files.map(String):[],checks=Array.isArray(input.checks)?input.checks:[];
@@ -55,7 +55,7 @@ export async function missionStatus(userId=USER()){const uid=String(userId),clou
 export async function enqueueHandoff(userId=USER(),input={}){
   const uid=String(userId||USER()),item=normalize(input),state=await missionStatus(uid),dedupeKey=bounded(input.dedupeKey||fingerprint(item),200);
   const existing=state.items.find(row=>row.dedupeKey===dedupeKey&&!['completed','cancelled','quarantined'].includes(row.status));
-  if(existing)return{status:"deduplicated",item:existing};
+  if(existing){const merged=[...new Set([...(existing.dependsOn||[]),...(item.dependsOn||[])])];if(JSON.stringify(merged)!==JSON.stringify(existing.dependsOn||[])){existing.dependsOn=merged;existing.updatedAt=now();state.updatedAt=now();await save(uid,state);}return{status:"deduplicated",item:existing};}
   const created={id:crypto.randomUUID(),dedupeKey,...item,status:"queued",attempts:0,lease:null,createdAt:now(),updatedAt:now(),nextAttemptAt:null,lastError:null,result:null};
   state.items=[...state.items,created].slice(-2000);state.updatedAt=now();await save(uid,state);return{status:"queued",item:created};
 }
@@ -63,7 +63,8 @@ export async function listHandoffs(userId=USER(),{status="active",limit=100}={})
 export async function claimNextHandoff(userId=USER(),workerId="georgie-background"){
   const uid=String(userId),state=await missionStatus(uid),at=Date.now();
   for(const item of state.items)if(item.status==="running"&&Date.parse(item.lease?.expiresAt||0)<=at)item.status="queued";
-  const item=state.items.filter(row=>row.status==="queued"&&(!row.nextAttemptAt||Date.parse(row.nextAttemptAt)<=at)&&row.attempts<MAX_ATTEMPTS).sort((a,b)=>b.priority-a.priority||String(a.createdAt).localeCompare(String(b.createdAt)))[0];
+  const gatePassed=row=>(row.dependsOn||[]).every(key=>{const dependency=state.items.find(item=>item.dedupeKey===key);return dependency?.status==="completed"||(dependency?.status==="diagnosed"&&dependency?.result?.repairPlan?.reproducible===true);});
+  const item=state.items.filter(row=>row.status==="queued"&&gatePassed(row)&&(!row.nextAttemptAt||Date.parse(row.nextAttemptAt)<=at)&&row.attempts<MAX_ATTEMPTS).sort((a,b)=>b.priority-a.priority||String(a.createdAt).localeCompare(String(b.createdAt)))[0];
   if(!item){state.lastCycleAt=now();state.updatedAt=now();await save(uid,state);return null;}
   item.status="running";item.attempts+=1;item.lease={workerId:bounded(workerId,100),claimedAt:now(),expiresAt:new Date(at+LEASE_MS).toISOString()};item.updatedAt=now();state.lastCycleAt=now();state.updatedAt=now();await save(uid,state);return structuredClone(item);
 }

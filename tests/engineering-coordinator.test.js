@@ -10,4 +10,6 @@ test("mission seeding is idempotent and preserves the locked attack order",async
   assert.equal(first[0].item.priority,100);
   assert.match(first[1].item.objective,/Canonical document identity/i);
   assert.match(first[7].item.objective,/CapitalMatch accuracy/i);
+  assert.deepEqual(first[0].item.dependsOn,[]);
+  assert.deepEqual(first.slice(1).map(result=>result.item.dependsOn.length),[1,1,1,1,1,1,1,1]);
 });
