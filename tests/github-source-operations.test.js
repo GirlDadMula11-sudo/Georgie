@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { getBranch, getRepository, readFile, createBranch, githubSourceConfigured } from "../src/integrations/github-source.js";
+import { getBranch, getRepository, readFile, createBranch, githubSourceConfigured, listHandoffIssues } from "../src/integrations/github-source.js";
 
 function withFetch(mock, fn) {
   const original = globalThis.fetch;
@@ -94,4 +94,23 @@ test("configuration truth reflects server credential only", () => {
   assert.equal(githubSourceConfigured(), true);
   if (oldA === undefined) delete process.env.GEORGIE_GITHUB_TOKEN; else process.env.GEORGIE_GITHUB_TOKEN = oldA;
   if (oldB === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = oldB;
+});
+
+test("assistant handoff inbox imports only labeled issues and excludes pull requests", async () => {
+  const old = process.env.GEORGIE_GITHUB_TOKEN;
+  process.env.GEORGIE_GITHUB_TOKEN = "test-token";
+  try {
+    await withFetch(async (url) => {
+      assert.match(String(url), /issues\?state=open&labels=georgie-handoff/);
+      return jsonResponse(200, [
+        { number: 7, title: "Verify queue recovery", body: "Evidence and acceptance criteria", updated_at: "2026-08-22T20:00:00Z", html_url: "https://github.test/issues/7" },
+        { number: 8, title: "A pull request", pull_request: { url: "x" } }
+      ]);
+    }, async () => {
+      const result = await listHandoffIssues();
+      assert.equal(result.ok, true);
+      assert.equal(result.issues.length, 1);
+      assert.equal(result.issues[0].number, 7);
+    });
+  } finally { if (old === undefined) delete process.env.GEORGIE_GITHUB_TOKEN; else process.env.GEORGIE_GITHUB_TOKEN = old; }
 });
