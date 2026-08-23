@@ -29,7 +29,7 @@ const CAPABILITIES = Object.freeze({
   "primary_mac.agent.maintenance": Object.freeze({
     targetDevice: "primary-mac",
     authority: "local_admin",
-    operations: new Set(["update_restart_from_main", "install_neo_preload", "normalize_generated_lock"]),
+    operations: new Set(["update_restart_from_main", "install_neo_preload", "inspect_neo_preload", "normalize_generated_lock"]),
     prohibitedRoutes: new Set(["cm-100", "stale_continuation", "gmail", "apple_mail", "mailbox.read", "mailbox.write"])
   })
 });
@@ -91,6 +91,8 @@ async function executeTypedCapability({ userId, command }) {
     const lockPatch = `diff --git a/package-lock.json b/package-lock.json\n--- a/package-lock.json\n+++ b/package-lock.json\n@@ -1,12 +1,12 @@\n {\n   "name": "georgie",\n-  "version": "2.2.22",\n+  "version": "2.2.21",\n   "lockfileVersion": 3,\n   "requires": true,\n   "packages": {\n     "": {\n       "name": "georgie",\n-      "version": "2.2.22",\n+      "version": "2.2.21",\n       "dependencies": {\n         "dotenv": "^16.4.5",\n         "express": "^4.21.1",\n`;
     const specs = route.operation === "install_neo_preload"
       ? [["developer.install_neo_preload", { repo }, "Install the controlled NEO document-start preload and relaunch Chrome"]]
+      : route.operation === "inspect_neo_preload"
+        ? [["developer.inspect_neo_preload", { repo }, "Inspect the controlled NEO preload without accessing mailbox content"]]
       : route.operation === "normalize_generated_lock"
         ? [["developer.apply_patch", { repo, patch: lockPatch, patchHash: digest(lockPatch) }, "Normalize the exact installer-generated package-lock version drift"]]
         : [["developer.update_restart_from_main", { repo }, "Fast-forward the allowlisted Georgie checkout and restart the Mac agent"]];
