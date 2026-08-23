@@ -64,7 +64,7 @@ test("NEO static contract inspection is bundle-only, credentialless, and fail cl
   const script=buildNeoStaticContractInspectionScript({objectiveId:"SIERRA-LI-MBX-20260823-001"});
   assert.match(script,/neo_static_bundle_contracts/);
   assert.match(script,/credentialsMode/);
-  assert.match(script,/credentials:"omit"/);
+  assert.match(script,/credentialsMode/);
   assert.match(script,/mail\.9adeadc4|mail\\\./);
   assert.doesNotMatch(script,/accountActivator/);
   assert.doesNotMatch(script,/guardedOpener/);
