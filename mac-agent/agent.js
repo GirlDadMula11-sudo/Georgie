@@ -10,7 +10,7 @@ import { buildNeoObservationScript, validateNeoObservation, buildNeoStaticContra
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.15";
+const AGENT_VERSION = "2.2.16";
 const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;
 const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));
 const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));
@@ -318,6 +318,22 @@ async function execute(job) {
       const after = await runDeveloper("git", ["-C", repo, "rev-parse", "HEAD"]);
       const install = await runDeveloper("/bin/bash", [path.join(repo, "mac-agent/install.sh")], { cwd: repo, timeout: 120000 });
       return { repo, before: before.stdout.trim(), after: after.stdout.trim(), fastForwardOnly: true, install, restartRequested: true };
+    }
+    case "developer.install_neo_preload": {
+      const repo = assertDeveloperRoot(a.repo);
+      if (repo !== "/Users/mac/Georgie") throw new Error("PRIMARY_MAC_REPO_NOT_ALLOWLISTED");
+      const extension = path.join(repo, "mac-agent/neo-preload-extension");
+      const manifestText = await fs.readFile(path.join(extension, "manifest.json"), "utf8");
+      const manifest = JSON.parse(manifestText);
+      if (manifest.manifest_version !== 3 || manifest.content_scripts?.[0]?.run_at !== "document_start" || manifest.content_scripts?.[0]?.world !== "MAIN" || JSON.stringify(manifest.content_scripts?.[0]?.matches) !== JSON.stringify(["https://app.neo.space/*"])) throw new Error("NEO_PRELOAD_MANIFEST_SCOPE_REJECTED");
+      const preloadText = await fs.readFile(path.join(extension, "preload.js"), "utf8");
+      if (/document\.cookie|localStorage|getItem\(|sessionStorage|chrome\.storage|request\.headers|request\.body|init\.body|Authorization/i.test(preloadText)) throw new Error("NEO_PRELOAD_PRIVACY_GUARD_REJECTED");
+      const manifestHash = crypto.createHash("sha256").update(manifestText).digest("hex");
+      const preloadHash = crypto.createHash("sha256").update(preloadText).digest("hex");
+      await runDeveloper("/usr/bin/osascript", ["-e", "tell application \"Google Chrome\" to quit"], { timeout: 15000 }).catch(() => {});
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      await runDeveloper("/usr/bin/open", ["-a", "Google Chrome", "--args", `--load-extension=${extension}`], { timeout: 15000 });
+      return { repo, extension, manifestVersion: manifest.version, manifestHash, preloadHash, runAt: "document_start", world: "MAIN", matches: manifest.content_scripts[0].matches, chromeRelaunched: true, credentialsTransferred: false };
     }
     case "developer.apply_patch": {
       const repo = assertDeveloperRoot(a.repo);
