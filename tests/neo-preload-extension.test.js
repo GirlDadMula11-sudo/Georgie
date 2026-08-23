@@ -61,6 +61,8 @@ test("NEO preload health enumerates exact NEO tabs and reports named fail-closed
   assert.match(agent,/NEO_PRELOAD_NOT_LOADED/);
   assert.match(agent,/NEO_PRE_NAVIGATION_NOT_PROVEN/);
   assert.match(agent,/NEO_EXTENSION_REGISTRATION_ERROR/);
+  assert.match(agent,/extensionDiagnostic\.message/);
+  assert.match(agent,/slice\(0,240\)/);
   assert.match(agent,/NEO_EXTENSION_DIAGNOSTIC_NOT_PRESENT/);
   assert.match(agent,/NEO_ACCOUNT_BINDING_NOT_PROVEN/);
   assert.doesNotMatch(agent,/execute active tab of front window javascript/);
