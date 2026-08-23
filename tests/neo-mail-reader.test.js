@@ -15,7 +15,7 @@ test("NEO observation script supports exact multi-account identity and guarded f
   const script=buildNeoObservationScript({mailboxes,cursors:{},limit:999});
   assert.match(script,/neo_browser/);assert.match(script,/exact objective-envelope mailbox binding not found/);assert.match(script,/messages:\s*messages\.slice\(0,\s*max\)/);
   assert.match(script,/accountSelectionPerformed/);assert.match(script,/exact mailbox account rail control not found/);
-  assert.match(script,/exact_envelope_bound_account_rail/);assert.doesNotMatch(script,/innerWidth \*/);assert.doesNotMatch(script,/new URL\(/);assert.match(script,/tabsEnumerated/);assert.match(script,/neoTabOrigins/);
+  assert.match(script,/exact_envelope_bound_account_rail/);assert.doesNotMatch(script,/innerWidth \*/);assert.doesNotMatch(script,/function neo\(raw\)\{try\{const h=new URL/);assert.match(script,/function neo\(raw\)\{const match=String/);assert.match(script,/tabsEnumerated/);assert.match(script,/neoTabOrigins/);
   assert.match(script,/root\.body\?\.innerText/);assert.match(script,/matchesIdentity\(normalized\(root\.body/);assert.match(script,/a\.left - b\.left/);
   assert.match(script,/domain\.slice\(0, 4\)/);assert.ok(script.includes("..."));
   assert.ok(script.includes("\\\\u2026"));assert.match(script,/u200B/);assert.match(script,/uniqueLocal/);assert.match(script,/shadowRoot/);assert.match(script,/contentDocument/);
