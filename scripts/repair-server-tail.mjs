@@ -28,7 +28,7 @@ if (!source.includes(v2Import) || !source.includes(realtimeImport)) {
 
 if (!source.includes('engine:"v2-concurrent"')) {
   const start = source.indexOf('async function completeTurn({userId,sessionId,input,history=[]}){');
-  const end = source.indexOf('app.get("/health"', start);
+  const connectorRoutes = source.indexOf('app.use("/api/connector"', start);\n  const end = connectorRoutes === -1 ? source.indexOf('app.get("/health"', start) : connectorRoutes;
   if (start === -1 || end === -1) throw new Error('Unable to locate Georgie completeTurn for v2 activation');
   const replacement = `async function completeTurn({userId,sessionId,input,history=[]}){\n  const fast=await tryFastMacTurn(userId,input);\n  if(fast){\n    Promise.all([\n      appendSessionTurn({userId,sessionId,role:"user",content:input}),\n      appendSessionTurn({userId,sessionId,role:"assistant",content:fast.text})\n    ]).catch(error=>console.warn("Fast-turn persistence delayed:",error instanceof Error?error.message:error));\n    return{...fast,responseId:null,remembered:0,memoryCount:0,webSearches:0,model:"deterministic-mac-router",engine:"v2-fast",latencyMs:0};\n  }\n  return completeTurnV2({userId,sessionId,input,history});\n}\n`;
   source = source.slice(0, start) + replacement + source.slice(end);
