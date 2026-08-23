@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { SHARED_MISSION, autonomousRepairPolicy, claimNextHandoff, completeHandoff, enqueueHandoff } from "../src/shared-mission.js";
+import { SHARED_MISSION, autonomousRepairPolicy, claimNextHandoff, completeHandoff, enqueueHandoff, listHandoffs } from "../src/shared-mission.js";
 
 test("shared mission keeps Sierra integrity gates ahead of CapitalMatch accuracy",()=>{
   const joined=SHARED_MISSION.priorities.join("\n");
@@ -15,6 +15,7 @@ test("hard-gated work cannot be claimed before its prerequisite passes",async()=
   await enqueueHandoff(user,{objective:"Second gate",dedupeKey:"gate:second",dependsOn:["gate:first"],priority:99});
   const claimedFirst=await claimNextHandoff(user,"test");assert.equal(claimedFirst.id,first.item.id);
   assert.equal(await claimNextHandoff(user,"test"),null);
+  const blocked=await listHandoffs(user,{status:"all"});assert.equal(blocked.items.find(item=>item.dedupeKey==="gate:second").status,"blocked_by_dependency");
   await completeHandoff(user,claimedFirst.id,{summary:"passed"});
   const claimedSecond=await claimNextHandoff(user,"test");assert.equal(claimedSecond.dedupeKey,"gate:second");
 });

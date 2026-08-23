@@ -60,10 +60,21 @@ export async function enqueueHandoff(userId=USER(),input={}){
   state.items=[...state.items,created].slice(-2000);state.updatedAt=now();await save(uid,state);return{status:"queued",item:created};
 }
 export async function listHandoffs(userId=USER(),{status="active",limit=100}={}){const state=await missionStatus(userId),items=state.items.filter(item=>status==="all"||(status==="active"?!["completed","cancelled","quarantined"].includes(item.status):item.status===status)).sort((a,b)=>b.priority-a.priority||String(a.createdAt).localeCompare(String(b.createdAt))).slice(0,Math.max(1,Math.min(Number(limit)||100,500)));return{mission:state.mission,active:state.active,items,lastCycleAt:state.lastCycleAt};}
+function dependencyPassed(state,key){const dependency=state.items.find(item=>item.dedupeKey===key);return dependency?.status==="completed"||(dependency?.status==="diagnosed"&&dependency?.result?.repairPlan?.reproducible===true);}
+export async function reconcileHandoffGates(userId=USER()){
+  const uid=String(userId),state=await missionStatus(uid);let changed=0;
+  for(const item of state.items){const dependencies=item.dependsOn||[],passed=dependencies.every(key=>dependencyPassed(state,key));
+    if(dependencies.length&&!passed&&!["queued","blocked_by_dependency","cancelled","quarantined"].includes(item.status)){
+      item.result={gateViolation:{detectedAt:now(),preservedStatus:item.status,preservedResult:item.result||null},usableForCompletion:false};item.status="blocked_by_dependency";item.lease=null;item.updatedAt=now();changed+=1;
+    }else if(dependencies.length&&!passed&&item.status==="queued"){item.status="blocked_by_dependency";item.updatedAt=now();changed+=1;
+    }else if(passed&&item.status==="blocked_by_dependency"){item.status="queued";item.attempts=0;item.nextAttemptAt=null;item.updatedAt=now();changed+=1;}
+  }
+  if(changed){state.receipts=[...state.receipts,{id:crypto.randomUUID(),handoffId:null,status:"gate_reconciled",at:now(),summary:`Reconciled ${changed} hard-gated work item(s); premature evidence remains quarantined from completion.`}].slice(-3000);state.updatedAt=now();await save(uid,state);}return{changed,items:state.items};
+}
 export async function claimNextHandoff(userId=USER(),workerId="georgie-background"){
-  const uid=String(userId),state=await missionStatus(uid),at=Date.now();
+  const uid=String(userId);await reconcileHandoffGates(uid);const state=await missionStatus(uid),at=Date.now();
   for(const item of state.items)if(item.status==="running"&&Date.parse(item.lease?.expiresAt||0)<=at)item.status="queued";
-  const gatePassed=row=>(row.dependsOn||[]).every(key=>{const dependency=state.items.find(item=>item.dedupeKey===key);return dependency?.status==="completed"||(dependency?.status==="diagnosed"&&dependency?.result?.repairPlan?.reproducible===true);});
+  const gatePassed=row=>(row.dependsOn||[]).every(key=>dependencyPassed(state,key));
   const item=state.items.filter(row=>row.status==="queued"&&gatePassed(row)&&(!row.nextAttemptAt||Date.parse(row.nextAttemptAt)<=at)&&row.attempts<MAX_ATTEMPTS).sort((a,b)=>b.priority-a.priority||String(a.createdAt).localeCompare(String(b.createdAt)))[0];
   if(!item){state.lastCycleAt=now();state.updatedAt=now();await save(uid,state);return null;}
   item.status="running";item.attempts+=1;item.lease={workerId:bounded(workerId,100),claimedAt:now(),expiresAt:new Date(at+LEASE_MS).toISOString()};item.updatedAt=now();state.lastCycleAt=now();state.updatedAt=now();await save(uid,state);return structuredClone(item);
