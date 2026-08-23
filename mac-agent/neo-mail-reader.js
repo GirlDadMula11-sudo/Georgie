@@ -13,7 +13,7 @@ function neoIdentityObserver(requested) {
   const normalized = value => String(value || "").replace(/\u0000/g, "").replace(/[\u200B-\u200D\u2060\uFEFF]/g, "").replace(/\u2026/g, "...").replace(/\s*@\s*/g, "@").replace(/\s+/g, " ").trim().toLowerCase();
   const inAccountRail = element => {
     const rect = element?.getBoundingClientRect?.();
-    return Boolean(rect && rect.width > 0 && rect.height > 0 && rect.left < innerWidth * 0.5 && rect.width < innerWidth * 0.7);
+    return Boolean(rect && rect.width > 0 && rect.height > 0 && rect.left < innerWidth * 0.6);
   };
   const values = element => [element.getAttribute?.("data-email"), element.getAttribute?.("data-account"), element.getAttribute?.("data-address"), element.getAttribute?.("data-testid"), element.getAttribute?.("aria-label"), element.getAttribute?.("title"), element.textContent].filter(Boolean).map(normalized);
   const matchesIdentity = (value, identity) => {
@@ -34,6 +34,9 @@ function neoIdentityObserver(requested) {
     }
   }
   const matches = new Set();
+  for (const identity of requested) {
+    if (roots.some(root => normalized(root.body?.innerText || root.textContent).includes(identity))) matches.add(identity);
+  }
   for (const element of roots.flatMap(root => [...(root.querySelectorAll?.("body *, *") || [])])) {
     if (!inAccountRail(element)) continue;
     const hits = requested.filter(identity => values(element).some(value => matchesIdentity(value, identity)));
@@ -46,7 +49,7 @@ function neoAccountActivator(identity, requested) {
   const normalized = value => String(value || "").replace(/\u0000/g, "").replace(/[\u200B-\u200D\u2060\uFEFF]/g, "").replace(/\u2026/g, "...").replace(/\s*@\s*/g, "@").replace(/\s+/g, " ").trim().toLowerCase();
   const inAccountRail = element => {
     const rect = element?.getBoundingClientRect?.();
-    return Boolean(rect && rect.width > 0 && rect.height > 0 && rect.left < innerWidth * 0.5 && rect.width < innerWidth * 0.7);
+    return Boolean(rect && rect.width > 0 && rect.height > 0 && rect.left < innerWidth * 0.6);
   };
   const values = element => [element.getAttribute?.("data-email"), element.getAttribute?.("data-account"), element.getAttribute?.("data-address"), element.getAttribute?.("data-testid"), element.getAttribute?.("aria-label"), element.getAttribute?.("title"), element.textContent].filter(Boolean).map(normalized);
   const matchesIdentity = (value, requestedIdentity) => {
