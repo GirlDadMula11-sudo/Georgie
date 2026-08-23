@@ -16,6 +16,8 @@ services:
         value: low_risk_write
       - key: OPENAI_API_KEY
         sync: false
+      - key: GEORGIE_CONNECTOR_TOKEN
+        sync: false
       - key: GEORGIE_SMARTLEAD_API_KEY
         sync: false
       - key: GEORGIE_VAPID_PUBLIC_KEY
