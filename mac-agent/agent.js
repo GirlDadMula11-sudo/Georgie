@@ -10,7 +10,7 @@ import { buildNeoObservationScript, validateNeoObservation, buildNeoStaticContra
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.22";
+const AGENT_VERSION = "2.2.23";
 const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;
 const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));
 const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));
@@ -341,7 +341,7 @@ async function execute(job) {
       const preloadHash = crypto.createHash("sha256").update(preloadText).digest("hex");
       await runDeveloper("/usr/bin/osascript", ["-e", "tell application \"Google Chrome\" to quit"], { timeout: 15000 }).catch(() => {});
       await new Promise(resolve => setTimeout(resolve, 3000));
-      await runDeveloper("/usr/bin/open", ["-a", "Google Chrome", "--args", `--load-extension=${extension}`], { timeout: 15000 });
+      await runDeveloper("/usr/bin/open", ["-a", "Google Chrome", "--args", `--load-extension=${extension}`, "https://app.neo.space/mail/"], { timeout: 15000 });
       return { repo, extension, manifestVersion: manifest.version, manifestHash, preloadHash, executionBridge: "registered_main_world_document_start", runAt: "document_start", world: "MAIN", matches: manifest.host_permissions, chromeRelaunched: true, credentialsTransferred: false };
     }
     case "developer.inspect_neo_preload": {

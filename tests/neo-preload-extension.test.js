@@ -65,3 +65,10 @@ test("NEO preload health enumerates exact NEO tabs and reports named fail-closed
   assert.match(agent,/NEO_ACCOUNT_BINDING_NOT_PROVEN/);
   assert.doesNotMatch(agent,/execute active tab of front window javascript/);
 });
+
+test("NEO preload installer reopens only the scoped NEO mail page",()=>{
+  const agent=fs.readFileSync(new URL("../mac-agent/agent.js",import.meta.url),"utf8");
+  assert.match(agent,/--load-extension=/);
+  assert.match(agent,/https:\/\/app\.neo\.space\/mail\//);
+  assert.doesNotMatch(agent,/gmail\.com|mail\.apple\.com/);
+});
