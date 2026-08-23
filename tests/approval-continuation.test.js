@@ -69,9 +69,9 @@ test("successful calls with unhealthy business evidence are blocked",()=>{
   assert.equal(response.completed,false);assert.match(response.text,/sierra.health: FAIL/);
 });
 
-test("blocked continuation names the missing tool and never invents a queue",()=>{
+test("blocked continuation explains the missing capability plainly and never invents a queue",()=>{
   const response=sierraWorkflowDirectResponse("approved",[{ok:true,tool:"approvals.continue_latest",result:{ok:false,status:"blocked_missing_tool",approvalId:"approval-1",planId:"plan-1",missingTool:"developer.verify",error:"Required tool developer.verify is unavailable."}}]);
-  assert.match(response.text,/BLOCKED/);assert.match(response.text,/Exact missing tool: developer.verify/);assert.match(response.text,/Nothing was falsely marked complete/);
+  assert.match(response.text,/could not continue this action safely/i);assert.match(response.text,/Missing capability: developer.verify/);assert.match(response.text,/What changed: nothing from this attempt/i);assert.doesNotMatch(response.text,/queue|falsely marked complete/i);
 });
 
 test("queued reconciliation is reported as in progress, never completed",()=>{
