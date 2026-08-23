@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createGovernedConnector, validateCommandEnvelope } from "../src/governed-connector.js";
+import { createGovernedConnector, normalizeConnectorState, validateCommandEnvelope } from "../src/governed-connector.js";
 
 function harness(options = {}) {
   let state = { schema: "georgie.governed-connector.v1", version: 1, commands: [], events: [], receipts: [], updatedAt: null };
@@ -30,4 +30,16 @@ test("failed work remains resumable under the same command ID", async () => {
   const input = { source: "chatgpt", idempotencyKey: `resume-${Date.now()}`, command: "Resume the bounded investigation" };
   const first = await connector.submit("connector-resume-test", input); assert.equal(first.status, "failed");
   fail = false; const resumed = await connector.resume("connector-resume-test"); assert.equal(resumed.length, 1); assert.equal(resumed[0].commandId, first.commandId); assert.equal(resumed[0].status, "completed");
+});
+
+test("legacy or partial durable state normalizes before command processing", async () => {
+  assert.deepEqual(normalizeConnectorState({ schema: "legacy", commands: null, unrelated: true }), {
+    schema: "georgie.governed-connector.v1",
+    version: 1,
+    commands: [],
+    events: [],
+    receipts: [],
+    updatedAt: null,
+    unrelated: true
+  });
 });
