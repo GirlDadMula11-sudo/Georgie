@@ -32,14 +32,16 @@ test("same-job resume rejects cross-objective, wrong-action, and completed jobs"
   await assert.rejects(()=>resumeFailedMacJob(deviceId,completedJob.id,{objectiveId,expectedAction:"mailbox.read_only_backfill"}),/MAC_JOB_NOT_RESUMABLE/);
 });
 
-test("verified 2.2.4 identity-root handler reopens the exact exhausted mailbox job once",async()=>{
+test("each verified identity-root handler reopens the exact exhausted mailbox job once",async()=>{
+ for(const version of ["2.2.4","2.2.5"]){
   const nonce=`${Date.now()}-${Math.random().toString(16).slice(2)}`,deviceId=`verified-handler-${nonce}`,objectiveId=`objective-${nonce}`;
   const job=await enqueueMacJob({userId:`verified-handler-user-${nonce}`,deviceId,action:"mailbox.read_only_backfill",args:{objectiveId,authority:"read_only"},risk:"read",idempotencyKey:`verified-handler-${nonce}`,maxAttempts:1});
   await claimMacJobs(deviceId,1);await completeMacJob(deviceId,job.id,{error:"NEO_MAILBOX_IDENTITY_NOT_VERIFIED: submissions@sierramarketinginc.com: old handler"});
-  const resumed=await resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill",verifiedAgentVersion:"2.2.4"});
-  assert.equal(resumed.id,job.id);assert.equal(resumed.status,"queued");assert.equal(resumed.resumeHistory.at(-1).reason,"neo_identity_root_2_2_4_verified");
+  const resumed=await resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill",verifiedAgentVersion:version});
+  assert.equal(resumed.id,job.id);assert.equal(resumed.status,"queued");assert.equal(resumed.resumeHistory.at(-1).reason,`neo_identity_root_${version.replace(/\./g,"_")}_verified`);
   await claimMacJobs(deviceId,1);await completeMacJob(deviceId,job.id,{error:"NEO_MAILBOX_IDENTITY_NOT_VERIFIED: submissions@sierramarketinginc.com: still ambiguous"});
-  await assert.rejects(()=>resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill",verifiedAgentVersion:"2.2.4"}),/MAC_JOB_NOT_RESUMABLE/);
+  await assert.rejects(()=>resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill",verifiedAgentVersion:version}),/MAC_JOB_NOT_RESUMABLE/);
+ }
 });
 
 test("completed empty Apple Mail miss resumes in place after the NEO reader is deployed",async()=>{

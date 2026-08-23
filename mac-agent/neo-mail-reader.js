@@ -10,10 +10,10 @@ export function isAllowedNeoUrl(value) {
 }
 
 function neoIdentityObserver(requested) {
-  const normalized = value => String(value || "").replace(/\u0000/g, "").replace(/\u2026/g, "...").replace(/\s+/g, " ").trim().toLowerCase();
+  const normalized = value => String(value || "").replace(/\u0000/g, "").replace(/[\u200B-\u200D\u2060\uFEFF]/g, "").replace(/\u2026/g, "...").replace(/\s*@\s*/g, "@").replace(/\s+/g, " ").trim().toLowerCase();
   const inAccountRail = element => {
     const rect = element?.getBoundingClientRect?.();
-    return Boolean(rect && rect.width > 0 && rect.height > 0 && rect.left < innerWidth * 0.38 && rect.right < innerWidth * 0.55);
+    return Boolean(rect && rect.width > 0 && rect.height > 0 && rect.left < innerWidth * 0.5 && rect.width < innerWidth * 0.7);
   };
   const values = element => [element.getAttribute?.("data-email"), element.getAttribute?.("data-account"), element.getAttribute?.("data-address"), element.getAttribute?.("data-testid"), element.getAttribute?.("aria-label"), element.getAttribute?.("title"), element.textContent].filter(Boolean).map(normalized);
   const matchesIdentity = (value, identity) => {
@@ -22,7 +22,8 @@ function neoIdentityObserver(requested) {
     if (!local || !domain) return false;
     const domainPrefix = domain.slice(0, 4);
     const token = `${local}@${domainPrefix}`;
-    return value.includes(token) && (value.includes("...") || value.endsWith(token) || value.includes(`${token} `));
+    const uniqueLocal = requested.filter(candidate => candidate.split("@")[0] === local).length === 1;
+    return (value.includes(token) && (value.includes("...") || value.endsWith(token) || value.includes(`${token} `))) || (uniqueLocal && value.includes(`${local}@`) && value.includes("..."));
   };
   const roots = [document], seen = new Set(roots);
   for (let index = 0; index < roots.length; index += 1) {
@@ -42,10 +43,10 @@ function neoIdentityObserver(requested) {
 }
 
 function neoAccountActivator(identity, requested) {
-  const normalized = value => String(value || "").replace(/\u0000/g, "").replace(/\u2026/g, "...").replace(/\s+/g, " ").trim().toLowerCase();
+  const normalized = value => String(value || "").replace(/\u0000/g, "").replace(/[\u200B-\u200D\u2060\uFEFF]/g, "").replace(/\u2026/g, "...").replace(/\s*@\s*/g, "@").replace(/\s+/g, " ").trim().toLowerCase();
   const inAccountRail = element => {
     const rect = element?.getBoundingClientRect?.();
-    return Boolean(rect && rect.width > 0 && rect.height > 0 && rect.left < innerWidth * 0.38 && rect.right < innerWidth * 0.55);
+    return Boolean(rect && rect.width > 0 && rect.height > 0 && rect.left < innerWidth * 0.5 && rect.width < innerWidth * 0.7);
   };
   const values = element => [element.getAttribute?.("data-email"), element.getAttribute?.("data-account"), element.getAttribute?.("data-address"), element.getAttribute?.("data-testid"), element.getAttribute?.("aria-label"), element.getAttribute?.("title"), element.textContent].filter(Boolean).map(normalized);
   const matchesIdentity = (value, requestedIdentity) => {
@@ -54,7 +55,8 @@ function neoAccountActivator(identity, requested) {
     if (!local || !domain) return false;
     const domainPrefix = domain.slice(0, 4);
     const token = `${local}@${domainPrefix}`;
-    return value.includes(token) && (value.includes("...") || value.endsWith(token) || value.includes(`${token} `));
+    const uniqueLocal = requested.filter(candidate => candidate.split("@")[0] === local).length === 1;
+    return (value.includes(token) && (value.includes("...") || value.endsWith(token) || value.includes(`${token} `))) || (uniqueLocal && value.includes(`${local}@`) && value.includes("..."));
   };
   const roots = [document], seen = new Set(roots);
   for (let index = 0; index < roots.length; index += 1) {
