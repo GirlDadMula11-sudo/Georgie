@@ -29,7 +29,7 @@ test("NEO preload is narrowly scoped and runs in the page main world before navi
   assert.match(source,/performance\.timeOrigin/);
   assert.match(source,/registered_main_world_document_start/);
   assert.match(background,/GEORGIE_NEO_EXTENSION_DIAGNOSTIC/);
-  assert.match(background,/REGISTRATION_EXCEPTION/);
+  assert.match(background,/WEBNAVIGATION_MAIN_INJECTION_FAILED/);
   assert.match(diagnostic,/georgieNeoExtensionDiagnostic/);
   assert.match(diagnostic,/SERVICE_WORKER_UNREACHABLE/);
   assert.doesNotMatch(diagnostic,/document\\.cookie|authorization|token|request\\.body|message content/i);
@@ -57,7 +57,6 @@ test("NEO adapter refuses certification without a completed pre-navigation captu
   assert.match(script,/neo-preload-api:/);
   assert.match(script,/connection\.apiProbe\?\.status !== "completed"/);
 });
-
 
 test("NEO preload health enumerates exact NEO tabs and reports named fail-closed checks",()=>{
   const agent=fs.readFileSync(new URL("../mac-agent/agent.js",import.meta.url),"utf8");
