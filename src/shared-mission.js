@@ -42,7 +42,7 @@ function normalize(input={}){
   return{objective,type,source:bounded(input.source||"georgie",100),priority:Math.max(1,Math.min(100,Number(input.priority)||50)),scope:input.scope&&typeof input.scope==="object"?input.scope:{},dependsOn:Array.isArray(input.dependsOn)?[...new Set(input.dependsOn.map(v=>bounded(v,200)).filter(Boolean))].slice(0,20):[],acceptanceCriteria:Array.isArray(input.acceptanceCriteria)?input.acceptanceCriteria.map(v=>bounded(v,1000)).filter(Boolean).slice(0,30):[],evidence:input.evidence&&typeof input.evidence==="object"?input.evidence:{},requestedAuthority:bounded(input.requestedAuthority||"automatic_safe_work",100)};
 }
 export function autonomousRepairPolicy(input={}){
-  const risk=String(input.risk||"").toLowerCase(),files=Array.isArray(input.files)?input.files.map(String):[],checks=Array.isArray(input.checks)?input.checks:[];
+  const risk=String(input.risk||"").toLowerCase(),files=Array.isArray(input.files)?input.files.map(String):[],checks=Array.isArray(input.checks)?input.checkcks:[];
   const forbiddenFile=files.some(path=>/(^|\/)(migrations?|supabase|auth|payments?|credentials?|secrets?|render\.yaml)(\/|$)/i.test(path));
   const verified=checks.length>0&&checks.every(check=>check?.status==="passed");
   const reversible=input.reversible===true&&Boolean(input.rollbackPlan);
@@ -65,7 +65,14 @@ export function claimNextHandoff(userId=USER(),workerId="georgie-background"){re
   const uid=String(userId),state=await missionStatus(uid),at=Date.now();
   for(const item of state.items)if(item.status==="running"&&Date.parse(item.lease?.expiresAt||0)<=at)item.status="queued";
   const gatePassed=row=>(row.dependsOn||[]).every(key=>{const dependency=state.items.find(item=>item.dedupeKey===key);return dependency?.status==="completed"||(dependency?.status==="diagnosed"&&dependency?.result?.repairPlan?.reproducible===true);});
-  const item=state.items.filter(row=>row.status==="queued"&&gatePassed(row)&&(!row.nextAttemptAt||Date.parse(row.nextAttemptAt)<=at)&&row.attempts<MAX_ATTEMPTS).sort((a,b)=>b.priority-a.priority||String(a.createdAt).localeCompare(String(b.createdAt)))[0];
+  let dependencyStateChanged=false;
+  for(const row of state.items){
+    if(!["queued","blocked_by_dependency"].includes(row.status))continue;
+    const passed=gatePassed(row);
+    if(row.status==="queued"&&!passed){row.status="blocked_by_dependency";row.updatedAt=now();dependencyStateChanged=true;}
+    else if(row.status==="blocked_by_dependency"&&passed){row.status="queued";row.updatedAt=now();dependencyStateChanged=true;}
+  }
+  const item=state.items.filter(row=>row.status==="queued"&&(!row.nextAttemptAt||Date.parse(row.nextAttemptAt)<=at)&&row.attempts<MAX_ATTEMPTS).sort((a,b)=>b.priority-a.priority||String(a.createdAt).localeCompare(String(b.createdAt)))[0];
   if(!item){state.lastCycleAt=now();state.updatedAt=now();await save(uid,state);return null;}
   item.status="running";item.attempts+=1;item.lease={workerId:bounded(workerId,100),claimedAt:now(),expiresAt:new Date(at+LEASE_MS).toISOString()};item.updatedAt=now();state.lastCycleAt=now();state.updatedAt=now();await save(uid,state);return structuredClone(item);
 });}
