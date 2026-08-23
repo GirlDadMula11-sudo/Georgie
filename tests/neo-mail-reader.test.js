@@ -22,7 +22,7 @@ test("NEO observation script supports exact multi-account identity and guarded f
   assert.match(script,/unique_requested_identity_token/);assert.match(script,/identityProbeErrors/);assert.match(script,/NEO browser identity probe failed/);
   assert.match(script,/messageRowsClicked/);assert.match(script,/guardedMessageOpeningPerformed/);assert.match(script,/row\.click\s*\(/);
   assert.match(script,/GEORGIE_READ_ONLY_BLOCK/);assert.match(script,/same_origin_https_get_head_only/);assert.match(script,/endpoint\.origin !== location\.origin/);assert.match(script,/navigator\.sendBeacon/);assert.match(script,/WebSocket\.prototype\.send/);
-  assert.match(script,/bodyComplete/);assert.match(script,/bodyTruncated/);assert.match(script,/maxBodyBytes=200000/);
+  assert.match(script,/bodyComplete/);assert.match(script,/bodyTruncated/);assert.match(script,/maxBodyBytes=200000/);assert.match(script,/data-message-id/);assert.match(script,/data-thread-id/);assert.match(script,/same-origin-link/);assert.match(script,/messageIdSource/);assert.match(script,/threadIdSource/);assert.match(script,/ambiguous immutable message id/);assert.doesNotMatch(script,/messageId.*sha256|messageId.*rowIndex|messageId.*Date\.now/);
   assert.doesNotMatch(script,/location\s*=/);assert.match(script,/navigationPerformed:false/);assert.match(script,/mailboxMutation:false/);assert.match(script,/credentialsTransferred:false/);
   assert.ok(script.includes('[\\"GET\\", \\"HEAD\\"]'));assert.match(script,/blockedMutationCount/);
   assert.match(script,/message\.readStateBefore !== \\"unknown\\"/);assert.match(script,/message\.readStateBefore === readStateAfter/);
