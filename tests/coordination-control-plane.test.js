@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 process.env.GEORGIE_CLOUD_STATE_ENABLED="false";
 
 const mod=await import(`../src/coordination-control-plane.js?test=${Date.now()}`);
-const { objectiveIdFor, authorityDecision, commandEnvelope, ensureObjective, appendEvidence, acquireLock, releaseLock, createHandoff, acknowledgeHandoff, recordCallback, controlPlaneSnapshot, prepareObjectiveControlContext }=mod;
+const { objectiveIdFor, authorityDecision, commandEnvelope, ensureObjective, appendEvidence, acquireLock, releaseLock, createHandoff, acknowledgeHandoff, recordCallback, recordCallbackDelivery, listPendingCallbacks, controlPlaneSnapshot, prepareObjectiveControlContext }=mod;
 
 test("objective IDs are deterministic across coordinators",()=>{
   const input={stableKey:"objective:abc",domain:"technical",kind:"engineering",text:"Repair durable orchestration"};
@@ -46,6 +46,19 @@ test("evidence, handoffs, acknowledgements and callbacks share one objective",as
   const snapshot=await controlPlaneSnapshot(uid,{objectiveId:objective.id});
   assert.equal(ack.status,"acknowledged");
   assert.equal(snapshot.objectives.length,1);assert.equal(snapshot.evidence.length,1);assert.equal(snapshot.handoffs.length,1);assert.equal(snapshot.callbacks.length,1);
+});
+
+test("callback delivery remains pending until provider read-back confirms the exact receipt revision",async()=>{
+  const uid=`callback-${Date.now()}`;
+  const first=await recordCallback(uid,{objectiveId:"obj_callback",from:"georgie",to:"chatgpt",type:"ai_control_receipt",status:"executed_pending_verification",summary:"Provider mutation executed; verification pending.",deliveryMode:"github_ai_control",idempotencyKey:"ai-control-receipt:cmd-1",metadata:{repository:"GirlDadMula11-sudo/Georgie",issueNumber:68,commandId:"cmd-1"}});
+  assert.equal(first.delivered,false);assert.equal(first.deliveryAttempts,0);
+  const failed=await recordCallbackDelivery(uid,{callbackId:first.id,delivered:false,error:"lost response",receipt:{ok:false,readBackConfirmed:false,attempts:2,errors:["lost response"]}});
+  assert.equal(failed.delivered,false);assert.equal(failed.deliveryAttempts,2);assert.equal(failed.revisionDeliveryAttempts,2);assert.match(failed.lastDeliveryError,/lost response/i);
+  assert.equal((await listPendingCallbacks(uid,{deliveryMode:"github_ai_control"})).length,1);
+  const confirmed=await recordCallbackDelivery(uid,{callbackId:first.id,delivered:true,receipt:{ok:true,readBackConfirmed:true,attempts:1,commentId:123}});
+  assert.equal(confirmed.delivered,true);assert.equal(confirmed.deliveryReadBackConfirmed,true);assert.equal(confirmed.deliveryAttempts,3);
+  const revised=await recordCallback(uid,{objectiveId:"obj_callback",from:"georgie",to:"chatgpt",type:"ai_control_receipt",status:"completed",summary:"Provider mutation verified.",deliveryMode:"github_ai_control",idempotencyKey:"ai-control-receipt:cmd-1",metadata:{repository:"GirlDadMula11-sudo/Georgie",issueNumber:68,commandId:"cmd-1",terminal:true}});
+  assert.equal(revised.id,first.id);assert.equal(revised.delivered,false);assert.equal(revised.deliveryRevision,2);assert.equal(revised.revisionDeliveryAttempts,0);assert.equal(revised.deliveryAttempts,3);
 });
 
 test("connection truth never pretends this ChatGPT conversation has autonomous callbacks",async()=>{

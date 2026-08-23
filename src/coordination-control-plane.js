@@ -5,6 +5,7 @@ import { SHARED_MISSION } from "./shared-mission.js";
 const NS="coordination_control_plane_v2";
 const USER=()=>process.env.GEORGIE_EXECUTIVE_USER_ID||process.env.GEORGIE_PRIMARY_USER_ID||"primary";
 const DEFAULT_LEASE_MS=Math.max(60_000,Number(process.env.GEORGIE_CONTROL_LEASE_MS||5*60_000));
+const MAX_CALLBACK_DELIVERY_ATTEMPTS=Math.max(1,Number(process.env.GEORGIE_CALLBACK_DELIVERY_MAX_ATTEMPTS||8));
 const localStates=new Map(),mutationChains=new Map();
 const now=()=>new Date().toISOString();
 const bounded=(value,max=4000)=>String(value??"").trim().slice(0,max);
@@ -117,10 +118,26 @@ export function acknowledgeHandoff(userId=USER(),{handoffId,participant}={}){ret
   handoff.status="acknowledged";handoff.acknowledgedAt=now();handoff.updatedAt=now();await save(userId,state);return clone(handoff);
 });}
 
+function callbackPayload(input={}){
+  return{objectiveId:bounded(input.objectiveId,80),from:bounded(input.from,100),to:bounded(input.to,100),type:bounded(input.type||"result",80),status:bounded(input.status||"available",80),summary:bounded(input.summary,5000),evidenceRefs:Array.isArray(input.evidenceRefs)?input.evidenceRefs.map(v=>bounded(v,300)).filter(Boolean).slice(0,200):[],deliveryMode:bounded(input.deliveryMode||"pull",80),metadata:input.metadata&&typeof input.metadata==="object"&&!Array.isArray(input.metadata)?clone(input.metadata):{}};
+}
+function safeDeliveryReceipt(receipt={}){return{ok:Boolean(receipt?.ok),readBackConfirmed:Boolean(receipt?.readBackConfirmed),commentId:receipt?.commentId??null,url:bounded(receipt?.url,1000)||null,attempts:Math.max(0,Number(receipt?.attempts||0)),writeAttempts:Math.max(0,Number(receipt?.writeAttempts||0)),deduplicated:Boolean(receipt?.deduplicated),errors:Array.isArray(receipt?.errors)?receipt.errors.map(v=>bounded(typeof v==="string"?v:v?.message||v?.code||JSON.stringify(v),500)).filter(Boolean).slice(-20):[]};}
 export function recordCallback(userId=USER(),input={}){return serialized(userId,async()=>{
-  const state=await load(userId),callback={id:crypto.randomUUID(),objectiveId:bounded(input.objectiveId,80),from:bounded(input.from,100),to:bounded(input.to,100),type:bounded(input.type||"result",80),status:bounded(input.status||"available",80),summary:bounded(input.summary,5000),evidenceRefs:Array.isArray(input.evidenceRefs)?input.evidenceRefs.map(v=>bounded(v,300)).filter(Boolean).slice(0,200):[],createdAt:now(),delivered:false,deliveryMode:bounded(input.deliveryMode||"pull",80)};
-  state.callbacks.push(callback);state.callbacks=state.callbacks.slice(-5000);await save(userId,state);return clone(callback);
+  const state=await load(userId),payload=callbackPayload(input),idempotencyKey=bounded(input.idempotencyKey,220)||null,deliveryHash=digest(payload);
+  let callback=idempotencyKey?state.callbacks.find(row=>row.idempotencyKey===idempotencyKey):null;
+  if(callback){const changed=callback.deliveryHash!==deliveryHash;Object.assign(callback,payload,{deliveryHash,updatedAt:now()});if(changed){callback.deliveryRevision=Number(callback.deliveryRevision||1)+1;callback.revisionDeliveryAttempts=0;callback.delivered=false;callback.deliveredAt=null;callback.deliveryReadBackConfirmed=false;callback.lastDeliveryError=null;callback.deliveryExhausted=false;callback.deliveryReceipt=null;}}
+  else{callback={id:crypto.randomUUID(),...payload,idempotencyKey,deliveryHash,deliveryRevision:1,createdAt:now(),updatedAt:now(),delivered:false,deliveredAt:null,deliveryReadBackConfirmed:false,deliveryAttempts:0,revisionDeliveryAttempts:0,lastDeliveryAttemptAt:null,lastDeliveryError:null,deliveryErrors:[],deliveryExhausted:false,deliveryReceipt:null};state.callbacks.push(callback);}
+  state.callbacks=state.callbacks.slice(-5000);await save(userId,state);return clone(callback);
 });}
+export function recordCallbackDelivery(userId=USER(),{callbackId,delivered=false,error=null,receipt=null}={}){return serialized(userId,async()=>{
+  const state=await load(userId),callback=state.callbacks.find(row=>row.id===callbackId);if(!callback)return null;
+  const safeReceipt=safeDeliveryReceipt(receipt||{}),attemptDelta=Math.max(1,Number(safeReceipt.attempts||1)),confirmed=Boolean(delivered&&safeReceipt.readBackConfirmed);
+  callback.deliveryAttempts=Number(callback.deliveryAttempts||0)+attemptDelta;callback.revisionDeliveryAttempts=Number(callback.revisionDeliveryAttempts||0)+attemptDelta;callback.lastDeliveryAttemptAt=now();callback.deliveryReceipt=safeReceipt;callback.deliveryReadBackConfirmed=confirmed;
+  if(confirmed){callback.delivered=true;callback.deliveredAt=now();callback.lastDeliveryError=null;callback.deliveryExhausted=false;}
+  else{const message=bounded(error||safeReceipt.errors.at(-1)||"Delivery was not confirmed by provider read-back.",1000);callback.delivered=false;callback.lastDeliveryError=message;callback.deliveryErrors=[...(callback.deliveryErrors||[]),{at:now(),message}].slice(-20);callback.deliveryExhausted=callback.revisionDeliveryAttempts>=MAX_CALLBACK_DELIVERY_ATTEMPTS;}
+  callback.updatedAt=now();await save(userId,state);return clone(callback);
+});}
+export async function listPendingCallbacks(userId=USER(),{deliveryMode=null,limit=50}={}){const state=await load(userId),mode=deliveryMode?bounded(deliveryMode,80):null;return state.callbacks.filter(row=>!row.delivered&&!row.deliveryExhausted&&(!mode||row.deliveryMode===mode)).sort((a,b)=>String(a.lastDeliveryAttemptAt||a.createdAt||"").localeCompare(String(b.lastDeliveryAttemptAt||b.createdAt||""))).slice(0,Math.max(1,Math.min(Number(limit)||50,200))).map(clone);}
 
 export async function controlPlaneSnapshot(userId=USER(),{objectiveId=null}={}){
   const state=await load(userId),oid=objectiveId?bounded(objectiveId,80):null;

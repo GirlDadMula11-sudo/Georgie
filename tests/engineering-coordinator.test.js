@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { seedMissionWork } from "../src/engineering-coordinator.js";
+import { evaluateVerificationContract, seedMissionWork } from "../src/engineering-coordinator.js";
 
 test("mission seeding is idempotent and preserves the locked attack order",async()=>{
   process.env.GEORGIE_CLOUD_STATE_ENABLED="false";
@@ -12,4 +12,17 @@ test("mission seeding is idempotent and preserves the locked attack order",async
   assert.match(first[7].item.objective,/CapitalMatch accuracy/i);
   assert.deepEqual(first[0].item.dependsOn,[]);
   assert.deepEqual(first.slice(1).map(result=>result.item.dependsOn.length),[1,1,1,1,1,1,1,1]);
+});
+
+test("semantic verification fails closed on verified false and missing predicates",()=>{
+  assert.deepEqual(evaluateVerificationContract({tool:"provider.verify"},{ok:true,result:{verified:false,member:null}}),{required:true,satisfied:false,mode:"verified_flag",reason:"verified_flag_false"});
+  assert.equal(evaluateVerificationContract({tool:"provider.verify"},{ok:true,result:{verified:true}}).satisfied,true);
+  assert.equal(evaluateVerificationContract({tool:"provider.verify"},{ok:true,result:{member:{role:"DEVELOPER"}}}).satisfied,false);
+  assert.equal(evaluateVerificationContract({tool:"provider.verify"},{ok:false,error:"timeout"}).reason,"verification_transport_failed");
+});
+
+test("declared verification expect contract is matched semantically as a subset",()=>{
+  const spec={tool:"provider.read",expect:{member:{role:"DEVELOPER"},verified:true}};
+  assert.equal(evaluateVerificationContract(spec,{ok:true,result:{verified:true,member:{role:"DEVELOPER",email:"person@example.com"},extra:"ignored"}}).satisfied,true);
+  assert.equal(evaluateVerificationContract(spec,{ok:true,result:{verified:true,member:{role:"VIEWER"}}}).satisfied,false);
 });
