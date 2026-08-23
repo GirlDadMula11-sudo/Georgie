@@ -176,6 +176,14 @@ test("Mac self-update source only permits generated package-lock version drift c
   assert.match(source,/PRIMARY_MAC_REPO_DIRTY/);
 });
 
+test("generated lock normalization is an exact local patch route",async()=>{
+  const input={source:"chatgpt",objectiveId:"SIERRA-LI-MBX-20260823-001",idempotencyKey:"normalize-lock-1",command:"Normalize generated lock drift.",metadata:{capability:"primary_mac.agent.maintenance",target_device:"primary-mac",operation:"normalize_generated_lock",authority:"local_admin",prohibited_routes:["cm-100","stale_continuation","gmail","apple_mail","mailbox.read","mailbox.write"],repo:"/Users/mac/Georgie"}};
+  const connector=harness({executeCommand:async()=>assert.fail("maintenance entered prose router")});
+  const result=await connector.submit("normalize-lock",input);
+  assert.deepEqual(result.result.jobs.map(job=>job.action),["developer.apply_patch"]);
+  assert.equal(result.result.route.operation,"normalize_generated_lock");
+});
+
 test("interruption resumes the same objective and step", async () => {
   let fail = true;
   const connector = harness({ executeCommand: async () => { if (fail) throw new Error("interrupted"); return { terminalState: "completed" }; } });
