@@ -83,3 +83,11 @@ test("Mac self-update schedules restart only after returning a completion receip
   assert.match(agent,/restartScheduled: true/);
   assert.doesNotMatch(agent,/const install = await runDeveloper\("\/bin\/bash"/);
 });
+
+test("NEO installer eliminates the extension registration race with one scoped reload",()=>{
+  const agent=fs.readFileSync(new URL("../mac-agent/agent.js",import.meta.url),"utf8");
+  assert.match(agent,/setTimeout\(resolve, 4000\)/);
+  assert.match(agent,/reload browserTab/);
+  assert.match(agent,/NEO_POST_REGISTRATION_RELOAD_FAILED/);
+  assert.match(agent,/postRegistrationReload: true/);
+});
