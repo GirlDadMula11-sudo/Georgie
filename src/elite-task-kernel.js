@@ -14,17 +14,26 @@ const RULES=[
 ];
 const ACTIONS={
   destructive:/\b(delete|erase|drop|purge|destroy|wipe|terminate)\b/i,
-  production:/\b(production|deploy|merge|main branch|live database|schema|migration)\b/i,
-  credential:/\b(password|credential|api key|secret|mfa|authentication setting)\b/i,
-  external:/\b(send|submit|publish|contact|email|message|notify|post)\b/i,
+  production:/\b(deploy|merge|migrate|restart|modify|change|update|write|alter|patch)\b[^.!?;]{0,80}\b(production|main branch|live database|schema)\b|\b(production|main branch|live database|schema)\b[^.!?;]{0,80}\b(deploy|merge|migrate|restart|modify|change|update|write|alter|patch)\b/i,
+  credential:/\b(change|update|rotate|revoke|reset|write|modify)\b[^.!?;]{0,80}\b(password|credential|api key|secret|mfa|authentication setting)\b|\b(password|credential|api key|secret|mfa|authentication setting)\b[^.!?;]{0,80}\b(change|update|rotate|revoke|reset|write|modify)\b/i,
+  external:/\b(send|submit|publish|contact|notify|post)\b/i,
   financial:/\b(pay|purchase|transfer|invest|trade|borrow|spend)\b/i
 };
+const READ_ONLY_GUARD=/\b(read[- ]only|observe[- ]only|non[- ]mutating|no mutation|without (?:changing|modifying|writing|sending|submitting|deleting|deploying)|do not (?:change|modify|write|send|submit|delete|deploy|merge|restart)|never (?:change|modify|write|send|submit|delete|deploy|merge|restart))\b/i;
 const CURRENT=/\b(latest|current|today|now|live|price|status|availability|law|regulation|medical|recommend)\b/i;
 const MULTISTEP=/\b(and then|after that|across|every|entire|whole|end[- ]to[- ]end|all|multiple|first|finally)\b/i;
 
 function clean(value,max=4000){return String(value||"").trim().replace(/\s+/g," ").slice(0,max);}
 function domainsFor(text){const found=RULES.filter(([,pattern])=>pattern.test(text)).map(([domain])=>domain);return found.length?[...new Set(found)]:["general"];}
-function actionsFor(text){return Object.entries(ACTIONS).filter(([,pattern])=>pattern.test(text)).map(([name])=>name);}
+function actionsFor(text){
+  const clauses=String(text||"").split(/(?<=[.!?;])\s+|\bbut\b|\bwhile\b/i);
+  const found=[];
+  for(const clause of clauses){
+    if(READ_ONLY_GUARD.test(clause))continue;
+    for(const [name,pattern] of Object.entries(ACTIONS))if(pattern.test(clause))found.push(name);
+  }
+  return [...new Set(found)];
+}
 function authority(actions){if(actions.includes("destructive"))return"explicit_transaction_approval";if(actions.some(action=>["production","credential","external","financial"].includes(action)))return"governed_approval";return"automatic_safe_work";}
 function evidence(domains,actions,current){const required=["acceptance criteria","current tool receipts for actions","durable terminal state"];
   if(current)required.push("fresh timestamped authoritative sources");
