@@ -136,6 +136,15 @@ test("unsupported capabilities and mismatched authority fail explicitly", () => 
   assert.throws(() => validateCommandEnvelope(mailboxEnvelope({ metadata: { ...mailboxEnvelope().metadata, authority: "write" } })), /CAPABILITY_AUTHORITY_MISMATCH/);
 });
 
+test("Sierra mailbox projection is a separate typed evidence-write capability", () => {
+  const input={source:"chatgpt",objectiveId:"SIERRA-LI-MBX-20260823-001",idempotencyKey:"project-mailbox-evidence-1",command:"Project immutable receipts.",metadata:{capability:"sierra.mailbox_evidence.project",target_device:"server",operation:"project_immutable_receipts",authority:"evidence_write",prohibited_routes:["email.send","smtp","mailbox.write","external.notification","lender.submit"],receipt_ids:["rcpt_one"]}};
+  const envelope=validateCommandEnvelope(input);
+  assert.equal(envelope.routing.capability,"sierra.mailbox_evidence.project");
+  assert.equal(envelope.routing.authority,"evidence_write");
+  assert.throws(()=>validateCommandEnvelope({...input,metadata:{...input.metadata,authority:"read_only"}}),/CAPABILITY_AUTHORITY_MISMATCH/);
+  assert.throws(()=>validateCommandEnvelope({...input,metadata:{...input.metadata,prohibited_routes:["email.send","arbitrary"]}}),/UNKNOWN_PROHIBITED_ROUTE/);
+});
+
 test("primary Mac maintenance is exact, bounded, and cannot enter mailbox routes", async () => {
   const input = {
     source: "chatgpt",
