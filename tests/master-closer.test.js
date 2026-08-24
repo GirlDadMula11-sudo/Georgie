@@ -17,7 +17,8 @@ test("unverified offers cannot be ranked as leverage", () => {
   });
   assert.equal(brief.verifiedOfferCount, 0);
   assert.equal(brief.bestOffer, null);
-  assert.equal(brief.state, "offer_verification_required");
+  assert.equal(brief.state, "evidence_or_discovery_required");
+  assert.equal(brief.negotiationPlan.evidenceState, "discovery_required");
 });
 
 test("verified offers produce ranked closing brief without binding authority", () => {
