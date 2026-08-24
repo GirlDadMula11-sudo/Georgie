@@ -1,6 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { enqueueMacJob, claimMacJobs, completeMacJob, listMacJobs, reconcileMacDispatches, resumeFailedMacJob, versionRecoverableMailboxJob } from "../src/mac/queue.js";
+import crypto from "node:crypto";
+import { enqueueMacJob, claimMacJobs, completeMacJob, importRecoveredMacJob, listMacJobs, reconcileMacDispatches, resumeFailedMacJob, versionRecoverableMailboxJob } from "../src/mac/queue.js";
+
+test("recovered Mac job import preserves identity and rejects conflicts",async()=>{
+  const nonce=crypto.randomBytes(20).toString("hex"),root=`idem-${crypto.randomBytes(20).toString("hex")}`;
+  const job={id:`idem-${nonce}`,userId:"primary",requestedByUserId:"primary",deviceId:"primary-mac",action:"mailbox.read_only_backfill",args:{objectiveId:`recovery-${nonce}`,authority:"read_only",recoveryRootJobId:root,recoveryGeneration:1},risk:"read",status:"queued",attempts:0,createdAt:new Date().toISOString(),availableAt:new Date().toISOString(),claimedAt:null,completedAt:null,result:null,error:null};
+  assert.equal((await importRecoveredMacJob(job)).id,job.id);assert.equal((await importRecoveredMacJob(job)).id,job.id);
+  await assert.rejects(()=>importRecoveredMacJob({...job,args:{...job.args,recoveryGeneration:2}}),/MAC_RECOVERY_IMPORT_LINEAGE_INVALID/);
+  await assert.rejects(()=>importRecoveredMacJob({...job,status:"claimed",attempts:1,claimedAt:new Date().toISOString()}),/MAC_RECOVERY_IMPORT_STATE_REJECTED/);
+});
 
 test("approved Mac dispatch is single-flight and carries a durable receipt",async()=>{
   const nonce=`${Date.now()}-${Math.random().toString(16).slice(2)}`,userId=`dispatch-user-${nonce}`,deviceId=`dispatch-mac-${nonce}`;
