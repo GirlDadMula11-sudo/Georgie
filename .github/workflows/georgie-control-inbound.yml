@@ -2,14 +2,11 @@ name: Georgie Control Inbound
 
 on:
   workflow_dispatch:
-  issue_comment:
-    types: [created]
   push:
-    branches: [main]
+    branches:
+      - georgie-control
     paths:
-      - ".georgie/control-signal.json"
-  schedule:
-    - cron: "*/5 * * * *"
+      - .georgie/control-signal.json
 
 permissions:
   contents: read
@@ -17,7 +14,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: georgie-control-inbound-${{ github.event_name == 'issue_comment' && github.event.comment.id || github.sha }}
+  group: georgie-control-inbound
   cancel-in-progress: false
 
 jobs:
@@ -28,7 +25,7 @@ jobs:
       GEORGIE_INBOUND_URL: https://georgie.onrender.com/api/ai-control/inbound
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Push trusted AI-control comments to Georgie
+      - name: Push certified control signal to Georgie
         shell: bash
         run: |
           set -euo pipefail
@@ -42,66 +39,35 @@ jobs:
             jq -er '.value | select(type == "string" and length > 0)' <<<"$response"
           }
 
-          send_payload() {
-            local payload token response
-            payload="$1"
-            token="$(oidc_token)"
-            response="$(curl --fail --silent --show-error \
-              -X POST \
-              -H "Authorization: Bearer $token" \
-              -H "Content-Type: application/json" \
-              --data-binary "$payload" \
-              "$GEORGIE_INBOUND_URL/ingest")"
-            jq -e '.ok == true' <<<"$response" >/dev/null || {
-              echo "Georgie inbound relay rejected payload: $response" >&2
-              return 1
-            }
-            jq -c '{ok,accepted,rejected}' <<<"$response"
-          }
+          REF="${GITHUB_REF_NAME:-main}"
+          SIGNAL="$(gh api "repos/${GITHUB_REPOSITORY}/contents/.georgie/control-signal.json?ref=${REF}" --jq '.content' | tr -d '\n' | base64 --decode)"
+          ISSUE="$(jq -er '.issueNumber | numbers' <<<"$SIGNAL")"
+          COMMENT_ID="$(jq -er '.commentId | numbers' <<<"$SIGNAL")"
+          OBJECTIVE="$(jq -er '.objectiveId | strings' <<<"$SIGNAL")"
+          COMMAND="$(jq -er '.commandId | strings' <<<"$SIGNAL")"
+          IDEMPOTENCY="$(jq -er '.idempotencyKey | strings' <<<"$SIGNAL")"
 
-          if [[ "$GITHUB_EVENT_NAME" == "issue_comment" ]]; then
-            ISSUE="$(jq -r '.issue.number // empty' "$GITHUB_EVENT_PATH")"
-            COMMENT_ID="$(jq -r '.comment.id // empty' "$GITHUB_EVENT_PATH")"
-            AUTHOR="$(jq -r '.comment.user.login // empty' "$GITHUB_EVENT_PATH")"
-            BODY="$(jq -r '.comment.body // empty' "$GITHUB_EVENT_PATH")"
-            IS_PR="$(jq -r 'if .issue.pull_request then "true" else "false" end' "$GITHUB_EVENT_PATH")"
-            [[ "$IS_PR" != "true" ]] || { echo "Ignoring pull-request comment."; exit 0; }
-            [[ "$AUTHOR" == "GirlDadMula11-sudo" ]] || { echo "Ignoring untrusted author."; exit 0; }
-            [[ "$BODY" == *"ai-control:v1"* ]] || { echo "Ignoring comment without ai-control marker."; exit 0; }
-            [[ -n "$ISSUE" && -n "$COMMENT_ID" ]] || { echo "Missing issue/comment ids." >&2; exit 1; }
-            LABEL_OK="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE}" --jq '[.labels[].name] | index("georgie-handoff") != null')"
-            [[ "$LABEL_OK" == "true" ]] || { echo "Ignoring issue without georgie-handoff label."; exit 0; }
-            COMMENT="$(gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}")"
-            PAYLOAD="$(jq -c --arg repository "$GITHUB_REPOSITORY" --argjson issue "$ISSUE" '{repository:$repository, issueNumber:$issue, commentId:.id, author:.user.login, body:.body}' <<<"$COMMENT")"
-            send_payload "$PAYLOAD"
-            echo "GitHub AI-control event fast path completed."
-            exit 0
-          fi
+          [[ "$ISSUE" == "117" ]] || { echo "Control signal must target issue #117." >&2; exit 1; }
+          [[ "$OBJECTIVE" == "georgie-master-closer-v1" ]] || { echo "Unexpected objective identity." >&2; exit 1; }
+          [[ "$COMMAND" == "cmd_master_closer_fallback_probe_20260823" ]] || { echo "Unexpected command identity." >&2; exit 1; }
+          [[ "$IDEMPOTENCY" == "master-closer-controlplane-fallback-probe-20260823-v1" ]] || { echo "Unexpected idempotency identity." >&2; exit 1; }
 
-          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
-            SIGNAL="$(gh api "repos/${GITHUB_REPOSITORY}/contents/.georgie/control-signal.json?ref=main" --jq '.content' | tr -d '\n' | base64 --decode)"
-            ISSUE="$(jq -er '.issueNumber | numbers' <<<"$SIGNAL")"
-            COMMENT_ID="$(jq -er '.commentId | numbers' <<<"$SIGNAL")"
-            [[ "$ISSUE" == "117" ]] || { echo "Push signal issue is not certified handoff issue #117." >&2; exit 1; }
-            COMMENT="$(gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}")"
-            AUTHOR="$(jq -r '.user.login // empty' <<<"$COMMENT")"
-            BODY="$(jq -r '.body // empty' <<<"$COMMENT")"
-            [[ "$AUTHOR" == "GirlDadMula11-sudo" && "$BODY" == *"ai-control:v1"* ]] || { echo "Push signal does not point to a trusted AI-control comment." >&2; exit 1; }
-            LABEL_OK="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE}" --jq '[.labels[].name] | index("georgie-handoff") != null')"
-            [[ "$LABEL_OK" == "true" ]] || { echo "Push signal issue lacks georgie-handoff label." >&2; exit 1; }
-            PAYLOAD="$(jq -c --arg repository "$GITHUB_REPOSITORY" --argjson issue "$ISSUE" '{repository:$repository, issueNumber:$issue, commentId:.id, author:.user.login, body:.body}' <<<"$COMMENT")"
-            send_payload "$PAYLOAD"
-            echo "GitHub AI-control push wake completed."
-            exit 0
-          fi
+          COMMENT="$(gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}")"
+          AUTHOR="$(jq -r '.user.login // empty' <<<"$COMMENT")"
+          BODY="$(jq -r '.body // empty' <<<"$COMMENT")"
+          [[ "$AUTHOR" == "GirlDadMula11-sudo" ]] || { echo "Control comment author rejected." >&2; exit 1; }
+          [[ "$BODY" == *"ai-control:v1"* ]] || { echo "Control comment marker missing." >&2; exit 1; }
 
-          gh issue list --repo "$GITHUB_REPOSITORY" --state open --label georgie-handoff --limit 100 --json number --jq '.[].number' | while read -r ISSUE; do
-            [[ -n "$ISSUE" ]] || continue
-            gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/${ISSUE}/comments?per_page=100" --jq '.[] | select(.user.login == "GirlDadMula11-sudo") | select((.body // "") | contains("ai-control:v1")) | @base64' | while read -r ROW; do
-              [[ -n "$ROW" ]] || continue
-              COMMENT="$(printf '%s' "$ROW" | base64 --decode)"
-              PAYLOAD="$(jq -c --arg repository "$GITHUB_REPOSITORY" --argjson issue "$ISSUE" '{repository:$repository, issueNumber:$issue, commentId:.id, author:.user.login, body:.body}' <<<"$COMMENT")"
-              send_payload "$PAYLOAD"
-            done
-          done
-          echo "GitHub AI-control inbound recovery scan completed."
+          LABEL_OK="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE}" --jq '[.labels[].name] | index("georgie-handoff") != null')"
+          [[ "$LABEL_OK" == "true" ]] || { echo "Issue #117 is missing georgie-handoff label." >&2; exit 1; }
+
+          PAYLOAD="$(jq -c --arg repository "$GITHUB_REPOSITORY" --argjson issue "$ISSUE" '{repository:$repository, issueNumber:$issue, commentId:.id, author:.user.login, body:.body}' <<<"$COMMENT")"
+          TOKEN="$(oidc_token)"
+          RESPONSE="$(curl --fail --silent --show-error \
+            -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary "$PAYLOAD" \
+            "$GEORGIE_INBOUND_URL/ingest")"
+          jq -e '.ok == true and (.accepted | length) >= 1' <<<"$RESPONSE" >/dev/null
+          echo "Georgie control push accepted."
