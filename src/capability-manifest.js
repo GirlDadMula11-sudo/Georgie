@@ -10,6 +10,7 @@ import { getMemoryStorageStatus } from "./memory.js";
 import { resourceGovernorStatus } from "./resource-governor.js";
 import { listDomainPacks } from "./domain-packs.js";
 import { investmentCapabilityContract } from "./investment-intelligence.js";
+import { masterCloserContract } from "./master-closer.js";
 
 function configured(value) {
   return value ? "configured" : "not_configured";
@@ -91,6 +92,20 @@ export function getCapabilityManifest() {
       operation: ["typed_tool_planning", "approval_gates", "verification", "action_journal", "durable_objective_graph", "unfinished_work_recovery", "ranked_next_actions", "bounded_retries", "kill_switch", "fallback_channels"],
       technologyDevelopment: ["repository_inspection", "bounded_code_search", "source_reading", "patch_preparation", "hash_bound_approval", "patch_application", "allowlisted_checks", "durable_cross_assistant_handoffs", "leased_background_work", "automatic_isolated_branch_commit_policy", "governed_infrastructure_admin"],
       economics: { deterministicFirst: true, cachedEvidencePreferred: true, tieredModelRouting: true, frontierOnlyWhenJustified: true }
+    },
+    masterCloser: {
+      contract: masterCloserContract,
+      objectiveIdentity: "georgie-master-closer-v1",
+      operatingMode: "governed_copilot_to_preverified_autonomy",
+      capabilities: ["verified_offer_normalization", "merchant_priority_modeling", "objection_classification", "offer_ranking", "negotiation_move_selection", "concession_frontier", "batna_reasoning", "no_response_ladder", "human_escalation", "verified_outcome_learning"],
+      objectionCoverage: ["payment", "amount", "term", "cost", "trust", "timing", "competitor_offer", "documents", "confusion", "think_about_it", "partner", "no_response", "ready_to_close"],
+      executionQualityTarget: 0.99,
+      fundedCloseRatePromise: false,
+      verifiedOutcomeMeasurementRequired: true,
+      fabricatedTermsAllowed: false,
+      bindingCommitmentsRequireVerifiedAuthority: true,
+      consequentialExternalActionsRemainApprovalGoverned: true,
+      syntheticOutcomesTrainProduction: false
     },
     investmentIntelligence: investmentCapabilityContract(),
     connections: {
