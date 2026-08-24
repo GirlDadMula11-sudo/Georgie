@@ -35,7 +35,7 @@ const CAPABILITIES = Object.freeze({
   "primary_mac.agent.maintenance": Object.freeze({
     targetDevice: "primary-mac",
     authority: "local_admin",
-    operations: new Set(["update_restart_from_main", "install_neo_preload", "inspect_neo_preload", "normalize_generated_lock"]),
+    operations: new Set(["update_restart_from_main", "install_neo_preload", "inspect_neo_preload", "normalize_generated_lock", "apply_neo_manifest_fix"]),
     prohibitedRoutes: new Set(["cm-100", "stale_continuation", "gmail", "apple_mail", "mailbox.read", "mailbox.write"])
   })
 });
@@ -99,7 +99,10 @@ async function executeTypedCapability({ userId, command }) {
     const repo = clean(command.metadata?.repo || "/Users/mac/Georgie", 300);
     if (repo !== "/Users/mac/Georgie") throw new Error("PRIMARY_MAC_REPO_NOT_ALLOWLISTED");
     const lockPatch = `diff --git a/package-lock.json b/package-lock.json\n--- a/package-lock.json\n+++ b/package-lock.json\n@@ -1,12 +1,12 @@\n {\n   "name": "georgie",\n-  "version": "2.2.22",\n+  "version": "2.2.21",\n   "lockfileVersion": 3,\n   "requires": true,\n   "packages": {\n     "": {\n       "name": "georgie",\n-      "version": "2.2.22",\n+      "version": "2.2.21",\n       "dependencies": {\n         "dotenv": "^16.4.5",\n         "express": "^4.21.1",\n`;
-    const specs = route.operation === "install_neo_preload"
+    const neoManifestPatch = "diff --git a/mac-agent/neo-preload-extension/manifest.json b/mac-agent/neo-preload-extension/manifest.json\n--- a/mac-agent/neo-preload-extension/manifest.json\n+++ b/mac-agent/neo-preload-extension/manifest.json\n@@ -1,7 +1,7 @@\n {\n   \"manifest_version\": 3,\n   \"name\": \"Georgie NEO Read-Only Preload\",\n-  \"version\": \"1.6.0\",\n+  \"version\": \"1.6.1\",\n   \"description\": \"Local read-only Chrome debugger relay for the governed NEO evidence bridge.\",\n   \"permissions\": [\n     \"debugger\"\n@@ -19,6 +19,17 @@\n       ],\n       \"js\": [\n+        \"preload.js\"\n+      ],\n+      \"run_at\": \"document_start\",\n+      \"world\": \"MAIN\"\n+    },\n+    {\n+      \"matches\": [\n+        \"https://app.neo.space/*\"\n+      ],\n+      \"js\": [\n         \"diagnostic.js\"\n       ],\n       \"run_at\": \"document_start\",\n";
+    const specs = route.operation === "apply_neo_manifest_fix"
+      ? [["developer.apply_patch", { repo, patch: neoManifestPatch, patchHash: digest(neoManifestPatch) }, "Apply the exact scoped NEO document-start manifest repair"]]
+      : route.operation === "install_neo_preload"
       ? [["developer.install_neo_preload", { repo }, "Install the controlled NEO document-start preload and relaunch Chrome"]]
       : route.operation === "inspect_neo_preload"
         ? [["developer.inspect_neo_preload", { repo }, "Inspect the controlled NEO preload without accessing mailbox content"]]
