@@ -4,23 +4,26 @@ import { validateGithubControlOidcClaims } from "../src/github-control-inbound.j
 
 const now=Math.floor(Date.now()/1000);
 const audience="georgie-github-control-inbound:test";
-const base={iss:"https://token.actions.githubusercontent.com",aud:audience,repository:"GirlDadMula11-sudo/Georgie",repository_owner:"GirlDadMula11-sudo",ref:"refs/heads/main",workflow_ref:"GirlDadMula11-sudo/Georgie/.github/workflows/georgie-control-inbound.yml@refs/heads/main",event_name:"workflow_dispatch",iat:now,exp:now+300};
+const common={iss:"https://token.actions.githubusercontent.com",aud:audience,repository:"GirlDadMula11-sudo/Georgie",repository_owner:"GirlDadMula11-sudo",iat:now,exp:now+300};
+const pushClaims={...common,ref:"refs/heads/georgie-control",workflow_ref:"GirlDadMula11-sudo/Georgie/.github/workflows/georgie-control-inbound.yml@refs/heads/georgie-control",event_name:"push"};
+const manualClaims={...common,ref:"refs/heads/main",workflow_ref:"GirlDadMula11-sudo/Georgie/.github/workflows/georgie-control-inbound.yml@refs/heads/main",event_name:"workflow_dispatch"};
 
-test("inbound OIDC accepts only the exact Georgie main workflow",()=>{
-  assert.equal(validateGithubControlOidcClaims(base,audience),true);
-  for(const event_name of ["schedule","issue_comment","push"]) assert.equal(validateGithubControlOidcClaims({...base,event_name},audience),true);
+test("inbound OIDC accepts only dedicated control-branch push or exact manual main workflow",()=>{
+  assert.equal(validateGithubControlOidcClaims(pushClaims,audience),true);
+  assert.equal(validateGithubControlOidcClaims(manualClaims,audience),true);
   for(const patch of [
     {repository:"other/repo"},
     {repository_owner:"someone-else"},
-    {ref:"refs/heads/feature"},
-    {workflow_ref:"GirlDadMula11-sudo/Georgie/.github/workflows/other.yml@refs/heads/main"},
-    {event_name:"pull_request"},
-    {event_name:"issues"},
+    {ref:"refs/heads/main"},
+    {workflow_ref:"GirlDadMula11-sudo/Georgie/.github/workflows/other.yml@refs/heads/georgie-control"},
+    {event_name:"schedule"},
+    {event_name:"issue_comment"},
     {aud:"wrong-audience"}
-  ]) assert.throws(()=>validateGithubControlOidcClaims({...base,...patch},audience));
+  ]) assert.throws(()=>validateGithubControlOidcClaims({...pushClaims,...patch},audience));
+  assert.throws(()=>validateGithubControlOidcClaims({...manualClaims,ref:"refs/heads/georgie-control"},audience));
 });
 
 test("inbound OIDC rejects stale tokens",()=>{
-  assert.throws(()=>validateGithubControlOidcClaims({...base,iat:now-600,exp:now+30},audience));
-  assert.throws(()=>validateGithubControlOidcClaims({...base,exp:now-60},audience));
+  assert.throws(()=>validateGithubControlOidcClaims({...pushClaims,iat:now-600,exp:now+30},audience));
+  assert.throws(()=>validateGithubControlOidcClaims({...pushClaims,exp:now-60},audience));
 });
