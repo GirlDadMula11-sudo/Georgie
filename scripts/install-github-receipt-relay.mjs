@@ -24,4 +24,15 @@ if(coordinator.includes(oldPending))coordinator=coordinator.replace(oldPending,n
 else if(!coordinator.includes(newPending))throw new Error("github receipt relay installer: receipt outbox anchor missing");
 fs.writeFileSync(coordinatorFile,coordinator);
 
+// Dual transport recovery can legitimately cause two local run() calls to race for the
+// same already-active command. An active lease is ownership evidence, not permission
+// for the same worker to execute twice. Reclaim remains available only after expiry.
+const connectorFile=new URL("../src/governed-connector.js",import.meta.url);
+let connector=fs.readFileSync(connectorFile,"utf8");
+const unsafeActiveOwnerReturn='return{acquired:lease.owner===workerId,lease:leasePublic(lease)};';
+const fencedActiveOwnerReturn='return{acquired:false,duplicateExecutionPrevented:true,lease:leasePublic(lease)};';
+if(connector.includes(unsafeActiveOwnerReturn))connector=connector.replace(unsafeActiveOwnerReturn,fencedActiveOwnerReturn);
+else if(!connector.includes(fencedActiveOwnerReturn))throw new Error("github receipt relay installer: governed connector lease anchor missing");
+fs.writeFileSync(connectorFile,connector);
+
 console.log("GitHub OIDC receipt relay installed");
