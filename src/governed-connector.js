@@ -100,12 +100,12 @@ async function executeTypedCapability({ userId, command }) {
   const route = command.routing;
   if (route.capability === "neo_mail.imap.read_only") {
     const requested = [...new Set((command.metadata?.mailboxes || []).map(value => clean(value, 320).toLowerCase()))];
-    if (!requested.length || requested.some(value => !/^[^@\\s]+@sierramarketinginc\\.com$/.test(value))) throw new Error("NEO_IMAP_MAILBOX_SCOPE_REJECTED");
+    if (!requested.length || requested.some(value => !/^[^@\s]+@sierramarketinginc\.com$/.test(value))) throw new Error("NEO_IMAP_MAILBOX_SCOPE_REJECTED");
     const limit = Math.min(100, Math.max(1, Number(command.metadata?.limit || 100)));
     const evidence = [];
     const errors = [];
-    const outcomePattern = /\\b(approved?|offer(?:ed)?|declin(?:e|ed)|denied|funded|funding|stip(?:ulation)?s?|conditions?|term sheet|payoff|renewal)\\b/i;
-    const lenderPattern = /\\b(dexly|rapid finance|spartan|principis|smartstep|tvt|essentia|iou|kapitus|smartbiz|velocity|bizfund|loan23|zlur|e capital|lima one|kiavi|loanbuilder|national funding|fundbox|ondeck|fundworks|fundkite|credibly|libertas|itiria|mulligan|cfg|capflow|avana|idea financial)\\b/i;
+    const outcomePattern = /\b(approved?|offer(?:ed)?|declin(?:e|ed)|denied|funded|funding|stip(?:ulation)?s?|conditions?|term sheet|payoff|renewal)\b/i;
+    const lenderPattern = /\b(dexly|rapid finance|spartan|principis|smartstep|tvt|essentia|iou|kapitus|smartbiz|velocity|bizfund|loan23|zlur|e capital|lima one|kiavi|loanbuilder|national funding|fundbox|ondeck|fundworks|fundkite|credibly|libertas|itiria|mulligan|cfg|capflow|avana|idea financial)\b/i;
     for (const mailbox of requested) {
       let rows;
       try { rows = await listRecentMessages(mailbox, { limit, unseenOnly: false }); }
@@ -116,9 +116,9 @@ async function executeTypedCapability({ userId, command }) {
           const message = await readMessage(mailbox, row.uid, { markSeen: false });
           const corpus = `${message.subject || ""}\n${message.from || ""}\n${message.text || ""}`;
           if (!outcomePattern.test(corpus) && !lenderPattern.test(corpus)) continue;
-          const amount = corpus.match(/\\$\\s?([\\d,]+(?:\\.\\d{2})?)/)?.[1] || null;
-          const classification = /\\bfunded|funding complete\\b/i.test(corpus) ? "funding" : /\\bdeclin(?:e|ed)|denied\\b/i.test(corpus) ? "decline" : /\\bapproved?|offer(?:ed)?|term sheet\\b/i.test(corpus) ? "offer_or_approval" : /\\bstip(?:ulation)?s?|conditions?\\b/i.test(corpus) ? "stipulation" : "lender_communication";
-          const bodyExcerpt = clean(String(message.text || "").replace(/\\b\\d{3}-?\\d{2}-?\\d{4}\\b/g, "[REDACTED_SSN]").replace(/\\b\\d{2}-?\\d{7}\\b/g, "[REDACTED_EIN]").replace(/\\b\\d{8,17}\\b/g, "[REDACTED_FINANCIAL_NUMBER]"), 1200);
+          const amount = corpus.match(/\$\s?([\d,]+(?:\.\d{2})?)/)?.[1] || null;
+          const classification = /\bfunded|funding complete\b/i.test(corpus) ? "funding" : /\bdeclin(?:e|ed)|denied\b/i.test(corpus) ? "decline" : /\bapproved?|offer(?:ed)?|term sheet\b/i.test(corpus) ? "offer_or_approval" : /\bstip(?:ulation)?s?|conditions?\b/i.test(corpus) ? "stipulation" : "lender_communication";
+          const bodyExcerpt = clean(String(message.text || "").replace(/\b\d{3}-?\d{2}-?\d{4}\b/g, "[REDACTED_SSN]").replace(/\b\d{2}-?\d{7}\b/g, "[REDACTED_EIN]").replace(/\b\d{8,17}\b/g, "[REDACTED_FINANCIAL_NUMBER]"), 1200);
           const canonical = { mailbox, uid: message.uid, messageId: message.messageId || null, date: message.date || row.date || null, from: clean(message.from, 500), subject: clean(message.subject, 1000), classification, amount: amount ? Number(amount.replace(/,/g, "")) : null, bodyExcerpt };
           evidence.push({ ...canonical, canonicalHash: digest(JSON.stringify(canonical)) });
           if (evidence.length >= 50) break;
