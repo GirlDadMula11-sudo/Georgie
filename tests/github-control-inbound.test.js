@@ -5,19 +5,22 @@ import { validateGithubControlOidcClaims } from "../src/github-control-inbound.j
 const now=Math.floor(Date.now()/1000);
 const audience="georgie-github-control-inbound:test";
 const common={iss:"https://token.actions.githubusercontent.com",aud:audience,repository:"GirlDadMula11-sudo/Georgie",repository_owner:"GirlDadMula11-sudo",iat:now,exp:now+300};
-const pushClaims={...common,ref:"refs/heads/georgie-control",workflow_ref:"GirlDadMula11-sudo/Georgie/.github/workflows/georgie-control-inbound.yml@refs/heads/georgie-control",event_name:"push"};
-const manualClaims={...common,ref:"refs/heads/main",workflow_ref:"GirlDadMula11-sudo/Georgie/.github/workflows/georgie-control-inbound.yml@refs/heads/main",event_name:"workflow_dispatch"};
+const relayPath="GirlDadMula11-sudo/Georgie/.github/workflows/georgie-receipt-relay.yml";
+const pushClaims={...common,ref:"refs/heads/georgie-control",workflow_ref:`${relayPath}@refs/heads/georgie-control`,event_name:"push"};
+const scheduledClaims={...common,ref:"refs/heads/main",workflow_ref:`${relayPath}@refs/heads/main`,event_name:"schedule"};
+const manualClaims={...scheduledClaims,event_name:"workflow_dispatch"};
 
-test("inbound OIDC accepts only dedicated control-branch push or exact manual main workflow",()=>{
+test("inbound OIDC accepts registered receipt relay on isolated push branch and main recovery events",()=>{
   assert.equal(validateGithubControlOidcClaims(pushClaims,audience),true);
+  assert.equal(validateGithubControlOidcClaims(scheduledClaims,audience),true);
   assert.equal(validateGithubControlOidcClaims(manualClaims,audience),true);
   for(const patch of [
     {repository:"other/repo"},
     {repository_owner:"someone-else"},
     {ref:"refs/heads/main"},
     {workflow_ref:"GirlDadMula11-sudo/Georgie/.github/workflows/other.yml@refs/heads/georgie-control"},
-    {event_name:"schedule"},
     {event_name:"issue_comment"},
+    {event_name:"pull_request"},
     {aud:"wrong-audience"}
   ]) assert.throws(()=>validateGithubControlOidcClaims({...pushClaims,...patch},audience));
   assert.throws(()=>validateGithubControlOidcClaims({...manualClaims,ref:"refs/heads/georgie-control"},audience));
