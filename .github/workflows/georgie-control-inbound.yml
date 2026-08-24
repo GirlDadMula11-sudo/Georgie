@@ -2,6 +2,14 @@ name: Georgie Control Inbound
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/georgie-control-inbound.yml"
+      - "src/github-control-inbound.js"
+      - "src/ai-control-envelope.js"
+      - "src/shared-mission.js"
   schedule:
     - cron: "*/5 * * * *"
 
