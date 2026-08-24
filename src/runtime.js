@@ -8,6 +8,7 @@ import { startReconciliationWorkers } from "./reconciliation-workers.js";
 import { startBackgroundOperatingLayer } from "./background-operating-layer.js";
 import { startSelfEvolution } from "./self-evolution.js";
 import { startObjectiveWorker } from "./objective-worker.js";
+import { startSeoMonitorScheduler } from "./seo-monitor.js";
 
 startCloudStateRecovery();
 startApprovalDispatchWorker();
@@ -17,5 +18,6 @@ startSelfEvolution();
 startBackgroundOperatingLayer();
 startEngineeringCoordinator();
 startObjectiveWorker();
+startSeoMonitorScheduler();
 
 console.log("Georgie unified server + durable background runtime online");
