@@ -21,3 +21,20 @@ test("verification fails closed when authoritative evidence or receipts are miss
   const passed=verifyEliteTask(contract,{acceptanceCriteria:[{passed:true}],evidence:contract.requiredEvidence.map(type=>({type})),receipts:[{terminal:true}],authoritative:true});
   assert.equal(passed.verified,true);assert.equal(passed.mayLearn,true);
 });
+
+
+test("read-only inspection does not become production or external work from nouns inside prohibitions",()=>{
+  const contract=eliteTaskContract("Inspect the connector read-only. Do not change production. Do not send or submit anything to lenders.");
+  assert.deepEqual(contract.actions,[]);
+  assert.equal(contract.risk,"bounded");
+  assert.equal(contract.authority,"automatic_safe_work");
+});
+
+test("affirmative production and external actions remain governed",()=>{
+  const production=eliteTaskContract("Deploy the connector repair to production");
+  assert.ok(production.actions.includes("production"));
+  assert.equal(production.authority,"governed_approval");
+  const external=eliteTaskContract("Submit the lender package");
+  assert.ok(external.actions.includes("external"));
+  assert.equal(external.authority,"governed_approval");
+});
