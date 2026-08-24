@@ -30,3 +30,15 @@ test("high-consequence actions are recognized for governed approval", () => {
   assert.equal(objective.consequencePossible, true);
   assert.equal(objective.domain, "sierra");
 });
+
+
+test("explicitly non-mutating inspection is not elevated by prohibited production or lender language", () => {
+  const objective = interpretOperatingObjective("Inspect the connector in read-only mode. Do not change production. Do not submit anything to lenders.");
+  assert.equal(objective.inspection, true);
+  assert.equal(objective.consequencePossible, false);
+});
+
+test("affirmative consequential actions still require consequence handling", () => {
+  assert.equal(interpretOperatingObjective("Deploy the repair to production.").consequencePossible, true);
+  assert.equal(interpretOperatingObjective("Submit this deal to the lender.").consequencePossible, true);
+});
