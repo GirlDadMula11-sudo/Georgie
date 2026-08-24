@@ -1,16 +1,31 @@
 const clean = value => String(value || "").trim();
 
-// Accept clear, affirmative authorization in ordinary language while requiring
-// an approval verb. Scope is still supplied by the latest eligible bounded plan.
-const APPROVAL_PATTERNS = [
-  /^(?:yes[,.!]?\s*)?(?:so\s+)?(?:complete|proceed|execute|apply|finish|do)\s+(?:it|that|the plan|the repair)(?:\s+now)?[,.!;:\s-]*(?:you have|with|i give|this is)\s+(?:my\s+)?approval\b/i,
-  /^(?:approved|i approve|you have my approval)(?:\s+(?:it|that|the plan|the repair))?[.!]?$/i,
-  /^(?:yes[,.!]?\s*)?(?:you are|you're|youre)\s+approved\s+to\s+(?:fix|repair|complete|finish|execute|apply|do|proceed\s+with)\s+(?:it|that|the plan|the repair)(?:\s+now)?[.!]?$/i,
-  /^(?:yes[,.!]?\s*)?i\s+(?:hereby\s+)?approve\s+(?:you\s+to\s+)?(?:fix|repair|complete|finish|execute|apply|do|proceed\s+with)\s+(?:it|that|the plan|the repair)(?:\s+now)?[.!]?$/i,
-  /^(?:yes[,.!]?\s*)?(?:go ahead|move forward)\s+(?:and\s+)?(?:fix|repair|complete|finish|execute|apply|do)\s+(?:it|that|the plan|the repair)[,.!;:\s-]*(?:you are|you're|youre)\s+approved(?:\s+to\s+do\s+so)?[.!]?$/i
+const NEGATIONS = /\b(?:do\s+not|don't|dont|not\s+approved|deny|denied|reject|rejected|cancel|stop|hold\s+off|wait)\b/i;
+const QUESTION_ONLY = /^(?:can|could|would|should|will)\s+you\b/i;
+const APPROVAL_INTENT = [
+  /\b(?:i\s+)?approve(?:d|\s+this|\s+that|\s+it|\s+the\s+(?:plan|repair|package))?\b/i,
+  /\byou\s+have\s+my\s+approval\b/i,
+  /\bgo\s+ahead\b/i,
+  /\bmove\s+forward\b/i,
+  /\bproceed\b/i,
+  /\bapply\s+(?:it|that|the\s+(?:repair|patch|package|plan))\b/i,
+  /\bexecute\s+(?:it|that|the\s+(?:repair|patch|package|plan))\b/i,
+  /\bdo\s+it\b/i,
+  /\bcomplete\s+it\b/i,
+  /\bfinish\s+it\b/i
 ];
 
-export function isExplicitConversationalApproval(input) {
+export function classifyApprovalIntent(input) {
   const text = clean(input);
-  return text.length > 0 && APPROVAL_PATTERNS.some(pattern => pattern.test(text));
+  if (!text) return { intent: "none", confidence: 0, text };
+  if (NEGATIONS.test(text)) return { intent: "deny_or_pause", confidence: 0.99, text };
+  if (QUESTION_ONLY.test(text) && !/\bapprove|approval\b/i.test(text)) return { intent: "none", confidence: 0.9, text };
+  const matched = APPROVAL_INTENT.find(pattern => pattern.test(text));
+  if (!matched) return { intent: "none", confidence: 0.8, text };
+  const explicit = /\bapprove|approval\b/i.test(text);
+  return { intent: "approve", confidence: explicit ? 0.99 : 0.94, text };
+}
+
+export function isExplicitConversationalApproval(input) {
+  return classifyApprovalIntent(input).intent === "approve";
 }

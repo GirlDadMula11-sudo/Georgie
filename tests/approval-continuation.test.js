@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { deterministicToolPlan, latestDeterministicApprovalPlan } from "../src/fast-intents.js";
-import { isConversationalApproval, preflightExecution } from "../src/approval-continuation.js";
+import { approvalIntent, isConversationalApproval, preflightExecution } from "../src/approval-continuation.js";
 import { sierraWorkflowDirectResponse } from "../src/sierra-workflow-summary.js";
 import { approvalDispatchPolicy } from "../src/tools.js";
 
@@ -21,23 +21,31 @@ test("natural approval resolves to the continuation tool instead of generic conv
   assert.deepEqual(deterministicToolPlan(utterance),[{tool:"approvals.continue_latest",args:{utterance}}]);
 });
 
-test("ordinary explicit approval language resolves to the latest bounded plan",()=>{
+test("ordinary approval intent is recognized without magic wording",()=>{
   const approved=[
-    "You are approved to fix it",
-    "You're approved to repair that.",
-    "I approve you to complete the plan now",
+    "I approve.","Approved.","Go ahead.","Do it.","Proceed.","You have my approval.",
+    "That works—move forward.","Apply the repair.","I approve exact immutable repair package",
+    "You are approved to fix it","You're approved to repair that.","I approve you to complete the plan now",
     "Go ahead and fix it, you are approved to do so"
   ];
   for(const utterance of approved){
     assert.equal(isConversationalApproval(utterance),true,utterance);
+    assert.equal(approvalIntent(utterance).intent,"approve",utterance);
     assert.deepEqual(deterministicToolPlan(utterance),[{tool:"approvals.continue_latest",args:{utterance}}],utterance);
   }
 });
 
-test("non-approval language cannot execute a pending plan",()=>{
-  for(const utterance of ["Can you fix it?","You should fix it","I want this fixed","Go ahead and inspect it"]){
+test("clear negation or questions do not authorize execution",()=>{
+  for(const utterance of ["Can you fix it?","You should fix it","I want this fixed","Do not proceed","I don't approve","Hold off","Wait, don't apply the repair"]){
     assert.equal(isConversationalApproval(utterance),false,utterance);
   }
+  assert.equal(approvalIntent("Do not proceed").intent,"deny_or_pause");
+});
+
+test("go-ahead language is approval intent but still depends on an eligible scoped plan",()=>{
+  const utterance="Go ahead and inspect it";
+  assert.equal(isConversationalApproval(utterance),true);
+  assert.deepEqual(deterministicToolPlan(utterance),[{tool:"approvals.continue_latest",args:{utterance}}]);
 });
 
 test("an explicit approval cannot recover a plan that was never justified by evidence",()=>{
