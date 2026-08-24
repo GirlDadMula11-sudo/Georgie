@@ -19,6 +19,31 @@ const safeEqual = (left, right) => {
 };
 const pkce = verifier => crypto.createHash("sha256").update(String(verifier || "")).digest("base64url");
 
+export function connectorRegistrationStatus() {
+  const base = origin();
+  const client = configuredClient();
+  const configured = {
+    connectorToken: Boolean(hmacSecret()),
+    oauthClientId: Boolean(client.id),
+    oauthClientSecret: Boolean(client.secret),
+    oauthRedirectUri: Boolean(client.redirectUri)
+  };
+  const missing = [];
+  if (!configured.connectorToken) missing.push("GEORGIE_CONNECTOR_TOKEN");
+  if (!configured.oauthClientId) missing.push("GEORGIE_OAUTH_CLIENT_ID");
+  if (!configured.oauthClientSecret) missing.push("GEORGIE_OAUTH_CLIENT_SECRET");
+  if (!configured.oauthRedirectUri) missing.push("GEORGIE_OAUTH_REDIRECT_URI");
+  return {
+    ready: missing.length === 0,
+    origin: base,
+    mcpEndpoint: `${base}/mcp`,
+    oauthMetadata: `${base}/.well-known/oauth-authorization-server`,
+    protectedResourceMetadata: `${base}/.well-known/oauth-protected-resource/mcp`,
+    configured,
+    missing
+  };
+}
+
 export function issueConnectorAccessToken({ clientId, scope = "georgie:command georgie:status", ttlSeconds = 3600 } = {}) {
   const now = Math.floor(Date.now() / 1000);
   const payload = b64(JSON.stringify({ iss: origin(), aud: `${origin()}/mcp`, sub: clean(clientId, 300), scope: clean(scope, 500), iat: now, exp: now + ttlSeconds }));
@@ -45,6 +70,10 @@ function clientSecret(req) {
 
 export function createConnectorOAuthRouter() {
   const router = express.Router();
+  router.get("/.well-known/georgie-connector-readiness", (_req, res) => {
+    const status = connectorRegistrationStatus();
+    res.set("Cache-Control", "no-store").status(status.ready ? 200 : 503).json(status);
+  });
   router.get("/.well-known/oauth-protected-resource/mcp", (_req, res) => res.json({
     resource: `${origin()}/mcp`,
     authorization_servers: [origin()],
