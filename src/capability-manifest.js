@@ -3,6 +3,7 @@ import { listNeoMailboxes, neoMailConfigured } from "./integrations/neo-mail.js"
 import { githubObservabilityConfigured, renderObservabilityConfigured, vercelObservabilityConfigured } from "./integrations/provider-observability.js";
 import { githubSourceConfigured } from "./integrations/github-source.js";
 import { sierraWorkforceConfigured } from "./integrations/sierra-workforce.js";
+import { sierraCorrespondenceConfigured } from "./integrations/sierra-correspondence.js";
 import { smartleadConfigured } from "./integrations/smartlead.js";
 import { infrastructureAdminCapabilities } from "./integrations/infrastructure-admin.js";
 import { getMacDeviceStatus } from "./mac/router.js";
@@ -19,6 +20,7 @@ function configured(value) {
 export function getCapabilityManifest() {
   const neoMail = neoMailConfigured();
   const sierraWorkforce = sierraWorkforceConfigured();
+  const sierraCorrespondence = sierraCorrespondenceConfigured();
   const smartlead = smartleadConfigured();
   const vercel = vercelObservabilityConfigured();
   const render = renderObservabilityConfigured();
@@ -109,6 +111,20 @@ export function getCapabilityManifest() {
       consequentialExternalActionsRemainApprovalGoverned: true,
       syntheticOutcomesTrainProduction: false
     },
+    correspondenceExecution: {
+      contract: "georgie.sierra-correspondence.v1",
+      state: configured(neoMail && sierraCorrespondence),
+      loop: ["neo_inbound", "deal_identity", "attachment_hash", "private_storage", "crm_registration", "field_projection", "document_request_resolution", "team_notification", "safe_reply", "provider_receipt", "crm_readback"],
+      automaticActions: ["document_receipt", "document_request_followup", "routine_status_followup", "crm_correspondence_projection", "team_notification"],
+      automaticBindingTerms: false,
+      exactDealIdentityRequired: true,
+      providerMessageIdDedupe: true,
+      attachmentHashing: "sha256",
+      privateStorageBucket: "partner-documents",
+      clientHumanEscalationDisclosureRequired: true,
+      completionRequires: ["provider_receipt", "crm_readback", "document_readback", "internal_notification_readback"],
+      retryOnIncompleteVerification: true
+    },
     investmentIntelligence: investmentCapabilityContract(),
     connections: {
       neoMail: {
@@ -116,13 +132,14 @@ export function getCapabilityManifest() {
         callableInChat: neoMail,
         outboundAvailable: neoMail,
         mailboxes: listNeoMailboxes().map(({ id, email, role }) => ({ id, email, role })),
+        preferredCloserRole: "georgie_closer",
         liveHealth: "verify_with_email.verify"
       },
       sierraWorkforce: {
         state: configured(sierraWorkforce),
         callableInChat: sierraWorkforce,
         access: sierraWorkforce ? "governed_production_rpc" : "none",
-        coverage: sierraWorkforce ? ["portfolio", "deals", "health", "infrastructure", "strategy", "lenders", "offers", "record_level_conflicts", "durable_diagnostics", "deal_evidence_graph", "bounded_repairs"] : [],
+        coverage: sierraWorkforce ? ["portfolio", "deals", "health", "infrastructure", "strategy", "lenders", "offers", "record_level_conflicts", "durable_diagnostics", "deal_evidence_graph", "bounded_repairs", "correspondence_identity", "correspondence_ingest", "document_registration", "correspondence_readback", "internal_notifications"] : [],
         liveHealth: "verify_with_sierra.health_and_sierra.infrastructure"
       },
       githubSource: { state: configured(githubSourceConfigured()), callableInChat: githubSourceConfigured(), access: githubSourceConfigured() ? "authenticated_allowlisted_server_side" : "none", operations: ["repository.list","repository.get","branch.list","branch.get","file.read","source.search","handoff_issue.list","branch.create","commit.create","pull_request.create"], noMacFallback: true, noPublicWebFallback: true },
