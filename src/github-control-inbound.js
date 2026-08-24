@@ -6,7 +6,7 @@ import { enqueueHandoff } from "./shared-mission.js";
 
 const REPOSITORY="GirlDadMula11-sudo/Georgie";
 const OWNER="GirlDadMula11-sudo";
-const WORKFLOW_PATH=".github/workflows/georgie-control-inbound.yml";
+const WORKFLOW_PATH=".github/workflows/georgie-receipt-relay.yml";
 const CONTROL_BRANCH="georgie-control";
 const ISSUER="https://token.actions.githubusercontent.com";
 const JWKS_URL=`${ISSUER}/.well-known/jwks`;
@@ -39,7 +39,7 @@ export function validateGithubControlOidcClaims(claims={},audience,{nowMs=Date.n
     const ref=`refs/heads/${CONTROL_BRANCH}`;
     if(claims.ref!==ref)throw new Error("OIDC_REF_REJECTED");
     if(claims.workflow_ref!==`${REPOSITORY}/${WORKFLOW_PATH}@${ref}`)throw new Error("OIDC_WORKFLOW_REJECTED");
-  } else if(event==="workflow_dispatch"){
+  } else if(event==="schedule"||event==="workflow_dispatch"){
     if(claims.ref!=="refs/heads/main")throw new Error("OIDC_REF_REJECTED");
     if(claims.workflow_ref!==`${REPOSITORY}/${WORKFLOW_PATH}@refs/heads/main`)throw new Error("OIDC_WORKFLOW_REJECTED");
   } else {
