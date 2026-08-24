@@ -1,19 +1,21 @@
+import { buildNegotiationPlan, nextBestNegotiationQuestion, normalizeTransactionType } from "./closing-playbooks.js";
+
 const CONTRACT = "georgie.master-closer.v2";
 
 const OBJECTION_RULES = [
   ["payment", /payment|daily|weekly|cash flow|too high|afford/i],
   ["amount", /amount|need more|too little|not enough/i],
   ["term", /term|months|weeks|too short|longer/i],
-  ["cost", /rate|factor|cost|expensive|interest|too much/i],
+  ["cost", /rate|factor|cost|expensive|interest|too much|price/i],
   ["trust", /trust|legit|scam|comfortable|reputation/i],
   ["timing", /timing|later|next week|not now|wait/i],
-  ["competitor_offer", /other offer|competitor|another lender|better offer/i],
-  ["documents", /document|statement|stip|paperwork|bank statement/i],
+  ["competitor_offer", /other offer|competitor|another lender|better offer|alternative/i],
+  ["documents", /document|statement|stip|paperwork|bank statement|contract/i],
   ["confusion", /confused|don't understand|explain|what does/i],
   ["think_about_it", /think about|sleep on|consider it/i],
-  ["partner", /wife|husband|spouse|partner|co-owner/i],
+  ["partner", /wife|husband|spouse|partner|co-owner|decision maker/i],
   ["no_response", /no response|ghost|unresponsive|not replying/i],
-  ["ready_to_close", /ready|let's do it|move forward|accept|sign/i]
+  ["ready_to_close", /ready|let's do it|move forward|accept|sign|agreed/i]
 ];
 
 const PRIORITY_DEFAULTS = { amount: 0.28, payment: 0.24, term: 0.18, cost: 0.18, speed: 0.12 };
@@ -31,7 +33,7 @@ export function normalizeVerifiedOffer(offer = {}) {
   const verified = offer.verified === true && evidence.length > 0;
   return {
     offerId: clean(offer.offerId || offer.id, 160),
-    lender: clean(offer.lender, 160),
+    lender: clean(offer.lender || offer.counterparty, 160),
     verified,
     evidenceRefs: evidence,
     amount: Number(offer.amount) || null,
@@ -71,41 +73,43 @@ export function scoreVerifiedOffer(offer, merchant = {}) {
   return { offerId: o.offerId, lender: o.lender, eligible: true, score: Number(score.toFixed(4)), dimensions: { amount, payment, term, cost: costMetric, speed } };
 }
 
-export function chooseNegotiationMove({ objection, bestOffer, merchant = {}, lender = {} } = {}) {
+export function chooseNegotiationMove({ objection, bestOffer, merchant = {}, lender = {}, transactionType = "financing" } = {}) {
   const type = objection?.type || "unknown";
   const authority = bestOffer?.concessionAuthority === true;
   const canBind = lender.bindingAuthority === true && authority;
   const moves = {
     payment: "Reframe around cash-flow fit, then seek verified payment relief through term/amount structure.",
-    amount: "Anchor on use-of-funds and required net proceeds; seek a higher verified amount without worsening unacceptable payment burden.",
-    term: "Trade for duration before conceding on economics; preserve merchant payment tolerance.",
-    cost: "Translate total dollars clearly, compare verified alternatives, and request price relief only within lender-authorized bounds.",
-    trust: "Use verified facts, transparent terms, named human escalation, and no-pressure next step.",
+    amount: "Anchor on the required economic outcome; seek a better verified package without worsening an unacceptable tradeoff.",
+    term: "Trade for duration before conceding on economics; preserve the decision-maker's risk tolerance.",
+    cost: "Translate total dollars clearly, compare verified alternatives, and request price relief only within authorized bounds.",
+    trust: "Use verified facts, transparent terms, human escalation, and a no-pressure next step.",
     timing: "Identify the actual decision trigger and schedule the next useful action instead of generic chasing.",
-    competitor_offer: "Compare verified terms dimension-by-dimension and negotiate against the merchant's real BATNA without inventing leverage.",
-    documents: "Reduce friction to the smallest verified document/stipulation needed for the next state transition.",
-    confusion: "Explain the economics in plain language, confirm understanding, then ask one decision-focused question.",
+    competitor_offer: "Compare verified terms dimension-by-dimension and negotiate against the real BATNA without inventing leverage.",
+    documents: "Reduce friction to the smallest verified document or contract step needed for the next state transition.",
+    confusion: "Explain the economics or obligations in plain language, confirm understanding, then ask one decision-focused question.",
     think_about_it: "Surface the unresolved variable, give a concise comparison, and secure a specific follow-up point.",
-    partner: "Equip the merchant with a concise decision brief or include the authorized decision-maker.",
+    partner: "Equip the primary contact with a concise decision brief or include the authorized decision-maker.",
     no_response: "Use a bounded no-response ladder with fresh value, then stop before becoming spam.",
-    ready_to_close: "Verify final terms, acceptance authority, required stips, and human/binding approval before execution.",
+    ready_to_close: "Verify final terms, authority, remaining obligations, and any required approval before execution.",
     unknown: "Ask one high-information question to identify the real blocker before conceding anything."
   };
   return {
     move: moves[type] || moves.unknown,
+    nextQuestion: nextBestNegotiationQuestion({ objectionType: type, transactionType }),
     bindingActionAllowed: canBind,
     approvalRequired: !canBind,
     guardrails: [
-      "Never invent approval, pricing, urgency, lender authority, or concessions.",
-      "Never accept or bind financing terms without verified authority and applicable approval.",
-      "Use only verified offers for comparative leverage.",
+      "Never invent approval, pricing, urgency, counterparty authority, scarcity, or concessions.",
+      "Never make a binding commitment without verified authority and applicable approval.",
+      "Use only verified alternatives for comparative leverage.",
       "Preserve a clear human-escalation option in external communications."
     ],
     merchantGoal: clean(merchant.primaryGoal, 300) || null
   };
 }
 
-export function buildClosingBrief({ reference, merchant = {}, offers = [], conversation = [], lender = {}, now = new Date().toISOString() } = {}) {
+export function buildClosingBrief({ reference, transactionType = "financing", merchant = {}, offers = [], conversation = [], lender = {}, verifiedFacts = [], constraints = {}, now = new Date().toISOString() } = {}) {
+  const normalizedType = normalizeTransactionType(transactionType);
   const normalized = offers.map(normalizeVerifiedOffer);
   const ranked = normalized
     .map((offer, i) => ({ offer, score: scoreVerifiedOffer({ ...offers[i], ...offer }, merchant) }))
@@ -114,11 +118,19 @@ export function buildClosingBrief({ reference, merchant = {}, offers = [], conve
   const lastText = conversation.map(x => clean(x?.text || x?.body, 2000)).filter(Boolean).at(-1) || "";
   const objection = classifyClosingObjection(lastText);
   const bestOffer = ranked[0]?.offer || null;
-  const next = chooseNegotiationMove({ objection, bestOffer, merchant, lender });
+  const next = chooseNegotiationMove({ objection, bestOffer, merchant, lender, transactionType: normalizedType });
+  const negotiationPlan = buildNegotiationPlan({
+    transactionType: normalizedType,
+    goals: merchant.goals || { primaryGoal: merchant.primaryGoal || null },
+    counterparty: { role: lender.role || lender.name || null, knownPriorities: lender.knownPriorities || [], authorityVerified: lender.authorityVerified === true },
+    verifiedFacts,
+    constraints: { ...constraints, ourBindingAuthorityVerified: lender.bindingAuthority === true },
+    objection
+  });
   const verifiedOfferCount = normalized.filter(x => x.verified).length;
   const readinessChecks = {
     dealIdentity: Boolean(clean(reference, 160)),
-    verifiedOffer: verifiedOfferCount > 0,
+    evidenceBacked: verifiedOfferCount > 0 || negotiationPlan.evidenceState === "evidence_backed",
     objectionKnown: objection.type !== "unknown" || !lastText,
     nextAction: Boolean(next.move),
     noFabricationGuard: true,
@@ -130,8 +142,9 @@ export function buildClosingBrief({ reference, merchant = {}, offers = [], conve
   return {
     contract: CONTRACT,
     reference: clean(reference, 160),
+    transactionType: normalizedType,
     observedAt: now,
-    state: bestOffer ? "closing_brief_ready" : "offer_verification_required",
+    state: readinessChecks.evidenceBacked ? "closing_brief_ready" : "evidence_or_discovery_required",
     merchant: {
       primaryGoal: clean(merchant.primaryGoal, 300) || null,
       priorities: normalizedPriorities(merchant.priorities),
@@ -141,6 +154,7 @@ export function buildClosingBrief({ reference, merchant = {}, offers = [], conve
     verifiedOfferCount,
     rankedOffers: ranked.map(({ offer, score }) => ({ ...offer, score: score.score, dimensions: score.dimensions })),
     bestOffer,
+    negotiationPlan,
     nextBestAction: next,
     concessionFrontier: {
       canNegotiateWithinVerifiedAuthority: Boolean(bestOffer?.concessionAuthority),
@@ -150,21 +164,22 @@ export function buildClosingBrief({ reference, merchant = {}, offers = [], conve
       target: 0.99,
       measured: Number(executionQuality.toFixed(4)),
       checks: readinessChecks,
-      note: "99% is an execution-quality target, not a promised funded-close rate. Close-rate performance must be measured from verified outcomes."
+      note: "99% is an execution-quality target, not a promised transaction-close rate. Actual success rates must be measured from verified outcomes by transaction type."
     },
-    prohibited: ["fabricated urgency", "fabricated approval", "fabricated lender authority", "unverified terms", "unauthorized binding commitment", "synthetic outcome learning"]
+    prohibited: ["fabricated urgency", "fabricated approval", "fabricated authority", "unverified terms", "unauthorized binding commitment", "synthetic outcome learning"]
   };
 }
 
 export function closingOutcomeLearningRecord({ brief, outcome = {}, evidenceRefs = [] } = {}) {
   if (!brief?.reference) throw new Error("Closing brief is required");
   if (!Array.isArray(evidenceRefs) || evidenceRefs.length === 0) throw new Error("Verified outcome evidence is required");
-  if (!['funded','lost','declined','withdrawn'].includes(String(outcome.status || '').toLowerCase())) throw new Error("Outcome must be a verified terminal status");
+  if (!['funded','won','closed','lost','declined','withdrawn','renewed','collected'].includes(String(outcome.status || '').toLowerCase())) throw new Error("Outcome must be a verified terminal status");
   return {
     contract: "georgie.master-closer-learning.v1",
     reference: brief.reference,
+    transactionType: brief.transactionType || "general",
     status: String(outcome.status).toLowerCase(),
-    lender: clean(outcome.lender, 160) || null,
+    counterparty: clean(outcome.lender || outcome.counterparty, 160) || null,
     objectionType: brief.objection?.type || "unknown",
     selectedOfferId: clean(outcome.offerId, 160) || brief.bestOffer?.offerId || null,
     evidenceRefs: evidenceRefs.map(v => clean(v, 300)),
