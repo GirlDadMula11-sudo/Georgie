@@ -93,9 +93,10 @@ try {
   const work = mailboxes.find(item => item.role === "executive_work" || item.id === "work");
   const submissions = mailboxes.find(item => item.role === "lender_submissions" || item.id === "submissions");
   if (!work || !submissions) throw new Error("Required NEO work/submissions mailboxes are not configured");
-  const results = [];
-  results.push(await runMailbox(work, START_WORK_UID));
-  results.push(await runMailbox(submissions, START_SUBMISSIONS_UID));
+  const results = await Promise.all([
+    runMailbox(work, START_WORK_UID),
+    runMailbox(submissions, START_SUBMISSIONS_UID)
+  ]);
   console.log(`[Emergency NEO] COMPLETE ${JSON.stringify(results)}`);
 } catch (error) {
   console.error(`[Emergency NEO] FAILED ${error instanceof Error ? error.stack || error.message : String(error)}`);
