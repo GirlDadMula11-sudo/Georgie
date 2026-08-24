@@ -1,0 +1,59 @@
+name: Georgie Control Inbound
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: read
+  issues: read
+  id-token: write
+
+concurrency:
+  group: georgie-control-inbound
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GEORGIE_INBOUND_URL: https://georgie.onrender.com/api/ai-control/inbound
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Push trusted AI-control comments to Georgie
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          oidc_token() {
+            local challenge audience encoded response
+            challenge="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "$GEORGIE_INBOUND_URL/challenge")"
+            audience="$(jq -r '.audience' <<<"$challenge")"
+            test -n "$audience" && test "$audience" != "null"
+            encoded="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$audience")"
+            response="$(curl --fail --silent --show-error -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${encoded}")"
+            jq -r '.value' <<<"$response"
+          }
+
+          gh api --paginate --slurp \
+            -H "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/issues?state=open&labels=georgie-handoff&per_page=100" > issues.json
+
+          jq -r '.[][] | select(.pull_request == null) | .number' issues.json | while read -r ISSUE; do
+            gh api --paginate --slurp \
+              -H "Accept: application/vnd.github+json" \
+              "repos/${GITHUB_REPOSITORY}/issues/${ISSUE}/comments?per_page=100" > comments.json
+            jq -c '.[][] | select(.user.login == "GirlDadMula11-sudo") | select((.body // "") | contains("ai-control:v1")) | {repository:"'"${GITHUB_REPOSITORY}"'", issueNumber:'"${ISSUE}"', commentId:.id, author:.user.login, body:.body}' comments.json | while read -r PAYLOAD; do
+              TOKEN="$(oidc_token)"
+              curl --fail --silent --show-error \
+                -X POST \
+                -H "Authorization: Bearer $TOKEN" \
+                -H "Content-Type: application/json" \
+                --data-binary "$PAYLOAD" \
+                "$GEORGIE_INBOUND_URL/ingest" | jq -e '.ok == true' >/dev/null
+            done
+          done
+
+          echo "GitHub AI-control inbound scan completed."
