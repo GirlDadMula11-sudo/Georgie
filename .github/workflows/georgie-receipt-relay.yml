@@ -4,6 +4,11 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "*/5 * * * *"
+  push:
+    branches:
+      - georgie-control
+    paths:
+      - .georgie/control-signal.json
 
 permissions:
   contents: read
@@ -19,89 +24,135 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
+      GEORGIE_INBOUND_URL: https://georgie.onrender.com/api/ai-control/inbound
       GEORGIE_RELAY_URL: https://georgie.onrender.com/api/ai-control/receipt-relay
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Relay one durable Georgie receipt
+      - name: Ingest certified control and relay durable receipt
         shell: bash
         run: |
           set -euo pipefail
 
           oidc_token() {
-            local challenge audience encoded response
-            challenge="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "$GEORGIE_RELAY_URL/challenge")"
-            audience="$(jq -r '.audience' <<<"$challenge")"
-            if [[ -z "$audience" || "$audience" == "null" ]]; then
-              echo "Relay challenge did not include an audience" >&2
-              return 1
-            fi
+            local base_url challenge audience encoded response
+            base_url="$1"
+            challenge="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "$base_url/challenge")"
+            audience="$(jq -er '.audience | select(type == "string" and length > 0)' <<<"$challenge")"
             encoded="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$audience")"
             response="$(curl --fail --silent --show-error -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${encoded}")"
-            jq -r '.value' <<<"$response"
+            jq -er '.value | select(type == "string" and length > 0)' <<<"$response"
           }
 
-          TOKEN="$(oidc_token)"
-          curl --fail --silent --show-error \
-            -H "Authorization: Bearer $TOKEN" \
-            "$GEORGIE_RELAY_URL/pending" > pending.json
+          ingest_control() {
+            local signal issue comment_id objective command idempotency comment author body label_ok payload token response
+            signal="$(gh api "repos/${GITHUB_REPOSITORY}/contents/.georgie/control-signal.json?ref=georgie-control" --jq '.content' | tr -d '\n' | base64 --decode)"
+            issue="$(jq -er '.issueNumber | numbers' <<<"$signal")"
+            comment_id="$(jq -er '.commentId | numbers' <<<"$signal")"
+            objective="$(jq -er '.objectiveId | strings' <<<"$signal")"
+            command="$(jq -er '.commandId | strings' <<<"$signal")"
+            idempotency="$(jq -er '.idempotencyKey | strings' <<<"$signal")"
 
-          if [[ "$(jq -r '.hasPending' pending.json)" != "true" ]]; then
-            echo "No pending receipt requires OIDC relay."
-            exit 0
-          fi
+            [[ "$issue" == "117" ]] || { echo "Control signal must target issue #117." >&2; return 1; }
+            [[ "$objective" == "georgie-master-closer-v1" ]] || { echo "Unexpected objective identity." >&2; return 1; }
+            [[ "$command" == "cmd_master_closer_fallback_probe_20260823" ]] || { echo "Unexpected command identity." >&2; return 1; }
+            [[ "$idempotency" == "master-closer-controlplane-fallback-probe-20260823-v1" ]] || { echo "Unexpected idempotency identity." >&2; return 1; }
 
-          REPO="$(jq -r '.receipt.repository' pending.json)"
-          ISSUE="$(jq -r '.receipt.issueNumber' pending.json)"
-          OUTBOX="$(jq -r '.receipt.outboxId' pending.json)"
-          MARKER="$(jq -r '.receipt.marker' pending.json)"
-          RECEIPT_HASH="$(jq -r '.receipt.receiptHash' pending.json)"
-          jq -r '.receipt.body' pending.json > receipt-body.txt
-          jq -n --rawfile body receipt-body.txt '{body:$body}' > github-payload.json
+            comment="$(gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}")"
+            author="$(jq -r '.user.login // empty' <<<"$comment")"
+            body="$(jq -r '.body // empty' <<<"$comment")"
+            [[ "$author" == "GirlDadMula11-sudo" ]] || { echo "Control comment author rejected." >&2; return 1; }
+            [[ "$body" == *"ai-control:v1"* ]] || { echo "Control comment marker missing." >&2; return 1; }
 
-          gh api --paginate --slurp \
-            -H "Accept: application/vnd.github+json" \
-            "repos/$REPO/issues/$ISSUE/comments?per_page=100" > before-comments.json
-          EXISTING_ID="$(jq -r --arg marker "$MARKER" '[.[][] | select((.body // "") | contains($marker))][0].id // empty' before-comments.json)"
+            label_ok="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" --jq '[.labels[].name] | index("georgie-handoff") != null')"
+            [[ "$label_ok" == "true" ]] || { echo "Issue #117 is missing georgie-handoff label." >&2; return 1; }
 
-          DEDUPLICATED=false
-          if [[ -n "$EXISTING_ID" ]]; then
-            DEDUPLICATED=true
-            gh api --method PATCH \
+            payload="$(jq -c --arg repository "$GITHUB_REPOSITORY" --argjson issue "$issue" '{repository:$repository, issueNumber:$issue, commentId:.id, author:.user.login, body:.body}' <<<"$comment")"
+            token="$(oidc_token "$GEORGIE_INBOUND_URL")"
+            response="$(curl --fail --silent --show-error \
+              -X POST \
+              -H "Authorization: Bearer $token" \
+              -H "Content-Type: application/json" \
+              --data-binary "$payload" \
+              "$GEORGIE_INBOUND_URL/ingest")"
+            jq -e '.ok == true and (.accepted | length) >= 1' <<<"$response" >/dev/null
+            echo "Certified #117 control accepted by Georgie."
+          }
+
+          relay_one_receipt() {
+            local token pending repo issue outbox marker receipt_hash existing_id deduplicated readback comment_id comment_url ack_token
+            token="$(oidc_token "$GEORGIE_RELAY_URL")"
+            curl --fail --silent --show-error \
+              -H "Authorization: Bearer $token" \
+              "$GEORGIE_RELAY_URL/pending" > pending.json
+
+            if [[ "$(jq -r '.hasPending' pending.json)" != "true" ]]; then
+              return 2
+            fi
+
+            repo="$(jq -r '.receipt.repository' pending.json)"
+            issue="$(jq -r '.receipt.issueNumber' pending.json)"
+            outbox="$(jq -r '.receipt.outboxId' pending.json)"
+            marker="$(jq -r '.receipt.marker' pending.json)"
+            receipt_hash="$(jq -r '.receipt.receiptHash' pending.json)"
+            jq -r '.receipt.body' pending.json > receipt-body.txt
+            jq -n --rawfile body receipt-body.txt '{body:$body}' > github-payload.json
+
+            gh api --paginate --slurp \
               -H "Accept: application/vnd.github+json" \
-              "repos/$REPO/issues/comments/$EXISTING_ID" \
-              --input github-payload.json > write-result.json
-          else
-            gh api --method POST \
+              "repos/$repo/issues/$issue/comments?per_page=100" > before-comments.json
+            existing_id="$(jq -r --arg marker "$marker" '[.[][] | select((.body // "") | contains($marker))][0].id // empty' before-comments.json)"
+
+            deduplicated=false
+            if [[ -n "$existing_id" ]]; then
+              deduplicated=true
+              gh api --method PATCH \
+                -H "Accept: application/vnd.github+json" \
+                "repos/$repo/issues/comments/$existing_id" \
+                --input github-payload.json > write-result.json
+            else
+              gh api --method POST \
+                -H "Accept: application/vnd.github+json" \
+                "repos/$repo/issues/$issue/comments" \
+                --input github-payload.json > write-result.json
+            fi
+
+            gh api --paginate --slurp \
               -H "Accept: application/vnd.github+json" \
-              "repos/$REPO/issues/$ISSUE/comments" \
-              --input github-payload.json > write-result.json
-          fi
+              "repos/$repo/issues/$issue/comments?per_page=100" > after-comments.json
+            readback="$(jq -c --arg marker "$marker" --arg hash "$receipt_hash" '[.[][] | select((.body // "") | contains($marker)) | select((.body // "") | contains("georgie-receipt-hash:" + $hash))][0] // empty' after-comments.json)"
+            [[ -n "$readback" ]] || { echo "Receipt marker/hash read-back was not confirmed" >&2; return 1; }
 
-          gh api --paginate --slurp \
-            -H "Accept: application/vnd.github+json" \
-            "repos/$REPO/issues/$ISSUE/comments?per_page=100" > after-comments.json
-          READBACK="$(jq -c --arg marker "$MARKER" --arg hash "$RECEIPT_HASH" '[.[][] | select((.body // "") | contains($marker)) | select((.body // "") | contains("georgie-receipt-hash:" + $hash))][0] // empty' after-comments.json)"
-          if [[ -z "$READBACK" ]]; then
-            echo "Receipt marker/hash read-back was not confirmed" >&2
-            exit 1
-          fi
+            comment_id="$(jq -r '.id' <<<"$readback")"
+            comment_url="$(jq -r '.html_url' <<<"$readback")"
+            jq -n \
+              --arg outboxId "$outbox" \
+              --arg receiptHash "$receipt_hash" \
+              --arg url "$comment_url" \
+              --argjson commentId "$comment_id" \
+              --argjson deduplicated "$deduplicated" \
+              '{outboxId:$outboxId,receiptHash:$receiptHash,url:$url,commentId:$commentId,readBackConfirmed:true,deduplicated:$deduplicated}' > ack.json
 
-          COMMENT_ID="$(jq -r '.id' <<<"$READBACK")"
-          COMMENT_URL="$(jq -r '.html_url' <<<"$READBACK")"
-          jq -n \
-            --arg outboxId "$OUTBOX" \
-            --arg receiptHash "$RECEIPT_HASH" \
-            --arg url "$COMMENT_URL" \
-            --argjson commentId "$COMMENT_ID" \
-            --argjson deduplicated "$DEDUPLICATED" \
-            '{outboxId:$outboxId,receiptHash:$receiptHash,url:$url,commentId:$commentId,readBackConfirmed:true,deduplicated:$deduplicated}' > ack.json
+            ack_token="$(oidc_token "$GEORGIE_RELAY_URL")"
+            curl --fail --silent --show-error \
+              -X POST \
+              -H "Authorization: Bearer $ack_token" \
+              -H "Content-Type: application/json" \
+              --data-binary @ack.json \
+              "$GEORGIE_RELAY_URL/ack" > ack-result.json
+            jq -e '.ok == true and .delivered == true' ack-result.json >/dev/null
+            echo "Receipt relay confirmed with GitHub marker read-back."
+            return 0
+          }
 
-          ACK_TOKEN="$(oidc_token)"
-          curl --fail --silent --show-error \
-            -X POST \
-            -H "Authorization: Bearer $ACK_TOKEN" \
-            -H "Content-Type: application/json" \
-            --data-binary @ack.json \
-            "$GEORGIE_RELAY_URL/ack" > ack-result.json
-          jq -e '.ok == true and .delivered == true' ack-result.json >/dev/null
-          echo "Receipt relay confirmed with GitHub marker read-back."
+          ingest_control
+
+          attempts=1
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then attempts=8; fi
+          for ((i=1; i<=attempts; i++)); do
+            if relay_one_receipt; then exit 0; fi
+            status=$?
+            [[ "$status" == "2" ]] || exit "$status"
+            if (( i < attempts )); then sleep 5; fi
+          done
+
+          echo "Control was accepted; no relay-eligible receipt is pending yet."
