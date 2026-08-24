@@ -8,8 +8,7 @@ const base={iss:"https://token.actions.githubusercontent.com",aud:audience,repos
 
 test("inbound OIDC accepts only the exact Georgie main workflow",()=>{
   assert.equal(validateGithubControlOidcClaims(base,audience),true);
-  assert.equal(validateGithubControlOidcClaims({...base,event_name:"schedule"},audience),true);
-  assert.equal(validateGithubControlOidcClaims({...base,event_name:"issue_comment"},audience),true);
+  for(const event_name of ["schedule","issue_comment","push"]) assert.equal(validateGithubControlOidcClaims({...base,event_name},audience),true);
   for(const patch of [
     {repository:"other/repo"},
     {repository_owner:"someone-else"},
