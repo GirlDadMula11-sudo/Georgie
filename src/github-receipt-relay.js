@@ -6,6 +6,7 @@ import { controlPlaneSnapshot, recordCallbackDelivery } from "./coordination-con
 const REPOSITORY="GirlDadMula11-sudo/Georgie";
 const OWNER="GirlDadMula11-sudo";
 const WORKFLOW_PATH=".github/workflows/georgie-receipt-relay.yml";
+const CONTROL_BRANCH="georgie-control";
 const ISSUER="https://token.actions.githubusercontent.com";
 const JWKS_URL=`${ISSUER}/.well-known/jwks`;
 const AUDIENCE_PREFIX="georgie-github-receipt-relay:";
@@ -47,10 +48,17 @@ export function validateGithubOidcClaims(claims={},audience,{nowMs=Date.now()}={
   if(claims.iss!==ISSUER)throw new Error("OIDC_ISSUER_REJECTED");
   if(!aud.includes(audience))throw new Error("OIDC_AUDIENCE_REJECTED");
   if(claims.repository!==REPOSITORY||claims.repository_owner!==OWNER)throw new Error("OIDC_REPOSITORY_REJECTED");
-  if(claims.ref!=="refs/heads/main")throw new Error("OIDC_REF_REJECTED");
-  const expectedWorkflow=`${REPOSITORY}/${WORKFLOW_PATH}@refs/heads/main`;
-  if(claims.workflow_ref!==expectedWorkflow)throw new Error("OIDC_WORKFLOW_REJECTED");
-  if(!["schedule","workflow_dispatch"].includes(String(claims.event_name||"")))throw new Error("OIDC_EVENT_REJECTED");
+  const event=String(claims.event_name||"");
+  if(event==="push"){
+    const ref=`refs/heads/${CONTROL_BRANCH}`;
+    if(claims.ref!==ref)throw new Error("OIDC_REF_REJECTED");
+    if(claims.workflow_ref!==`${REPOSITORY}/${WORKFLOW_PATH}@${ref}`)throw new Error("OIDC_WORKFLOW_REJECTED");
+  } else if(event==="schedule"||event==="workflow_dispatch"){
+    if(claims.ref!=="refs/heads/main")throw new Error("OIDC_REF_REJECTED");
+    if(claims.workflow_ref!==`${REPOSITORY}/${WORKFLOW_PATH}@refs/heads/main`)throw new Error("OIDC_WORKFLOW_REJECTED");
+  } else {
+    throw new Error("OIDC_EVENT_REJECTED");
+  }
   const exp=Number(claims.exp||0)*1000,nbf=Number(claims.nbf||claims.iat||0)*1000,iat=Number(claims.iat||0)*1000;
   if(!exp||exp<nowMs-30_000)throw new Error("OIDC_EXPIRED");
   if(nbf&&nbf>nowMs+30_000)throw new Error("OIDC_NOT_YET_VALID");
