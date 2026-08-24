@@ -8,12 +8,15 @@ const base={iss:"https://token.actions.githubusercontent.com",aud:audience,repos
 
 test("inbound OIDC accepts only the exact Georgie main workflow",()=>{
   assert.equal(validateGithubControlOidcClaims(base,audience),true);
+  assert.equal(validateGithubControlOidcClaims({...base,event_name:"schedule"},audience),true);
+  assert.equal(validateGithubControlOidcClaims({...base,event_name:"issue_comment"},audience),true);
   for(const patch of [
     {repository:"other/repo"},
     {repository_owner:"someone-else"},
     {ref:"refs/heads/feature"},
     {workflow_ref:"GirlDadMula11-sudo/Georgie/.github/workflows/other.yml@refs/heads/main"},
     {event_name:"pull_request"},
+    {event_name:"issues"},
     {aud:"wrong-audience"}
   ]) assert.throws(()=>validateGithubControlOidcClaims({...base,...patch},audience));
 });
