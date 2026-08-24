@@ -115,3 +115,6 @@ export async function getSierraGovernedAccess(userId) {
 export async function executeApprovedSierraChange(userId, { approvalId, actionType, idempotencyKey, provenance = {}, payload = {} } = {}) {
   return rpc("georgie_workforce_execute_approved_change", { p_user_id:String(userId||"primary"), p_approval_id:String(approvalId||""), p_action_type:String(actionType||""), p_idempotency_key:String(idempotencyKey||""), p_provenance:provenance&&typeof provenance==="object"?provenance:{}, p_payload:payload&&typeof payload==="object"?payload:{} });
 }
+export async function projectSierraMailboxEvidence(userId, { objectiveId, idempotencyKey, receipts = [], evidence = [] } = {}) {
+  return rpc("georgie_workforce_project_mailbox_evidence_v1", { p_request: { contract_version:1, user_id:String(userId||"primary"), objective_id:String(objectiveId||"").trim(), idempotency_key:String(idempotencyKey||"").trim(), receipts, evidence } });
+}

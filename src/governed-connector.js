@@ -6,6 +6,7 @@ import { enqueueMacJob, listMacJobs, resumeFailedMacJob } from "./mac/queue.js";
 import { getMacDeviceStatus } from "./mac/router.js";
 import { listMailboxPacketManifests } from "./mailbox-evidence-bridge.js";
 import { listMessagesBefore, readMessage } from "./integrations/neo-mail.js";
+import { projectSierraMailboxEvidence } from "./integrations/sierra-workforce.js";
 
 const NS = "governed_external_connector";
 const SCHEMA = "georgie.governed-connector.v1";
@@ -20,6 +21,12 @@ const CAPABILITIES = Object.freeze({
     authority: "read_only",
     operations: new Set(["connection_verify_and_backfill"]),
     prohibitedRoutes: new Set(["email.send", "smtp", "mailbox.write", "gmail", "apple_mail"])
+  }),
+  "sierra.mailbox_evidence.project": Object.freeze({
+    targetDevice: "server",
+    authority: "evidence_write",
+    operations: new Set(["project_immutable_receipts"]),
+    prohibitedRoutes: new Set(["email.send", "smtp", "mailbox.write", "external.notification", "lender.submit"])
   }),
   "primary_mac.neo.cdp_read_only": Object.freeze({
     targetDevice: "primary-mac",
@@ -98,6 +105,17 @@ export function validateCommandEnvelope(input = {}) {
 
 async function executeTypedCapability({ userId, command }) {
   const route = command.routing;
+  if (route.capability === "sierra.mailbox_evidence.project") {
+    const receiptIds = [...new Set((command.metadata?.receipt_ids || []).map(value => clean(value, 200)))];
+    if (!receiptIds.length || receiptIds.length > 100) throw new Error("SIERRA_MAILBOX_PROJECTION_RECEIPTS_REQUIRED");
+    const state = normalizeConnectorState(await readCloudState(String(userId), NS, baseState()));
+    const receipts = receiptIds.map(receiptId => state.receipts.find(item => item.receiptId === receiptId));
+    if (receipts.some(receipt => !receipt || receipt.objectiveId !== route.objective_id || receipt.status !== "completed")) throw new Error("SIERRA_MAILBOX_PROJECTION_RECEIPT_SCOPE_REJECTED");
+    const evidence = receipts.flatMap(receipt => Array.isArray(receipt.payload?.resultSummary?.evidence) ? receipt.payload.resultSummary.evidence : []);
+    if (!evidence.length) throw new Error("SIERRA_MAILBOX_PROJECTION_EVIDENCE_EMPTY");
+    const projection = await projectSierraMailboxEvidence(userId, { objectiveId:route.objective_id, idempotencyKey:route.idempotency_key, receipts:receipts.map(item => ({ receiptId:item.receiptId, commandId:item.commandId, createdAt:item.createdAt, responseHash:item.payload?.responseHash||null })), evidence });
+    return { terminalState:"completed", completed:true, route, projection, evidence:[], errors:[], mailboxMutation:false, markSeen:false, prohibitedTool:"email.send" };
+  }
   if (route.capability === "neo_mail.imap.read_only") {
     const requested = [...new Set((command.metadata?.mailboxes || []).map(value => clean(value, 320).toLowerCase()))];
     if (!requested.length || requested.some(value => !/^[^@\s]+@sierramarketinginc\.com$/.test(value))) throw new Error("NEO_IMAP_MAILBOX_SCOPE_REJECTED");
