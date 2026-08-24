@@ -135,6 +135,27 @@ export async function listRecentMessages(id, { limit = 20, unseenOnly = false } 
   return items.sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, limit);
 }
 
+export async function listMessagesBefore(id, { beforeUid = null, limit = 100 } = {}) {
+  const mailbox = getMailbox(id);
+  const imap = makeImap(mailbox);
+  const boundedLimit = Math.max(1, Math.min(Number(limit) || 100, 100));
+  try {
+    await imap.connect();
+    await imap.mailboxOpen("INBOX", { readOnly: true });
+    const allUids = await imap.search({ all: true }, { uid: true });
+    const ceiling = beforeUid == null ? Number.POSITIVE_INFINITY : Number(beforeUid);
+    const selected = allUids.filter(uid => Number(uid) < ceiling).slice(-boundedLimit);
+    const items = [];
+    if (!selected.length) return { mailbox: publicMailbox(mailbox), messages: [], nextBeforeUid: null, exhausted: true };
+    for await (const msg of imap.fetch(selected, { uid: true, envelope: true, flags: true, internalDate: true }, { uid: true })) {
+      items.push({ mailboxId: mailbox.id, uid: msg.uid, subject: msg.envelope?.subject || "", from: normalizeAddress(msg.envelope?.from), to: normalizeAddress(msg.envelope?.to), date: msg.internalDate?.toISOString?.() || null, seen: msg.flags?.has("\\Seen") || false });
+    }
+    items.sort((a, b) => Number(b.uid) - Number(a.uid));
+    const nextBeforeUid = Math.min(...selected.map(Number));
+    return { mailbox: publicMailbox(mailbox), messages: items, nextBeforeUid, exhausted: allUids.filter(uid => Number(uid) < nextBeforeUid).length === 0 };
+  } finally { await imap.logout().catch(() => {}); }
+}
+
 export async function readMessage(id, uid, { markSeen = false } = {}) {
   const mailbox = getMailbox(id);
   const imap = makeImap(mailbox);
