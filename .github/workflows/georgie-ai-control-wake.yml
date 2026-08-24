@@ -1,0 +1,48 @@
+name: Georgie AI Control Wake
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/georgie-ai-control-wake.yml"
+      - ".github/workflows/georgie-receipt-relay.yml"
+      - ".github/workflows/georgie-control-inbound.yml"
+      - "src/github-receipt-relay.js"
+      - "src/github-control-inbound.js"
+      - "src/ai-control-envelope.js"
+      - "src/shared-mission.js"
+      - "src/coordination-control-plane.js"
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: georgie-ai-control-wake
+  cancel-in-progress: false
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Dispatch existing governed OIDC relays
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          dispatch() {
+            local workflow="$1"
+            gh api --method POST \
+              -H "Accept: application/vnd.github+json" \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/dispatches" \
+              -f ref=main
+          }
+
+          dispatch georgie-receipt-relay.yml
+          dispatch georgie-control-inbound.yml
+          echo "Governed AI-control relay wake requests accepted."
