@@ -5,6 +5,15 @@ import { appendEvidence, prepareObjectiveControlContext, recordCallback } from "
 
 const bounded = (value, max = 2000) => String(value || "").trim().slice(0, max);
 
+const CONSEQUENTIAL_ACTION = /\b(send|submit|pay|charge|delete|destroy|purge|deploy|merge|migrate|restart|rotate|revoke|publish|notify|contact|transfer|purchase|trade)\b/i;
+const READ_ONLY_GUARD = /\b(read[- ]only|observe[- ]only|non[- ]mutating|no mutation|without (?:changing|modifying|writing|sending|submitting|deleting|deploying)|do not (?:change|modify|write|send|submit|delete|deploy|merge|restart)|never (?:change|modify|write|send|submit|delete|deploy|merge|restart))\b/i;
+
+function consequencePossibleFor(text) {
+  const normalized = String(text || "");
+  const clauses = normalized.split(/(?<=[.!?;])\s+|\bbut\b|\bwhile\b/i);
+  return clauses.some((clause) => CONSEQUENTIAL_ACTION.test(clause) && !READ_ONLY_GUARD.test(clause));
+}
+
 export function interpretOperatingObjective(input = "") {
   const text = bounded(input, 6000);
   const lower = text.toLowerCase();
@@ -16,7 +25,7 @@ export function interpretOperatingObjective(input = "") {
   const domain = /\b(sierra|deal|application|lender|capitalmatch|underwriting|smartlead|campaign)\b/.test(lower) ? "sierra" : engineering ? "technical" : "general";
   const kind = engineering ? "engineering" : inspection ? "investigation" : execution ? "execution" : "objective";
   const fingerprint = crypto.createHash("sha256").update(`${domain}:${kind}:${lower.replace(/\s+/g, " ")}`).digest("hex").slice(0, 24);
-  return { text, domain, kind, continuation, approval, inspection, execution, stableKey: `objective:${fingerprint}`, requiresTools: inspection || execution || engineering, consequencePossible: /\b(send|submit|payment|charge|delete|destructive|production|external|lender)\b/.test(lower) };
+  return { text, domain, kind, continuation, approval, inspection, execution, stableKey: `objective:${fingerprint}`, requiresTools: inspection || execution || engineering, consequencePossible: consequencePossibleFor(text) };
 }
 
 export function runtimeToolReadiness(surface = {}) {
