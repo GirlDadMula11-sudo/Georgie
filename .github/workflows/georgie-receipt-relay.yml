@@ -2,6 +2,13 @@ name: Georgie Receipt Relay
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/georgie-receipt-relay.yml"
+      - "src/github-receipt-relay.js"
+      - "src/coordination-control-plane.js"
   schedule:
     - cron: "*/5 * * * *"
 
