@@ -55,6 +55,13 @@ export async function resolveCorrespondenceTarget(userId, message = {}) {
   });
 }
 
+export async function getOpenDocumentRequests(userId, reference) {
+  return rpc("georgie_workforce_open_document_requests", {
+    p_user_id: String(userId || "primary"),
+    p_reference: clean(reference, 120)
+  });
+}
+
 export function classifyCorrespondenceAttachment(file = {}) {
   const filename = clean(file.filename, 220).toLowerCase();
   if (/bank|statement|checking|savings|account[-_ ]?\d{2,4}/i.test(filename)) return { documentType: "bank_statement", documentLabel: "Bank statement" };
