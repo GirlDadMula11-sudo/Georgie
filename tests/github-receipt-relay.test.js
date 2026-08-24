@@ -4,6 +4,7 @@ import { githubReceiptRelayInternals, validateGithubOidcClaims } from "../src/gi
 
 const audience="georgie-github-receipt-relay:test-nonce";
 const nowMs=Date.now();
+const workflow="GirlDadMula11-sudo/Georgie/.github/workflows/georgie-receipt-relay.yml";
 function claims(overrides={}){
   return {
     iss:"https://token.actions.githubusercontent.com",
@@ -11,7 +12,7 @@ function claims(overrides={}){
     repository:"GirlDadMula11-sudo/Georgie",
     repository_owner:"GirlDadMula11-sudo",
     ref:"refs/heads/main",
-    workflow_ref:"GirlDadMula11-sudo/Georgie/.github/workflows/georgie-receipt-relay.yml@refs/heads/main",
+    workflow_ref:`${workflow}@refs/heads/main`,
     event_name:"schedule",
     iat:Math.floor((nowMs-5_000)/1000),
     nbf:Math.floor((nowMs-5_000)/1000),
@@ -20,8 +21,10 @@ function claims(overrides={}){
   };
 }
 
-test("valid GitHub Actions OIDC claims are accepted",()=>{
+test("registered relay accepts main recovery and isolated control-branch push",()=>{
   assert.equal(validateGithubOidcClaims(claims(),audience,{nowMs}),true);
+  assert.equal(validateGithubOidcClaims(claims({event_name:"workflow_dispatch"}),audience,{nowMs}),true);
+  assert.equal(validateGithubOidcClaims(claims({event_name:"push",ref:"refs/heads/georgie-control",workflow_ref:`${workflow}@refs/heads/georgie-control`}),audience,{nowMs}),true);
 });
 
 test("OIDC claims fail closed for wrong repository, workflow, ref, audience, event, or stale token",()=>{
@@ -33,6 +36,8 @@ test("OIDC claims fail closed for wrong repository, workflow, ref, audience, eve
     ["stale",{iat:Math.floor((nowMs-10*60_000)/1000)},"OIDC_TOKEN_AGE_REJECTED"]
   ]) assert.throws(()=>validateGithubOidcClaims(claims(override),audience,{nowMs}),new RegExp(expected),label);
   assert.throws(()=>validateGithubOidcClaims(claims(),"wrong-audience",{nowMs}),/OIDC_AUDIENCE_REJECTED/);
+  assert.throws(()=>validateGithubOidcClaims(claims({event_name:"push"}),audience,{nowMs}),/OIDC_REF_REJECTED/);
+  assert.throws(()=>validateGithubOidcClaims(claims({ref:"refs/heads/georgie-control"}),audience,{nowMs}),/OIDC_REF_REJECTED/);
 });
 
 test("receipt payload is minimal, deterministic, marker-bound, and secret-redacted",()=>{
