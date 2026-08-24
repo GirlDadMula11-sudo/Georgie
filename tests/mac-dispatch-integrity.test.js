@@ -40,7 +40,9 @@ test("each verified identity-root handler reopens the exact exhausted mailbox jo
   const resumed=await resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill",verifiedAgentVersion:version});
   assert.equal(resumed.id,job.id);assert.equal(resumed.status,"queued");assert.equal(resumed.resumeHistory.at(-1).reason,`neo_identity_root_${version.replace(/\./g,"_")}_verified`);
   await claimMacJobs(deviceId,1);await completeMacJob(deviceId,job.id,{error:"NEO_MAILBOX_IDENTITY_NOT_VERIFIED: submissions@sierramarketinginc.com: still ambiguous"});
-  await assert.rejects(()=>resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill",verifiedAgentVersion:version}),/MAC_JOB_NOT_RESUMABLE/);
+  const replacement=await resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill",verifiedAgentVersion:version});
+  assert.notEqual(replacement.id,job.id);assert.equal(replacement.status,"queued");assert.equal(replacement.args.recoveryRootJobId,job.id);assert.equal(replacement.args.recoveryGeneration,1);assert.equal(replacement.replacementOf.replacesJobId,job.id);
+  const duplicate=await resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill",verifiedAgentVersion:version});assert.equal(duplicate.id,replacement.id);
  }
 });
 
@@ -121,4 +123,17 @@ test("non-transient NEO identity failures stop immediately at the exact resume p
   assert.equal(failed.status,"failed");
   assert.equal(failed.attempts,1);
   assert.equal(failed.args.checkpoint,"connection_verification");
+});
+
+
+test("failed non-resumable mailbox attempt creates exactly one fenced replacement",async()=>{
+  const nonce=`${Date.now()}-${Math.random().toString(16).slice(2)}`,deviceId=`replacement-${nonce}`,objectiveId=`objective-${nonce}`;
+  const job=await enqueueMacJob({userId:`replacement-user-${nonce}`,deviceId,action:"mailbox.read_only_backfill",args:{objectiveId,authority:"read_only",checkpoint:"connection_verification"},risk:"read",idempotencyKey:`replacement-${nonce}`,maxAttempts:1});
+  await claimMacJobs(deviceId,1);await completeMacJob(deviceId,job.id,{error:"PERMANENT_PROVIDER_FAILURE"});
+  const replacement=await resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill"});
+  const duplicate=await resumeFailedMacJob(deviceId,job.id,{objectiveId,expectedAction:"mailbox.read_only_backfill"});
+  assert.notEqual(replacement.id,job.id);assert.equal(duplicate.id,replacement.id);assert.equal(replacement.args.recoveryGeneration,1);assert.equal(replacement.args.replacesJobId,job.id);
+  await assert.rejects(()=>completeMacJob(deviceId,job.id,{result:{late:true}}),/MAC_JOB_NOT_CLAIMED: failed/);
+  const claimed=(await claimMacJobs(deviceId,5)).find(item=>item.id===replacement.id);assert.ok(claimed);
+  const completed=await completeMacJob(deviceId,replacement.id,{result:{ok:true}});assert.equal(completed.status,"completed");
 });
