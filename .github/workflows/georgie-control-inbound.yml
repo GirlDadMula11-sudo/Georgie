@@ -2,6 +2,8 @@ name: Georgie Control Inbound
 
 on:
   workflow_dispatch:
+  issue_comment:
+    types: [created]
   schedule:
     - cron: "*/5 * * * *"
 
@@ -11,11 +13,16 @@ permissions:
   id-token: write
 
 concurrency:
-  group: georgie-control-inbound
+  group: georgie-control-inbound-${{ github.event_name == 'issue_comment' && github.event.comment.id || 'recovery' }}
   cancel-in-progress: false
 
 jobs:
   ingest:
+    if: >-
+      github.event_name != 'issue_comment' ||
+      (github.event.issue.pull_request == null &&
+       github.event.comment.user.login == 'GirlDadMula11-sudo' &&
+       contains(github.event.comment.body, 'ai-control:v1'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -52,6 +59,30 @@ jobs:
             fi
             jq -c '{ok,accepted,rejected}' <<<"$response"
           }
+
+          if [[ "$GITHUB_EVENT_NAME" == "issue_comment" ]]; then
+            ISSUE="${{ github.event.issue.number }}"
+            COMMENT_ID="${{ github.event.comment.id }}"
+            LABEL_OK="$(gh api \
+              -H "Accept: application/vnd.github+json" \
+              "repos/${GITHUB_REPOSITORY}/issues/${ISSUE}" \
+              --jq '[.labels[].name] | index("georgie-handoff") != null')"
+            [[ "$LABEL_OK" == "true" ]] || {
+              echo "Ignoring AI-control comment on issue without georgie-handoff label."
+              exit 0
+            }
+            COMMENT="$(gh api \
+              -H "Accept: application/vnd.github+json" \
+              "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}")"
+            PAYLOAD="$(jq -c \
+              --arg repository "$GITHUB_REPOSITORY" \
+              --argjson issue "$ISSUE" \
+              '{repository:$repository, issueNumber:$issue, commentId:.id, author:.user.login, body:.body}' \
+              <<<"$COMMENT")"
+            send_payload "$PAYLOAD"
+            echo "GitHub AI-control event fast path completed."
+            exit 0
+          fi
 
           gh issue list \
             --repo "$GITHUB_REPOSITORY" \
