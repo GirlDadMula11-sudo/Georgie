@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { listNeoMailboxes, listMessagesBefore, readMessage } from "../src/integrations/neo-mail.js";
 import { projectSierraMailboxEvidence } from "../src/integrations/sierra-workforce.js";
 
@@ -6,10 +8,48 @@ const enabled = String(process.env.GEORGIE_EMERGENCY_NEO_BACKFILL || "").trim() 
 if (!enabled) process.exit(0);
 const OBJECTIVE = String(process.env.GEORGIE_EMERGENCY_NEO_OBJECTIVE || "SIERRA-LI-MBX-20260823-001").trim();
 const PAGE_SIZE = Math.max(1, Math.min(Number(process.env.GEORGIE_EMERGENCY_NEO_PAGE_SIZE || 100), 100));
-const MAX_PAGES = Math.max(1, Math.min(Number(process.env.GEORGIE_EMERGENCY_NEO_MAX_PAGES || 250), 1000));
+const MAX_PAGES = Math.max(1, Math.min(Number(process.env.GEORGIE_EMERGENCY_NEO_MAX_PAGES || 1000), 1000));
 const READ_CONCURRENCY = Math.max(1, Math.min(Number(process.env.GEORGIE_EMERGENCY_NEO_READ_CONCURRENCY || 6), 10));
-const START_WORK_UID = Number(process.env.GEORGIE_EMERGENCY_NEO_WORK_BEFORE_UID || 47569);
-const START_SUBMISSIONS_UID = Number(process.env.GEORGIE_EMERGENCY_NEO_SUBMISSIONS_BEFORE_UID || 12315);
+const START_WORK_UID = Number(process.env.GEORGIE_EMERGENCY_NEO_WORK_BEFORE_UID || 25582);
+const START_SUBMISSIONS_UID = Number(process.env.GEORGIE_EMERGENCY_NEO_SUBMISSIONS_BEFORE_UID || 1393);
+const DATA_DIR = path.resolve(process.env.GEORGIE_DATA_DIR || "data");
+const CHECKPOINT_DIR = path.join(DATA_DIR, "neo-backfill", OBJECTIVE.replace(/[^a-zA-Z0-9._-]/g, "_"));
+fs.mkdirSync(CHECKPOINT_DIR, { recursive: true });
+
+const checkpointPath = mailboxId => path.join(CHECKPOINT_DIR, `${String(mailboxId).replace(/[^a-zA-Z0-9._-]/g, "_")}.json`);
+const leasePath = mailboxId => `${checkpointPath(mailboxId)}.lease`;
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+function readCheckpoint(mailboxId) {
+  try { return JSON.parse(fs.readFileSync(checkpointPath(mailboxId), "utf8")); }
+  catch { return null; }
+}
+function writeCheckpoint(mailboxId, value) {
+  const target = checkpointPath(mailboxId);
+  const temporary = `${target}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, JSON.stringify(value));
+  fs.renameSync(temporary, target);
+}
+async function acquireLease(mailboxId) {
+  const target = leasePath(mailboxId);
+  for (;;) {
+    try {
+      const fd = fs.openSync(target, "wx");
+      fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString() }));
+      fs.closeSync(fd);
+      const heartbeat = setInterval(() => { try { const now = new Date(); fs.utimesSync(target, now, now); } catch {} }, 5000);
+      heartbeat.unref?.();
+      return () => { clearInterval(heartbeat); try { fs.unlinkSync(target); } catch {} };
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+      try {
+        const age = Date.now() - fs.statSync(target).mtimeMs;
+        if (age > 20000) { fs.unlinkSync(target); continue; }
+      } catch {}
+      await sleep(3000);
+    }
+  }
+}
 const outcomePattern = /\b(approved?|offer(?:ed)?|declin(?:e|ed)|denied|funded|funding|stip(?:ulation)?s?|conditions?|term sheet|payoff|renewal)\b/i;
 const lenderPattern = /\b(dexly|rapid finance|spartan|principis|smartstep|tvt|essentia|iou|kapitus|smartbiz|velocity|bizfund|loan23|zlur|e capital|lima one|kiavi|loanbuilder|national funding|fundbox|ondeck|fundworks|fundkite|credibly|libertas|itria|mulligan|cfg|capflow|avana|idea financial)\b/i;
 const digest = value => crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -37,7 +77,15 @@ async function collectEvidence(mailboxEmail,page){
   return evidence;
 }
 async function runMailbox(mailbox,beforeUid){
-  let cursor=Number.isFinite(beforeUid)?beforeUid:null,pageNumber=0,totalScanned=0,totalEvidence=0,exhausted=false;
+  const releaseLease = await acquireLease(mailbox.id);
+  try {
+  const saved = readCheckpoint(mailbox.id);
+  const seed = Number.isFinite(beforeUid) ? beforeUid : null;
+  const savedCursor = Number(saved?.nextBeforeUid);
+  let cursor = Number.isFinite(savedCursor) ? (seed == null ? savedCursor : Math.min(seed, savedCursor)) : seed;
+  let pageNumber=0,totalScanned=Number(saved?.scanned||0),totalEvidence=Number(saved?.evidence||0),exhausted=Boolean(saved?.exhausted);
+  if (exhausted) return {mailbox:mailbox.email,pages:0,scanned:totalScanned,evidence:totalEvidence,nextBeforeUid:cursor,exhausted:true,resumed:true};
+  console.log(`[Emergency NEO] RESUME mailbox=${mailbox.email} nextBeforeUid=${cursor??"latest"} priorScanned=${totalScanned} priorEvidence=${totalEvidence}`);
   while(!exhausted&&pageNumber<MAX_PAGES){
     pageNumber+=1;
     const page=await listMessagesBefore(mailbox.email,{beforeUid:cursor,limit:PAGE_SIZE});
@@ -50,8 +98,12 @@ async function runMailbox(mailbox,beforeUid){
     }
     console.log(`[Emergency NEO] mailbox=${mailbox.email} page=${pageNumber} scanned=${page.messages.length} evidence=${evidence.length} nextBeforeUid=${page.nextBeforeUid??"null"} exhausted=${page.exhausted}`);
     exhausted=Boolean(page.exhausted||page.nextBeforeUid==null||page.messages.length===0); cursor=page.nextBeforeUid;
+    writeCheckpoint(mailbox.id,{objectiveId:OBJECTIVE,mailbox:mailbox.email,nextBeforeUid:cursor,exhausted,scanned:totalScanned,evidence:totalEvidence,updatedAt:new Date().toISOString()});
   }
-  return {mailbox:mailbox.email,pages:pageNumber,scanned:totalScanned,evidence:totalEvidence,nextBeforeUid:cursor,exhausted};
+  const result={mailbox:mailbox.email,pages:pageNumber,scanned:totalScanned,evidence:totalEvidence,nextBeforeUid:cursor,exhausted};
+  writeCheckpoint(mailbox.id,{objectiveId:OBJECTIVE,...result,updatedAt:new Date().toISOString(),terminal:exhausted});
+  return result;
+  } finally { releaseLease(); }
 }
 try{
   const mailboxes=listNeoMailboxes();
