@@ -67,11 +67,11 @@ export function createPortableMcpHandler({ connector, userId = "primary" } = {})
     try {
       if (name === "georgie_dispatch_command") {
         const result = await connector.submit(userId, { ...args, source: "openai" });
-        return { jsonrpc: "2.0", id, result: textResult(result, result.duplicate ? "The existing Georgie command was reused; no duplicate was created." : "Georgie accepted and processed the governed command.") };
+        return { jsonrpc: "2.0", id, result: textResult(result, result.duplicate ? "The existing Georgie command was reused; no duplicate was created." : "Georgie durably accepted the governed command and returned its execution lease before deep work.") };
       }
       if (name === "georgie_forward_approval") {
         const result = await connector.submit(userId, { ...args, source: "openai", kind: "approval", command: `Approve plan ${args.planId} under approval ${args.approvalId}` });
-        return { jsonrpc: "2.0", id, result: textResult(result, result.duplicate ? "The approval dispatch already exists and was not duplicated." : "The approval was forwarded through Georgie's governed execution path.") };
+        return { jsonrpc: "2.0", id, result: textResult(result, result.duplicate ? "The approval dispatch already exists and was not duplicated." : "The approval was durably accepted and leased for governed execution.") };
       }
       if (name === "georgie_get_command") {
         const command = await connector.status(userId, clean(args.commandId, 160));

@@ -40,10 +40,10 @@ const CAPABILITIES = Object.freeze({
   })
 });
 
-function baseState() { return { schema: SCHEMA, version: 1, commands: [], events: [], receipts: [], updatedAt: null }; }
+function baseState() { return { schema: SCHEMA, version: 2, commands: [], leases: [], events: [], receipts: [], updatedAt: null }; }
 export function normalizeConnectorState(value) {
   const input = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  return { ...baseState(), ...input, schema: SCHEMA, version: 1, commands: Array.isArray(input.commands) ? input.commands : [], events: Array.isArray(input.events) ? input.events : [], receipts: Array.isArray(input.receipts) ? input.receipts : [] };
+  return { ...baseState(), ...input, schema: SCHEMA, version: 2, commands: Array.isArray(input.commands) ? input.commands : [], leases: Array.isArray(input.leases) ? input.leases : [], events: Array.isArray(input.events) ? input.events : [], receipts: Array.isArray(input.receipts) ? input.receipts : [] };
 }
 function commandId(userId, source, key) { return `cmd_${digest(`${userId}:${source}:${key}`).slice(0, 32)}`; }
 function objectiveId(userId, source, supplied, command) { return supplied ? clean(supplied, 160) : `obj_${digest(`${userId}:${source}:${command}`).slice(0, 32)}`; }
@@ -140,74 +140,31 @@ async function executeTypedCapability({ userId, command }) {
   return { terminalState: "in_progress", completed: false, route, job: { id: job.id, status: job.status, deviceId: route.target_device, claimedByDeviceId: job.dispatchReceipt?.deviceId || null, action: job.action, authority: route.authority, dispatchReceipt: job.dispatchReceipt } };
 }
 
-export function createGovernedConnector({ executeCommand, emitStatus = async () => {}, readState, writeState, retainObjective, transitionObjective } = {}) {
+export function createGovernedConnector({ executeCommand, emitStatus = async () => {}, readState, writeState, retainObjective, transitionObjective, leaseTtlMs = 30_000, ownerId = null } = {}) {
   if (typeof executeCommand !== "function") throw new Error("Connector requires an executeCommand function");
   const readStore = readState || ((userId) => readCloudState(String(userId), NS, baseState()));
   const writeStore = writeState || ((userId, state) => writeCloudState(String(userId), NS, state));
   const retain = retainObjective || ((userId, input) => upsertOperatingNode(userId, input));
   const transition = transitionObjective || ((userId, id, input) => transitionOperatingNode(userId, id, input));
+  const workerId = clean(ownerId || `connector-worker:${process.pid}:${crypto.randomUUID()}`, 180);
+  const boundedLeaseTtlMs = Math.max(1_000, Math.min(300_000, Number(leaseTtlMs) || 30_000));
   async function read(userId) { return structuredClone(normalizeConnectorState(await readStore(userId))); }
   async function persist(userId, state) { state.updatedAt = now(); await writeStore(userId, state); return state; }
-  async function record(userId, command, status, payload = {}) {
-    return exclusive(userId, async () => {
-      const state = await read(userId); const item = state.commands.find((row) => row.id === command.id);
-      if (item) { item.status = status; item.updatedAt = now(); if (status === "completed") item.completedAt = item.updatedAt; if (status === "failed") item.error = clean(payload.error, 1000); if (payload.resultSummary) item.result = payload.resultSummary; }
-      const event = { id: crypto.randomUUID(), commandId: command.id, objectiveId: command.objectiveId, status, createdAt: now() };
-      const receipt = receiptFor(command, status, payload);
-      state.events.push(event); state.receipts.push(receipt); await persist(userId, state);
-      await emitStatus({ ...event, receipt }).catch(() => {});
-      return receipt;
-    });
-  }
-  async function run(userId, command) {
-    await record(userId, command, "running");
-    await transition(userId, command.operatingNodeId, { status: "active", attempted: true, nextAction: "Execute, verify, and return durable evidence." }).catch(() => {});
-    try {
-      const result = command.routing
-        ? await executeTypedCapability({ userId, command })
-        : await executeCommand({ userId, sessionId: `connector:${command.source}:objective:${command.objectiveId}`, input: command.command, connector: { commandId: command.id, objectiveId: command.objectiveId, planId: command.planId, approvalId: command.approvalId } });
-      const resultSummary = command.routing ? { terminalState: result?.terminalState || null, completed: result?.completed === true, route: result?.route || null, job: result?.job || null, jobs: result?.jobs || null, expectedAgentVersion: result?.expectedAgentVersion || null } : null;
-      const evidence = { responseHash: digest(JSON.stringify(result || {})), terminalState: clean(result?.outcome?.terminalState || result?.terminalState || "completed", 80), ...(resultSummary ? { resultSummary } : {}) };
-      const receipt = await record(userId, command, "completed", evidence);
-      await transition(userId, command.operatingNodeId, result?.terminalState === "in_progress" ? { status: "active", nextAction: "Resume the same objective and Mac job checkpoint." } : { status: "verified", verification: `Connector completion receipt ${receipt.receiptId}` }).catch(() => {});
-      return { commandId: command.id, objectiveId: command.objectiveId, status: "completed", result, receipt };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error); const receipt = await record(userId, command, "failed", { error: message });
-      await transition(userId, command.operatingNodeId, { status: "recovering", recovery: "Resume this same command ID after the temporary blocker is resolved; do not create a duplicate.", nextAction: message }).catch(() => {});
-      return { commandId: command.id, objectiveId: command.objectiveId, status: "failed", error: message, receipt };
-    }
-  }
-  async function submit(userId = "primary", input = {}) {
-    const envelope = validateCommandEnvelope(input); let command; let duplicate = false;
-    await exclusive(userId, async () => {
-      const state = await read(userId); const id = commandId(userId, envelope.source, envelope.idempotencyKey); const existing = state.commands.find((row) => row.id === id);
-      if (existing) { command = existing; duplicate = true; return; }
-      const objective = objectiveId(userId, envelope.source, envelope.objectiveId, envelope.command);
-      const node = await retain(userId, { stableKey: `connector:${objective}`, kind: envelope.kind === "approval" ? "execution" : "objective", title: envelope.command.slice(0, 240), domain: "general", status: "planned", nextAction: "Dispatch through the governed connector and preserve completion evidence.", approvalId: envelope.approvalId });
-      command = { id, objectiveId: objective, operatingNodeId: node.id, ...envelope, status: "accepted", attempts: 0, createdAt: now(), updatedAt: now() };
-      state.commands.push(command); state.events.push({ id: crypto.randomUUID(), commandId: id, objectiveId: objective, status: "accepted", createdAt: now() }); state.receipts.push(receiptFor(command, "accepted")); await persist(userId, state);
-    });
-    if (duplicate) return { commandId: command.id, objectiveId: command.objectiveId, status: command.status, duplicate: true, result: command.result || null };
-    return run(userId, command);
-  }
-  async function status(userId = "primary", id) {
-    const state = await read(userId); const command = state.commands.find((row) => row.id === id); if (!command) return null;
-    const response = { ...command, events: state.events.filter((row) => row.commandId === id), receipts: state.receipts.filter((row) => row.commandId === id) };
-    if (command.routing?.capability === "primary_mac.agent.maintenance") {
-      const ids = new Set((command.result?.jobs || []).map((job) => job.id));
-      response.macJobs = (await listMacJobs(userId, 500)).filter((job) => ids.has(job.id)).map((job) => ({ id: job.id, status: job.status, action: job.action, deviceId: job.deviceId, attempts: job.attempts, claimedAt: job.claimedAt, completedAt: job.completedAt, error: job.error, dispatchReceipt: job.dispatchReceipt }));
-      response.macDevices = getMacDeviceStatus();
-    }
-    const jobId = clean(command.result?.job?.id || command.metadata?.existing_job_id || command.metadata?.existingJobId, 200);
-    if (jobId && command.objectiveId) {
-      const job = (await listMacJobs(userId, 500)).find((item) => item.id === jobId && String(item.args?.objectiveId || "") === command.objectiveId);
-      if (job) response.macJob = summarizeGovernedMacJob(job);
-      response.packetManifests = await listMailboxPacketManifests(userId, { objectiveId: command.objectiveId, limit: 25 });
-    }
-    return response;
-  }
-  async function resume(userId = "primary") { const state = await read(userId); const pending = state.commands.filter((row) => ["accepted", "running", "failed"].includes(row.status)); const results = []; for (const command of pending) results.push(await run(userId, command)); return results; }
-  return { submit, status, resume };
+  function leaseFor(state, commandIdValue) { return state.leases.find((row) => row.commandId === commandIdValue) || null; }
+  function leasePublic(lease) { return lease ? structuredClone(lease) : null; }
+  async function readLease(userId, commandIdValue) { const state=await read(userId); return leasePublic(leaseFor(state,commandIdValue)); }
+  function activeLease(lease, at = Date.now()) { return lease && ["queued", "running"].includes(lease.status) && Date.parse(lease.expiresAt || 0) > at; }
+  function terminalLease(lease) { return lease && ["completed", "blocked", "failed", "cancelled"].includes(lease.status); }
+  function newLease(command) { const createdAt=now(); return { id:`lease_${digest(`${command.id}:${command.objectiveId}`).slice(0,32)}`, commandId:command.id, objectiveId:command.objectiveId, status:"queued", owner:null, generation:0, claimedAt:null, heartbeatAt:null, expiresAt:new Date(Date.now()+boundedLeaseTtlMs).toISOString(), attempts:0, terminalReceiptId:null, createdAt, updatedAt:createdAt }; }
+  async function acquireOrReturnLease(userId, command, { reclaim = true } = {}) { return exclusive(userId, async()=>{ const state=await read(userId); let lease=leaseFor(state,command.id); if(!lease){lease=newLease(command);state.leases.push(lease);await persist(userId,state);return{acquired:false,created:true,lease:leasePublic(lease)}} if(terminalLease(lease))return{acquired:false,terminal:true,lease:leasePublic(lease)}; const at=Date.now(); if(lease.status==="queued"||(!activeLease(lease,at)&&reclaim)){lease.owner=workerId;lease.generation=Number(lease.generation||0)+1;lease.status="running";lease.claimedAt=now();lease.heartbeatAt=lease.claimedAt;lease.expiresAt=new Date(at+boundedLeaseTtlMs).toISOString();lease.attempts=Number(lease.attempts||0)+1;lease.updatedAt=lease.claimedAt;await persist(userId,state);return{acquired:true,reclaimed:lease.generation>1,lease:leasePublic(lease)}} return{acquired:lease.owner===workerId,lease:leasePublic(lease)}; }); }
+  async function heartbeatLease(userId, claim) { return exclusive(userId,async()=>{ const state=await read(userId),lease=leaseFor(state,claim?.commandId); if(!lease||lease.id!==claim?.id||lease.owner!==workerId||Number(lease.generation)!==Number(claim?.generation)||terminalLease(lease))return{ok:false,fenced:true,lease:leasePublic(lease)}; lease.heartbeatAt=now();lease.expiresAt=new Date(Date.now()+boundedLeaseTtlMs).toISOString();lease.updatedAt=lease.heartbeatAt;await persist(userId,state);return{ok:true,lease:leasePublic(lease)}; }); }
+  async function record(userId, command, status, payload = {}, claim = null) { return exclusive(userId,async()=>{ const state=await read(userId),item=state.commands.find(row=>row.id===command.id),lease=leaseFor(state,command.id); if(claim&&(!lease||lease.id!==claim.id||lease.owner!==workerId||Number(lease.generation)!==Number(claim.generation)))throw new Error("LEASE_FENCED: execution ownership changed before terminalization"); if(item){item.status=status;item.updatedAt=now();if(["completed","blocked"].includes(status))item.completedAt=item.updatedAt;if(["failed","recovering","blocked"].includes(status))item.error=clean(payload.error,1000);if(payload.resultSummary)item.result=payload.resultSummary;} const event={id:crypto.randomUUID(),commandId:command.id,objectiveId:command.objectiveId,status,createdAt:now()},receipt=receiptFor(command,status,payload); if(lease&&claim){lease.status=status==="completed"?"completed":status==="blocked"?"blocked":status==="failed"?"failed":status==="recovering"?"queued":status;lease.terminalReceiptId=["completed","blocked","failed"].includes(status)?receipt.receiptId:lease.terminalReceiptId;lease.updatedAt=event.createdAt;if(lease.status==="queued"){lease.owner=null;lease.expiresAt=new Date(Date.now()+boundedLeaseTtlMs).toISOString();}} state.events.push(event);state.receipts.push(receipt);await persist(userId,state);await emitStatus({...event,receipt}).catch(()=>{});return receipt; }); }
+  async function run(userId, command) { const claimResult=await acquireOrReturnLease(userId,command); if(claimResult.terminal||!claimResult.acquired)return{commandId:command.id,objectiveId:command.objectiveId,status:claimResult.lease?.status||command.status,lease:claimResult.lease,duplicateExecutionPrevented:true}; const claim=claimResult.lease; await record(userId,command,"running",{},claim); await transition(userId,command.operatingNodeId,{status:"active",attempted:true,nextAction:"Execute, verify, and return durable evidence."}).catch(()=>{}); const heartbeat=setInterval(()=>heartbeatLease(userId,claim).catch(()=>{}),Math.max(500,Math.floor(boundedLeaseTtlMs/3)));heartbeat.unref?.(); try{ const result=command.routing?await executeTypedCapability({userId,command}):await executeCommand({userId,sessionId:`connector:${command.source}:objective:${command.objectiveId}`,input:command.command,connector:{commandId:command.id,objectiveId:command.objectiveId,planId:command.planId,approvalId:command.approvalId,leaseId:claim.id,leaseGeneration:claim.generation}}); const resultSummary=command.routing?{terminalState:result?.terminalState||null,completed:result?.completed===true,route:result?.route||null,job:result?.job||null,jobs:result?.jobs||null,expectedAgentVersion:result?.expectedAgentVersion||null}:null; const terminalState=clean(result?.outcome?.terminalState||result?.terminalState||(result?.completed===false?"recovering":"completed"),80),evidence={responseHash:digest(JSON.stringify(result||{})),terminalState,...(resultSummary?{resultSummary}:{})}; if(result?.completed===false||["in_progress","working","recovering","queued","running"].includes(terminalState)){const receipt=await record(userId,command,"recovering",{...evidence,error:clean(result?.error||result?.exactBlocker||terminalState,1000)},claim);await transition(userId,command.operatingNodeId,{status:"recovering",recovery:"Resume this same command and lease checkpoint; do not create a duplicate.",nextAction:"Continue from the durable lease checkpoint."}).catch(()=>{});return{commandId:command.id,objectiveId:command.objectiveId,status:"recovering",result,receipt,lease:await readLease(userId,command.id)};} const blocked=terminalState==="blocked"||result?.outcome?.terminalState==="blocked"; const receipt=await record(userId,command,blocked?"blocked":"completed",evidence,claim);await transition(userId,command.operatingNodeId,blocked?{status:"blocked",nextAction:clean(result?.exactBlocker||result?.error||"Resolve the verified blocker and resume the same objective.",1000)}:{status:"verified",verification:`Connector completion receipt ${receipt.receiptId}`}).catch(()=>{});return{commandId:command.id,objectiveId:command.objectiveId,status:blocked?"blocked":"completed",result,receipt,lease:await readLease(userId,command.id)}; }catch(error){const message=error instanceof Error?error.message:String(error);if(/^LEASE_FENCED:/.test(message))return{commandId:command.id,objectiveId:command.objectiveId,status:(await readLease(userId,command.id))?.status||"running",error:message,lease:await readLease(userId,command.id),duplicateExecutionPrevented:true};const receipt=await record(userId,command,"recovering",{error:message},claim);await transition(userId,command.operatingNodeId,{status:"recovering",recovery:"Resume this same command ID after the temporary blocker is resolved; do not create a duplicate.",nextAction:message}).catch(()=>{});return{commandId:command.id,objectiveId:command.objectiveId,status:"recovering",error:message,receipt,lease:await readLease(userId,command.id)};}finally{clearInterval(heartbeat);} }
+  function schedule(userId,command){setImmediate(()=>run(userId,command).catch(error=>console.error(`[Georgie] connector background execution failed ${command.id}:`,error instanceof Error?error.stack||error.message:error)));}
+  async function submit(userId="primary",input={}){const envelope=validateCommandEnvelope(input);let command,duplicate=false,acceptedReceipt,lease;await exclusive(userId,async()=>{const state=await read(userId),id=commandId(userId,envelope.source,envelope.idempotencyKey),existing=state.commands.find(row=>row.id===id);if(existing){command=existing;duplicate=true;lease=leaseFor(state,id);return;}const objective=objectiveId(userId,envelope.source,envelope.objectiveId,envelope.command),node=await retain(userId,{stableKey:`connector:${objective}`,kind:envelope.kind==="approval"?"execution":"objective",title:envelope.command.slice(0,240),domain:"general",status:"planned",nextAction:"Dispatch through the governed connector and preserve completion evidence.",approvalId:envelope.approvalId});command={id,objectiveId:objective,operatingNodeId:node.id,...envelope,status:"accepted",attempts:0,createdAt:now(),updatedAt:now()};lease=newLease(command);state.commands.push(command);state.leases.push(lease);const event={id:crypto.randomUUID(),commandId:id,objectiveId:objective,status:"accepted",createdAt:now()};acceptedReceipt=receiptFor(command,"accepted",{leaseId:lease.id});state.events.push(event);state.receipts.push(acceptedReceipt);await persist(userId,state);await emitStatus({...event,receipt:acceptedReceipt}).catch(()=>{});});if(duplicate)return{commandId:command.id,objectiveId:command.objectiveId,status:command.status,duplicate:true,lease:leasePublic(lease),result:command.result||null};schedule(userId,command);return{commandId:command.id,objectiveId:command.objectiveId,status:"accepted",lease:leasePublic(lease),receipt:acceptedReceipt};}
+  async function status(userId="primary",id){const state=await read(userId),command=state.commands.find(row=>row.id===id);if(!command)return null;const response={...command,lease:leasePublic(leaseFor(state,id)),events:state.events.filter(row=>row.commandId===id),receipts:state.receipts.filter(row=>row.commandId===id)};if(command.routing?.capability==="primary_mac.agent.maintenance"){const ids=new Set((command.result?.jobs||[]).map(job=>job.id));response.macJobs=(await listMacJobs(userId,500)).filter(job=>ids.has(job.id)).map(job=>({id:job.id,status:job.status,action:job.action,deviceId:job.deviceId,attempts:job.attempts,claimedAt:job.claimedAt,completedAt:job.completedAt,error:job.error,dispatchReceipt:job.dispatchReceipt}));response.macDevices=getMacDeviceStatus();}const jobId=clean(command.result?.job?.id||command.metadata?.existing_job_id||command.metadata?.existingJobId,200);if(jobId&&command.objectiveId){const job=(await listMacJobs(userId,500)).find(item=>item.id===jobId&&String(item.args?.objectiveId||"")===command.objectiveId);if(job)response.macJob=summarizeGovernedMacJob(job);response.packetManifests=await listMailboxPacketManifests(userId,{objectiveId:command.objectiveId,limit:25});}return response;}
+  async function resume(userId="primary"){const state=await read(userId),pending=state.commands.filter(row=>["accepted","running","recovering","failed"].includes(row.status)),scheduled=[];for(const command of pending){const lease=leaseFor(state,command.id);if(!activeLease(lease)||lease?.status==="queued"){schedule(userId,command);scheduled.push({commandId:command.id,objectiveId:command.objectiveId});}}return scheduled;}
+  return{submit,status,resume,run,acquireOrReturnLease,heartbeatLease};
 }
 
 function authorized(req) {

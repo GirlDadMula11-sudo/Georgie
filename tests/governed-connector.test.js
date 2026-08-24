@@ -3,9 +3,16 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { createGovernedConnector, normalizeConnectorState, validateCommandEnvelope, summarizeGovernedMacJob } from "../src/governed-connector.js";
 
-function harness(options = {}) {
-  let state = { schema: "georgie.governed-connector.v1", version: 1, commands: [], events: [], receipts: [], updatedAt: null };
-  return createGovernedConnector({ ...options, readState: async () => structuredClone(state), writeState: async (_userId, next) => { state = structuredClone(next); }, retainObjective: async () => ({ id: "node-1" }), transitionObjective: async () => ({ id: "node-1" }) });
+function harness(options = {}, shared = null) {
+  const box = shared || { state: { schema: "georgie.governed-connector.v1", version: 1, commands: [], events: [], receipts: [], updatedAt: null } };
+  const connector = createGovernedConnector({ ...options, readState: async () => structuredClone(box.state), writeState: async (_userId, next) => { box.state = structuredClone(next); }, retainObjective: async () => ({ id: "node-1" }), transitionObjective: async () => ({ id: "node-1" }) });
+  connector.__box = box;
+  return connector;
+}
+async function waitFor(connector, userId, commandId, statuses = ["completed", "blocked", "recovering"], timeoutMs = 1500) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) { const value = await connector.status(userId, commandId); if (value && statuses.includes(value.status)) return value; await new Promise((resolve) => setTimeout(resolve, 5)); }
+  throw new Error("Timed out waiting for " + commandId + ": " + statuses.join(","));
 }
 
 test("connector requires idempotency and binds approval IDs", () => {
@@ -20,33 +27,32 @@ test("connector dispatches once and returns objective and evidence receipts", as
   const connector = harness({ executeCommand: async ({ connector: context }) => { calls += 1; return { text: "Verified", terminalState: "completed", context }; }, emitStatus: async (event) => statuses.push(event.status) });
   const input = { source: "chatgpt", idempotencyKey: `test-${Date.now()}`, objectiveId: "shared-objective-1", command: "Inspect the Sierra evidence ledger" };
   const first = await connector.submit("connector-test", input); const second = await connector.submit("connector-test", input);
-  assert.equal(first.status, "completed"); assert.equal(first.objectiveId, "shared-objective-1"); assert.match(first.receipt.receiptId, /^rcpt_/);
-  assert.equal(second.duplicate, true); assert.equal(second.commandId, first.commandId); assert.equal(calls, 1);
-  assert.deepEqual(statuses, ["running", "completed"]);
-  const stored = await connector.status("connector-test", first.commandId); assert.equal(stored.status, "completed"); assert.ok(stored.receipts.length >= 3);
+  assert.equal(first.status, "accepted"); assert.equal(first.objectiveId, "shared-objective-1"); assert.match(first.receipt.receiptId, /^rcpt_/); assert.match(first.lease.id, /^lease_/);
+  assert.equal(second.duplicate, true); assert.equal(second.commandId, first.commandId);
+  const stored = await waitFor(connector, "connector-test", first.commandId, ["completed"]); assert.equal(calls, 1); assert.equal(stored.status, "completed"); assert.ok(stored.receipts.length >= 3); assert.deepEqual(statuses, ["accepted", "running", "completed"]);
 });
 
 test("typed connector results remain available through the return channel", async () => {
   const connector = harness({ executeCommand: async () => assert.fail("typed command entered prose router") });
   const first = await connector.submit("typed-result-return", mailboxEnvelope({ idempotencyKey: "typed-result-return-1" }));
-  const stored = await connector.status("typed-result-return", first.commandId);
+  const stored = await waitFor(connector, "typed-result-return", first.commandId, ["recovering"]);
   assert.equal(stored.result.route.target_device, "primary-mac");
   assert.equal(stored.result.job.authority, "read_only");
-  assert.equal(stored.result.job.id, first.result.job.id);
 });
 
 test("failed work remains resumable under the same command ID", async () => {
   let fail = true; const connector = harness({ executeCommand: async () => { if (fail) throw new Error("temporary outage"); return { terminalState: "completed" }; } });
   const input = { source: "chatgpt", idempotencyKey: `resume-${Date.now()}`, command: "Resume the bounded investigation" };
-  const first = await connector.submit("connector-resume-test", input); assert.equal(first.status, "failed");
-  fail = false; const resumed = await connector.resume("connector-resume-test"); assert.equal(resumed.length, 1); assert.equal(resumed[0].commandId, first.commandId); assert.equal(resumed[0].status, "completed");
+  const first = await connector.submit("connector-resume-test", input); await waitFor(connector, "connector-resume-test", first.commandId, ["recovering"]);
+  fail = false; const resumed = await connector.resume("connector-resume-test"); assert.equal(resumed.length, 1); assert.equal(resumed[0].commandId, first.commandId); await waitFor(connector, "connector-resume-test", first.commandId, ["completed"]);
 });
 
 test("legacy or partial durable state normalizes before command processing", async () => {
   assert.deepEqual(normalizeConnectorState({ schema: "legacy", commands: null, unrelated: true }), {
     schema: "georgie.governed-connector.v1",
-    version: 1,
+    version: 2,
     commands: [],
+    leases: [],
     events: [],
     receipts: [],
     updatedAt: null,
@@ -110,9 +116,10 @@ test("CM-100 prose cannot capture a typed mailbox objective", async () => {
   const connector = harness({ executeCommand: async () => { proseCalls += 1; return { terminalState: "completed" }; } });
   const result = await connector.submit("typed-mailbox-route", mailboxEnvelope());
   assert.equal(proseCalls, 0);
-  assert.equal(result.result.route.capability, "primary_mac.mailbox.read_only");
-  assert.equal(result.result.job.deviceId, "primary-mac");
-  assert.equal(result.result.job.authority, "read_only");
+  const stored = await waitFor(connector, "typed-mailbox-route", result.commandId, ["recovering"]);
+  assert.equal(stored.result.route.capability, "primary_mac.mailbox.read_only");
+  assert.equal(stored.result.job.deviceId, "primary-mac");
+  assert.equal(stored.result.job.authority, "read_only");
 });
 
 test("duplicate typed commands create one logical execution", async () => {
@@ -151,8 +158,9 @@ test("primary Mac maintenance is exact, bounded, and cannot enter mailbox routes
   const connector = harness({ executeCommand: async () => assert.fail("maintenance command entered prose router") });
   const first = await connector.submit("primary", input);
   const duplicate = await connector.submit("primary", input);
-  assert.deepEqual(first.result.jobs.map((job) => job.action), ["developer.update_restart_from_main"]);
-  assert.equal(first.result.jobs.every((job) => job.deviceId === "primary-mac"), true);
+  const stored = await waitFor(connector, "primary", first.commandId, ["recovering"]);
+  assert.deepEqual(stored.result.jobs.map((job) => job.action), ["developer.update_restart_from_main"]);
+  assert.equal(stored.result.jobs.every((job) => job.deviceId === "primary-mac"), true);
   assert.equal(duplicate.duplicate, true);
   assert.throws(() => validateCommandEnvelope({ ...input, metadata: { ...input.metadata, operation: "connection_verify_and_backfill" } }), /UNSUPPORTED_OPERATION/);
   assert.throws(() => validateCommandEnvelope({ ...input, metadata: { ...input.metadata, authority: "read_only" } }), /CAPABILITY_AUTHORITY_MISMATCH/);
@@ -163,8 +171,9 @@ test("controlled NEO preload installation routes only to local maintenance",asyn
   const input={source:"chatgpt",objectiveId:"SIERRA-LI-MBX-20260823-001",idempotencyKey:"neo-preload-install-1",command:"Install the controlled pre-navigation NEO hook.",metadata:{capability:"primary_mac.agent.maintenance",target_device:"primary-mac",operation:"install_neo_preload",authority:"local_admin",prohibited_routes:["cm-100","stale_continuation","gmail","apple_mail","mailbox.read","mailbox.write"],repo:"/Users/mac/Georgie"}};
   const connector=harness({executeCommand:async()=>assert.fail("maintenance command entered prose router")});
   const result=await connector.submit("primary-preload",input);
-  assert.deepEqual(result.result.jobs.map(job=>job.action),["developer.install_neo_preload"]);
-  assert.equal(result.result.route.target_device,"primary-mac");
+  const stored = await waitFor(connector, "primary-preload", result.commandId, ["recovering"]);
+  assert.deepEqual(stored.result.jobs.map(job=>job.action),["developer.install_neo_preload"]);
+  assert.equal(stored.result.route.target_device,"primary-mac");
 });
 
 test("Mac self-update source only permits generated package-lock version drift cleanup",()=>{
@@ -180,8 +189,9 @@ test("generated lock normalization is an exact local patch route",async()=>{
   const input={source:"chatgpt",objectiveId:"SIERRA-LI-MBX-20260823-001",idempotencyKey:"normalize-lock-1",command:"Normalize generated lock drift.",metadata:{capability:"primary_mac.agent.maintenance",target_device:"primary-mac",operation:"normalize_generated_lock",authority:"local_admin",prohibited_routes:["cm-100","stale_continuation","gmail","apple_mail","mailbox.read","mailbox.write"],repo:"/Users/mac/Georgie"}};
   const connector=harness({executeCommand:async()=>assert.fail("maintenance entered prose router")});
   const result=await connector.submit("normalize-lock",input);
-  assert.deepEqual(result.result.jobs.map(job=>job.action),["developer.apply_patch"]);
-  assert.equal(result.result.route.operation,"normalize_generated_lock");
+  const stored = await waitFor(connector, "normalize-lock", result.commandId, ["recovering"]);
+  assert.deepEqual(stored.result.jobs.map(job=>job.action),["developer.apply_patch"]);
+  assert.equal(stored.result.route.operation,"normalize_generated_lock");
 });
 
 test("interruption resumes the same objective and step", async () => {
@@ -189,10 +199,12 @@ test("interruption resumes the same objective and step", async () => {
   const connector = harness({ executeCommand: async () => { if (fail) throw new Error("interrupted"); return { terminalState: "completed" }; } });
   const input = { source: "chatgpt", objectiveId: "objective-resume", idempotencyKey: "resume-same-step", command: "continue" };
   const first = await connector.submit("objective-isolation", input);
+  await waitFor(connector, "objective-isolation", first.commandId, ["recovering"]);
   fail = false;
   const resumed = await connector.resume("objective-isolation");
   assert.equal(resumed[0].commandId, first.commandId);
   assert.equal(resumed[0].objectiveId, "objective-resume");
+  await waitFor(connector, "objective-isolation", first.commandId, ["completed"]);
 });
 
 
@@ -202,9 +214,10 @@ test("typed NEO contract inspection is diagnostic-only and cannot dispatch mailb
   assert.equal(envelope.routing.operation,"static_contract_inspection");
   const connector=harness({executeCommand:async()=>assert.fail("typed inspection entered prose router")});
   const result=await connector.submit("neo-static-contract",input);
-  assert.equal(result.result.job.action,"mailbox.neo_static_contract_inspect");
-  assert.equal(result.result.job.authority,"read_only");
-  assert.notEqual(result.result.job.action,"mailbox.read_only_backfill");
+  const stored = await waitFor(connector, "neo-static-contract", result.commandId, ["recovering"]);
+  assert.equal(stored.result.job.action,"mailbox.neo_static_contract_inspect");
+  assert.equal(stored.result.job.authority,"read_only");
+  assert.notEqual(stored.result.job.action,"mailbox.read_only_backfill");
 });
 
 
