@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { enqueueMacJob, claimMacJobs, completeMacJob, importRecoveredMacJob, listMacJobs, reconcileMacDispatches, resumeFailedMacJob, versionRecoverableMailboxJob } from "../src/mac/queue.js";
+import { enqueueMacJob, claimMacJobs, completeMacJob, importRecoveredMacJob, listMacJobs, reconcileMacDispatches, repairRecoveredMailboxPayload, resumeFailedMacJob, versionRecoverableMailboxJob } from "../src/mac/queue.js";
 
 test("recovered Mac job import preserves identity and rejects conflicts",async()=>{
   const nonce=crypto.randomBytes(20).toString("hex"),root=`idem-${crypto.randomBytes(20).toString("hex")}`;
@@ -9,6 +9,13 @@ test("recovered Mac job import preserves identity and rejects conflicts",async()
   assert.equal((await importRecoveredMacJob(job)).id,job.id);assert.equal((await importRecoveredMacJob(job)).id,job.id);
   await assert.rejects(()=>importRecoveredMacJob({...job,args:{...job.args,recoveryGeneration:2}}),/MAC_RECOVERY_IMPORT_LINEAGE_INVALID/);
   await assert.rejects(()=>importRecoveredMacJob({...job,status:"claimed",attempts:1,claimedAt:new Date().toISOString()}),/MAC_RECOVERY_IMPORT_STATE_REJECTED/);
+});
+
+test("failed generation-one mailbox payload is repaired in place without a new identity",async()=>{
+  const nonce=crypto.randomBytes(20).toString("hex"),root=`idem-${crypto.randomBytes(20).toString("hex")}`,id=`idem-${nonce}`;
+  const job={id,userId:"primary",requestedByUserId:"primary",deviceId:"primary-mac",action:"mailbox.read_only_backfill",args:{objectiveId:`recovery-${nonce}`,authority:"read_only",recoveryRootJobId:root,recoveryGeneration:1},risk:"read",status:"queued",attempts:0,createdAt:new Date().toISOString(),availableAt:new Date().toISOString(),claimedAt:null,completedAt:null,result:null,error:null};
+  await importRecoveredMacJob(job);await claimMacJobs("primary-mac",100);await completeMacJob("primary-mac",id,{error:"MAILBOX_BRIDGE_AUTHORIZATION_FAILED"});
+  const repaired=await repairRecoveredMailboxPayload("primary-mac",id,{objectiveId:job.args.objectiveId,operation:"connection_verify_and_backfill",mailboxes:["submissions@sierramarketinginc.com","jasonsierra@sierramarketinginc.com"],batchLimit:25});assert.equal(repaired.id,id);assert.equal(repaired.args.recoveryGeneration,1);assert.equal(repaired.status,"queued");assert.equal(repaired.repairHistory.at(-1).reason,"missing_read_only_mailbox_scope_repaired");
 });
 
 test("approved Mac dispatch is single-flight and carries a durable receipt",async()=>{

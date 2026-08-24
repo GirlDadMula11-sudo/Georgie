@@ -1,6 +1,6 @@
 import express from "express";
 import crypto from "crypto";
-import { checkpointMacJob, claimMacJobs, completeMacJob, enqueueMacJob, importRecoveredMacJob, listMacJobs, reconcileMacDispatches, resumeFailedMacJob } from "./queue.js";
+import { checkpointMacJob, claimMacJobs, completeMacJob, enqueueMacJob, importRecoveredMacJob, listMacJobs, reconcileMacDispatches, repairRecoveredMailboxPayload, resumeFailedMacJob } from "./queue.js";
 import { acceptMailboxEvidenceBatch } from "../mailbox-evidence-bridge.js";
 
 const heartbeats = new Map();
@@ -88,6 +88,7 @@ export function createMacRouter() {
   });
 
   router.post("/:deviceId/jobs/recovery-import",async(req,res)=>{try{if(String(req.params.deviceId)!=="primary-mac"||req.body?.job?.deviceId!=="primary-mac")throw new Error("MAC_RECOVERY_IMPORT_DEVICE_MISMATCH");const job=await importRecoveredMacJob(req.body.job);res.status(202).json({ok:true,job});}catch(error){res.status(409).json({ok:false,error:error instanceof Error?error.message:"Could not import recovered Mac job"})}});
+  router.post("/:deviceId/jobs/:jobId/recovery-payload-repair",async(req,res)=>{try{const job=await repairRecoveredMailboxPayload(String(req.params.deviceId),String(req.params.jobId),req.body||{});res.status(job?202:404).json({ok:Boolean(job),job:job||null});}catch(error){res.status(409).json({ok:false,error:error instanceof Error?error.message:"Could not repair recovered Mac job payload"})}});
 
   router.get("/:deviceId/jobs/:jobId/status", async (req, res) => {
     try {
