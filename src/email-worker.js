@@ -1,18 +1,63 @@
 import { analyzeOperationalEmail } from "./georgie.js";
 import { enqueueEvent } from "./events.js";
 import { createTask } from "./tasks.js";
-import { listNeoMailboxes, listRecentMessages, neoMailConfigured, readMessage } from "./integrations/neo-mail.js";
+import { listNeoMailboxes, listRecentMessages, neoMailConfigured, readMessage, readMessageForProcessing } from "./integrations/neo-mail.js";
 import { readCloudState, writeCloudState } from "./cloud-state.js";
 import { runConnectionCertification } from "./connection-certifier.js";
 import { buildEmailOperatingModel } from "./email-learning.js";
+import { processSierraInboundCorrespondence } from "./client-correspondence.js";
 
 let timer=null;let running=false;let startupChecksStarted=false;const NS="email_state";const USER=()=>process.env.GEORGIE_PRIMARY_USER_ID||"primary";
 async function readState(){const s=await readCloudState(USER(),NS,{processed:{}});return{processed:s.processed&&typeof s.processed==="object"?s.processed:{}};}
 async function writeState(state){await writeCloudState(USER(),NS,state);}
 function safeDueAt(value){if(!value)return null;const date=new Date(value);return Number.isFinite(date.getTime())?date.toISOString():null;}
-function emailDomain(mailbox,triage){if(mailbox.id==="submissions"||mailbox.role==="lender_submissions")return"sierra";const proposed=String(triage.domain||"uncertain");return["personal","household","sierra","uncertain"].includes(proposed)?proposed:"uncertain";}
-async function processMailbox(mailbox,state){const userId=USER();const recent=await listRecentMessages(mailbox.id,{limit:Number(process.env.GEORGIE_EMAIL_SCAN_LIMIT||20),unseenOnly:true});state.processed[mailbox.id]||={};for(const item of recent.reverse()){const key=String(item.uid);if(state.processed[mailbox.id][key])continue;try{const full=await readMessage(mailbox.id,item.uid,{markSeen:false});const triage=await analyzeOperationalEmail(full);const domain=emailDomain(mailbox,triage);const priority=["low","normal","high","urgent"].includes(triage.priority)?triage.priority:"normal";const summary=String(triage.summary||full.subject||"Email received").slice(0,1500);const action=String(triage.action||"").slice(0,2000);const suggestedReply=String(triage.suggestedReply||"").slice(0,4000);const dueAt=safeDueAt(triage.dueAt);const evidence={mailboxId:mailbox.id,uid:item.uid,messageId:full.messageId||null,from:full.from,subject:full.subject,date:full.date,domainEvidence:Array.isArray(triage.domainEvidence)?triage.domainEvidence.slice(0,8):[],confidence:Number(triage.confidence||0)};if(triage.requiresAction)await createTask({userId,title:action||`Respond to: ${full.subject||full.from||"email"}`,notes:[`Domain: ${domain}`,`Mailbox: ${mailbox.label||mailbox.email}`,`From: ${full.from||"unknown"}`,`Subject: ${full.subject||""}`,`Summary: ${summary}`,suggestedReply?`Draft only — suggested reply: ${suggestedReply}`:""].filter(Boolean).join("\n"),dueAt,priority,domain,evidence,source:`neo-mail:${mailbox.id}:${item.uid}`});if(priority==="high"||priority==="urgent"||triage.requiresAction)await enqueueEvent({userId,type:"email.triage",title:priority==="urgent"?`Urgent email: ${full.subject||full.from}`:`Email needs attention: ${full.subject||full.from}`,body:summary,priority,dedupeKey:`neo:${mailbox.id}:${item.uid}`,data:{domain,evidence,mailboxId:mailbox.id,uid:item.uid,from:full.from,subject:full.subject,category:triage.category||"other",requiresAction:Boolean(triage.requiresAction),action,dueAt,suggestedReply,confidence:Number(triage.confidence||0)}});state.processed[mailbox.id][key]={at:new Date().toISOString(),domain,priority,category:triage.category||"other",requiresAction:Boolean(triage.requiresAction),evidence};const keys=Object.keys(state.processed[mailbox.id]);if(keys.length>2000)for(const oldKey of keys.slice(0,keys.length-1500))delete state.processed[mailbox.id][oldKey];}catch(error){console.warn(`Neo triage failed for ${mailbox.id}/${item.uid}:`,error instanceof Error?error.message:error);}}}
+function emailDomain(mailbox,triage){if(mailbox.id==="submissions"||mailbox.role==="lender_submissions"||mailbox.role==="georgie_closer"||mailbox.role==="client_correspondence")return"sierra";const proposed=String(triage.domain||"uncertain");return["personal","household","sierra","uncertain"].includes(proposed)?proposed:"uncertain";}
+function correspondenceComplete(result){if(!result?.matched)return false;const c=result.completion||{};return c.inboundProviderReceipt===true&&c.crmReadBack===true&&c.documentReadBack===true&&c.internalNotificationReadBack===true&&(!result.outbound||(c.outboundProviderReceipt===true&&c.outboundCrmReadBack===true));}
+async function processMailbox(mailbox,state){
+  const userId=USER();
+  const recent=await listRecentMessages(mailbox.id,{limit:Number(process.env.GEORGIE_EMAIL_SCAN_LIMIT||20),unseenOnly:true});
+  state.processed[mailbox.id]||={};
+  for(const item of recent.reverse()){
+    const key=String(item.uid);if(state.processed[mailbox.id][key])continue;
+    try{
+      const preview=await readMessage(mailbox.id,item.uid,{markSeen:false});
+      const triage=await analyzeOperationalEmail(preview);
+      const domain=emailDomain(mailbox,triage);
+      const priority=["low","normal","high","urgent"].includes(triage.priority)?triage.priority:"normal";
+      const summary=String(triage.summary||preview.subject||"Email received").slice(0,1500);
+      const action=String(triage.action||"").slice(0,2000);
+      const suggestedReply=String(triage.suggestedReply||"").slice(0,4000);
+      const dueAt=safeDueAt(triage.dueAt);
+      const evidence={mailboxId:mailbox.id,uid:item.uid,messageId:preview.messageId||null,from:preview.from,subject:preview.subject,date:preview.date,domainEvidence:Array.isArray(triage.domainEvidence)?triage.domainEvidence.slice(0,8):[],confidence:Number(triage.confidence||0)};
+
+      let correspondence=null;
+      if(domain==="sierra"){
+        const full=await readMessageForProcessing(mailbox.id,item.uid);
+        correspondence=await processSierraInboundCorrespondence(userId,{message:full,triage});
+        if(correspondence?.matched&&!correspondenceComplete(correspondence))throw new Error("Sierra correspondence did not satisfy the completion contract");
+        if(correspondence?.matched){
+          evidence.sierraReference=correspondence.reference;
+          evidence.crmReadBack=true;
+          evidence.documentCount=Number(correspondence.ingestion?.verification?.document_count||0);
+          evidence.notificationReadBack=true;
+          evidence.automaticReplySent=Boolean(correspondence.outbound);
+          if((correspondence.ingestion?.rejected||[]).length){
+            await createTask({userId,title:`Review rejected NEO attachment(s): ${correspondence.reference}`,notes:(correspondence.ingestion.rejected||[]).map(row=>`${row.filename||"attachment"}: ${row.error}`).join("\n"),priority:"high",domain:"sierra",evidence,source:`neo-attachment-review:${mailbox.id}:${item.uid}`});
+          }
+          await enqueueEvent({userId,type:"email.sierra_completed",title:`Georgie completed Sierra correspondence: ${correspondence.reference}`,body:`CRM read-back confirmed. ${evidence.documentCount} document(s) registered.${evidence.automaticReplySent?" Automatic client reply sent and recorded.":""}`,priority:evidence.automaticReplySent?"normal":priority,dedupeKey:`neo-sierra-complete:${mailbox.id}:${item.uid}`,data:{reference:correspondence.reference,evidence,completion:correspondence.completion,openDocumentRequests:correspondence.openRequests?.length||0}});
+        }
+      }
+
+      const actionAlreadyCompleted=Boolean(correspondence?.matched&&correspondence?.outbound);
+      if(triage.requiresAction&&!actionAlreadyCompleted)await createTask({userId,title:action||`Respond to: ${preview.subject||preview.from||"email"}`,notes:[`Domain: ${domain}`,`Mailbox: ${mailbox.label||mailbox.email}`,`From: ${preview.from||"unknown"}`,`Subject: ${preview.subject||""}`,`Summary: ${summary}`,correspondence?.matched?`Sierra CRM updated: ${correspondence.reference}`:"",suggestedReply?`Draft only — suggested reply: ${suggestedReply}`:""].filter(Boolean).join("\n"),dueAt,priority,domain,evidence,source:`neo-mail:${mailbox.id}:${item.uid}`});
+      if(priority==="high"||priority==="urgent"||triage.requiresAction)await enqueueEvent({userId,type:"email.triage",title:priority==="urgent"?`Urgent email: ${preview.subject||preview.from}`:`Email needs attention: ${preview.subject||preview.from}`,body:summary,priority,dedupeKey:`neo:${mailbox.id}:${item.uid}`,data:{domain,evidence,mailboxId:mailbox.id,uid:item.uid,from:preview.from,subject:preview.subject,category:triage.category||"other",requiresAction:Boolean(triage.requiresAction&&!actionAlreadyCompleted),action,dueAt,suggestedReply,confidence:Number(triage.confidence||0),correspondenceCompleted:Boolean(correspondence?.matched&&correspondenceComplete(correspondence))}});
+
+      state.processed[mailbox.id][key]={at:new Date().toISOString(),domain,priority,category:triage.category||"other",requiresAction:Boolean(triage.requiresAction&&!actionAlreadyCompleted),evidence,correspondence:correspondence?.matched?{reference:correspondence.reference,completed:correspondenceComplete(correspondence),automaticReplySent:Boolean(correspondence.outbound),documentCount:Number(correspondence.ingestion?.verification?.document_count||0)}:null};
+      const keys=Object.keys(state.processed[mailbox.id]);if(keys.length>2000)for(const oldKey of keys.slice(0,keys.length-1500))delete state.processed[mailbox.id][oldKey];
+    }catch(error){console.warn(`Neo processing failed for ${mailbox.id}/${item.uid}:`,error instanceof Error?error.message:error);}
+  }
+}
 export async function sweepNeoMail(){if(running||!neoMailConfigured())return;running=true;try{const state=await readState();for(const mailbox of listNeoMailboxes()){await processMailbox(mailbox,state);await writeState(state);}}catch(error){console.warn("Neo Mail sweep failed:",error instanceof Error?error.message:error);}finally{running=false;}}
 async function runStartupIntelligence(){if(startupChecksStarted)return;startupChecksStarted=true;try{await runConnectionCertification();}catch(error){console.warn("Connection certification failed:",error instanceof Error?error.message:error);}try{await buildEmailOperatingModel();}catch(error){console.warn("Email operating-model learning failed:",error instanceof Error?error.message:error);}}
-export function startEmailIntelligence(){if(timer||!neoMailConfigured())return;const intervalMs=Math.max(60000,Number(process.env.GEORGIE_EMAIL_POLL_MS||180000));void runStartupIntelligence();sweepNeoMail();timer=setInterval(sweepNeoMail,intervalMs);timer.unref?.();}
+export function startEmailIntelligence(){if(timer||!neoMailConfigured())return;const intervalMs=Math.max(15000,Number(process.env.GEORGIE_EMAIL_POLL_MS||30000));void runStartupIntelligence();sweepNeoMail();timer=setInterval(sweepNeoMail,intervalMs);timer.unref?.();}
 export function stopEmailIntelligence(){if(timer)clearInterval(timer);timer=null;}
