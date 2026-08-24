@@ -2,6 +2,8 @@ name: Georgie Control Inbound
 
 on:
   workflow_dispatch:
+  issue_comment:
+    types: [created]
   schedule:
     - cron: "*/5 * * * *"
 
@@ -16,6 +18,11 @@ concurrency:
 
 jobs:
   ingest:
+    if: >-
+      github.event_name != 'issue_comment' ||
+      (github.event.comment.user.login == 'GirlDadMula11-sudo' &&
+       contains(github.event.comment.body, 'ai-control:v1') &&
+       contains(github.event.issue.labels.*.name, 'georgie-handoff'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -30,30 +37,60 @@ jobs:
           oidc_token() {
             local challenge audience encoded response
             challenge="$(curl --fail --silent --show-error --retry 2 --retry-delay 1 "$GEORGIE_INBOUND_URL/challenge")"
-            audience="$(jq -r '.audience' <<<"$challenge")"
-            test -n "$audience" && test "$audience" != "null"
+            audience="$(jq -er '.audience | select(type == "string" and length > 0)' <<<"$challenge")"
             encoded="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$audience")"
             response="$(curl --fail --silent --show-error -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${encoded}")"
-            jq -r '.value' <<<"$response"
+            jq -er '.value | select(type == "string" and length > 0)' <<<"$response"
           }
 
-          gh api --paginate --slurp \
-            -H "Accept: application/vnd.github+json" \
-            "repos/${GITHUB_REPOSITORY}/issues?state=open&labels=georgie-handoff&per_page=100" > issues.json
+          send_payload() {
+            local payload token response
+            payload="$1"
+            token="$(oidc_token)"
+            response="$(curl --fail --silent --show-error \
+              -X POST \
+              -H "Authorization: Bearer $token" \
+              -H "Content-Type: application/json" \
+              --data-binary "$payload" \
+              "$GEORGIE_INBOUND_URL/ingest")"
+            if ! jq -e '.ok == true' <<<"$response" >/dev/null; then
+              echo "Georgie inbound relay rejected payload: $response" >&2
+              return 1
+            fi
+            jq -c '{ok,accepted,rejected}' <<<"$response"
+          }
 
-          jq -r '.[][] | select(.pull_request == null) | .number' issues.json | while read -r ISSUE; do
-            gh api --paginate --slurp \
-              -H "Accept: application/vnd.github+json" \
-              "repos/${GITHUB_REPOSITORY}/issues/${ISSUE}/comments?per_page=100" > comments.json
-            jq -c '.[][] | select(.user.login == "GirlDadMula11-sudo") | select((.body // "") | contains("ai-control:v1")) | {repository:"'"${GITHUB_REPOSITORY}"'", issueNumber:'"${ISSUE}"', commentId:.id, author:.user.login, body:.body}' comments.json | while read -r PAYLOAD; do
-              TOKEN="$(oidc_token)"
-              curl --fail --silent --show-error \
-                -X POST \
-                -H "Authorization: Bearer $TOKEN" \
-                -H "Content-Type: application/json" \
-                --data-binary "$PAYLOAD" \
-                "$GEORGIE_INBOUND_URL/ingest" | jq -e '.ok == true' >/dev/null
+          if [[ "$GITHUB_EVENT_NAME" == "issue_comment" ]]; then
+            PAYLOAD="$(jq -c \
+              --arg repository "$GITHUB_REPOSITORY" \
+              '{repository:$repository, issueNumber:.issue.number, commentId:.comment.id, author:.comment.user.login, body:.comment.body}' \
+              "$GITHUB_EVENT_PATH")"
+            send_payload "$PAYLOAD"
+            echo "GitHub AI-control inbound event delivered."
+            exit 0
+          fi
+
+          gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --label georgie-handoff \
+            --limit 100 \
+            --json number \
+            --jq '.[].number' | while read -r ISSUE; do
+              [[ -n "$ISSUE" ]] || continue
+              gh api --paginate \
+                -H "Accept: application/vnd.github+json" \
+                "repos/${GITHUB_REPOSITORY}/issues/${ISSUE}/comments?per_page=100" \
+                --jq '.[] | select(.user.login == "GirlDadMula11-sudo") | select((.body // "") | contains("ai-control:v1")) | @base64' | while read -r ROW; do
+                  [[ -n "$ROW" ]] || continue
+                  COMMENT="$(printf '%s' "$ROW" | base64 --decode)"
+                  PAYLOAD="$(jq -c \
+                    --arg repository "$GITHUB_REPOSITORY" \
+                    --argjson issue "$ISSUE" \
+                    '{repository:$repository, issueNumber:$issue, commentId:.id, author:.user.login, body:.body}' \
+                    <<<"$COMMENT")"
+                  send_payload "$PAYLOAD"
+                done
             done
-          done
 
-          echo "GitHub AI-control inbound scan completed."
+          echo "GitHub AI-control inbound recovery scan completed."
