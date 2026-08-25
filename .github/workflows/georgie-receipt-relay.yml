@@ -126,6 +126,7 @@ jobs:
               "Lease: `" + (.command.lease.status // "none") + "`\n" +
               "Command error: `" + (.command.error // "none") + "`\n" +
               "Mac jobs: " + ((([.command.macJobs[]?] + (if .command.macJob then [.command.macJob] else [] end)) | unique_by(.id) | map({id,status,action,claimedAt,completedAt,error,repositoryInspection,sourceInspection}) | tostring)) + "\n" +
+              "Mac devices: " + ((.command.macDevices // []) | tostring) + "\n" +
               $marker
             ' <<<"$response")"
 
