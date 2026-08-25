@@ -43,4 +43,5 @@ for (const marker of ["orchestrateCapabilityRequest", "capabilityOrchestration",
 
 await import("./install-connector-offline-access.mjs");
 await import("./install-v24-certification-repairs.mjs");
+await import("./install-terminal-mac-reconciliation.mjs");
 console.log("[Georgie] capability orchestration installed");
