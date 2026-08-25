@@ -5,5 +5,6 @@
   "objectiveId": "SIERRA-SEO-AUTOPILOT-20260824-001",
   "commandId": "cmd_seo_phase2_primary_mac_activate_v2_20260825_1610",
   "idempotencyKey": "seo-phase2-primary-mac-activate-20260825-v2",
-  "updatedAt": "2026-08-25T20:11:14.562Z"
+  "updatedAt": "2026-08-25T21:32:30.918Z",
+  "wakeSequence": 3
 }
