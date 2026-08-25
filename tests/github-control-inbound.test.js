@@ -51,4 +51,6 @@ test("GitHub OIDC fallback admits into the governed connector with canonical ide
   assert.match(source,/source:"github_ai_control"/);
   assert.match(source,/connectorCommandId:admitted\.commandId/);
   assert.match(installer,/createGithubControlInboundRouter\(\{executeCommand:/);
+  assert.match(installer,/legacyInboundMount/);
+  assert.match(installer,/server\.replace\(legacyInboundMount,inboundMount\)/);
 });
