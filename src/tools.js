@@ -40,7 +40,6 @@ import { checkpointReportDelivery, investigationArtifactPage, listInvestigationA
 import { activateRevenueController, revenueControllerStatus } from "./revenue-controller.js";
 import { phase2Foundation } from "./phase2-foundation.js";
 import { validateBrowserWorkflow } from "./browser-workflow.js";
-import { crawlWebsite, seoIntegrationStatus } from "./integrations/seo-ops.js";
 import { executeInfrastructureAdmin } from "./integrations/infrastructure-admin.js";
 
 const LEVELS={read:0,low_risk_write:1,sensitive_write:2,external_side_effect:3};const registry=new Map();function defineTool(definition){registry.set(definition.name,definition)}
