@@ -1,1 +1,9 @@
-{"version":1,"issueNumber":117,"commentId":5404868987,"objectiveId":"georgie-master-closer-v1","commandId":"cmd_master_closer_fallback_probe_20260823","idempotencyKey":"master-closer-controlplane-fallback-probe-20260823-v1","purpose":"transport_wake_only","wakeSequence":14}
+{
+  "version": 1,
+  "issueNumber": 162,
+  "commentId": 5410986266,
+  "objectiveId": "SIERRA-SEO-20260824-GEORGIE-001",
+  "commandId": "cmd_sierra_seo_json_boundary_callback_20260825_1243",
+  "idempotencyKey": "apply-seo-json-boundary-callback-20260825-1243",
+  "updatedAt": "2026-08-25T13:20:30Z"
+}
