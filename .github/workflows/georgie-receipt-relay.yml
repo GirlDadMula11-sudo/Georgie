@@ -78,7 +78,61 @@ jobs:
               --data-binary "$payload" \
               "$GEORGIE_INBOUND_URL/ingest")"
             jq -e '.ok == true and (.accepted | length) >= 1' <<<"$response" >/dev/null
+            jq -e --arg command "$command" '.accepted[] | select(.commandId == $command) | .connectorCommandId' <<<"$response" > connector-command-id.json
+            printf '%s' "$response" > ingest-response.json
             echo "Certified control issue #$issue accepted by Georgie."
+          }
+
+          publish_command_status() {
+            local signal issue command connector_id token response effective marker existing_id body mac_count completed_count failed_count claimed_count
+            signal="$(gh api "repos/${GITHUB_REPOSITORY}/contents/.georgie/control-signal.json?ref=georgie-control" --jq '.content' | tr -d '\n' | base64 --decode)"
+            issue="$(jq -er '.issueNumber | numbers' <<<"$signal")"
+            command="$(jq -er '.commandId | strings' <<<"$signal")"
+            connector_id="$(jq -er '.' connector-command-id.json)"
+            response='{}'
+
+            for _ in {1..12}; do
+              token="$(oidc_token "$GEORGIE_INBOUND_URL")"
+              response="$(curl --fail --silent --show-error \
+                -X POST \
+                -H "Authorization: Bearer $token" \
+                -H "Content-Type: application/json" \
+                --data-binary "$(jq -nc --arg commandId "$connector_id" '{commandId:$commandId}')" \
+                "$GEORGIE_INBOUND_URL/status")"
+              jq -e '.ok == true and .command.id != null' <<<"$response" >/dev/null
+
+              mac_count="$(jq '[.command.macJobs[]?] | length' <<<"$response")"
+              completed_count="$(jq '[.command.macJobs[]? | select(.status == "completed")] | length' <<<"$response")"
+              failed_count="$(jq '[.command.macJobs[]? | select(.status == "failed" or .status == "dead_letter")] | length' <<<"$response")"
+              claimed_count="$(jq '[.command.macJobs[]? | select(.claimedAt != null or .status == "running" or .status == "completed")] | length' <<<"$response")"
+              effective="$(jq -r '.command.status // "unknown"' <<<"$response")"
+              if (( failed_count > 0 )); then effective="failed"
+              elif (( mac_count > 0 && completed_count == mac_count )); then effective="completed"
+              elif (( claimed_count > 0 )); then effective="running"
+              fi
+              [[ "$effective" == "completed" || "$effective" == "failed" || "$effective" == "blocked" ]] && break
+              sleep 5
+            done
+
+            marker="<!-- georgie-command-status:$command -->"
+            body="$(jq -r --arg marker "$marker" --arg command "$command" --arg connector "$connector_id" --arg effective "$effective" '
+              "### Georgie governed command status\n" +
+              "Command: `" + $command + "`\n" +
+              "Connector command: `" + $connector + "`\n" +
+              "Effective status: **" + $effective + "**\n" +
+              "Lease: `" + (.command.lease.status // "none") + "`\n" +
+              "Mac jobs: " + (([.command.macJobs[]? | {id,status,action,claimedAt,completedAt,error}] | tostring)) + "\n" +
+              $marker
+            ' <<<"$response")"
+
+            existing_id="$(gh api --paginate --slurp -H "Accept: application/vnd.github+json" "repos/${GITHUB_REPOSITORY}/issues/${issue}/comments?per_page=100" |
+              jq -r --arg marker "$marker" '[.[][] | select((.body // "") | contains($marker))][0].id // empty')"
+            if [[ -n "$existing_id" ]]; then
+              gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${existing_id}" -f body="$body" >/dev/null
+            else
+              gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${issue}/comments" -f body="$body" >/dev/null
+            fi
+            echo "Governed command status published: $effective"
           }
 
           relay_one_receipt() {
@@ -148,6 +202,7 @@ jobs:
           }
 
           ingest_control
+          publish_command_status
 
           attempts=1
           if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then attempts=8; fi
