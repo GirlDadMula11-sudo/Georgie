@@ -1,9 +1,9 @@
 {
   "version": 1,
   "issueNumber": 163,
-  "commentId": 5411036260,
+  "commentId": 5411076639,
   "objectiveId": "SIERRA-SEO-AUTOPILOT-20260824-001",
-  "commandId": "cmd_sierra_wp_access_repair_20260825_0924",
-  "idempotencyKey": "sierra-wp-access-repair-oidc-20260825-v1",
-  "updatedAt": "2026-08-25T13:24:30Z"
+  "commandId": "cmd_sierra_seo_autopilot_resume_20260825_0926",
+  "idempotencyKey": "sierra-seo-autopilot-resume-oidc-20260825-v2",
+  "updatedAt": "2026-08-25T13:26:10Z"
 }
