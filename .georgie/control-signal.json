@@ -1,9 +1,9 @@
 {
   "version": 1,
   "issueNumber": 163,
-  "commentId": 5412467261,
+  "commentId": 5412579140,
   "objectiveId": "SIERRA-SEO-AUTOPILOT-20260824-001",
-  "commandId": "cmd_primary_mac_read_lock_hash_20260825_1107",
-  "idempotencyKey": "sierra-primary-mac-read-lock-hash-20260825-v1",
-  "updatedAt": "2026-08-25T15:07:15.776Z"
+  "commandId": "cmd_primary_mac_normalize_agent_source_20260825_1116",
+  "idempotencyKey": "sierra-primary-mac-normalize-agent-source-20260825-v1",
+  "updatedAt": "2026-08-25T15:16:30Z"
 }
