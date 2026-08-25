@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { seoIntegrationStatus, websiteControlStatus } from "../src/integrations/seo-ops.js";
+import { seoIntegrationStatus, websiteControlStatus, sameWebsiteHost } from "../src/integrations/seo-ops.js";
 import { objectiveWorkerStatus } from "../src/objective-worker.js";
 
 test("production start uses unified durable runtime", () => {
@@ -44,4 +44,11 @@ test("SEO tool installer is present in both prestart and check", () => {
   const pkg=JSON.parse(fs.readFileSync(new URL("../package.json",import.meta.url),"utf8"));
   assert.match(pkg.scripts.prestart,/install-autonomous-seo-ops\.mjs/);
   assert.match(pkg.scripts.check,/install-autonomous-seo-ops\.mjs/);
+});
+
+
+test("SEO host guard treats Sierra www and apex as the same controlled site", () => {
+  assert.equal(sameWebsiteHost("https://www.sierramarketinginc.com/path", "https://sierramarketinginc.com/"), true);
+  assert.equal(sameWebsiteHost("https://sierramarketinginc.com/path", "https://www.sierramarketinginc.com/"), true);
+  assert.equal(sameWebsiteHost("https://evil.example/path", "https://www.sierramarketinginc.com/"), false);
 });
