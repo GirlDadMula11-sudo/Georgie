@@ -348,6 +348,16 @@ test("dirty-safe governed browser agent repair is an exact maintenance patch", a
 });
 
 
+test("dirty-safe SEO JSON boundary repair is an exact maintenance patch", async () => {
+  const input={source:"chatgpt",objectiveId:"SIERRA-SEO-20260824-GEORGIE-001",idempotencyKey:"apply-seo-json-boundary-1",command:"Apply the exact SEO JSON boundary patch.",metadata:{capability:"primary_mac.agent.maintenance",target_device:"primary-mac",operation:"apply_seo_json_boundary",authority:"local_admin",prohibited_routes:["cm-100","stale_continuation","gmail","apple_mail","mailbox.read","mailbox.write"],repo:"/Users/mac/Georgie"}};
+  const connector=harness({executeCommand:async()=>assert.fail("maintenance entered prose router")});
+  const result=await connector.submit("primary-seo-json-repair",input);
+  const stored=await waitFor(connector,"primary-seo-json-repair",result.commandId,["recovering"]);
+  assert.deepEqual(stored.result.jobs.map(job=>job.action),["developer.apply_patch"]);
+  assert.equal(stored.result.route.operation,"apply_seo_json_boundary");
+});
+
+
 test("durable SEO autopilot schedules one leased reversible batch chain", async () => {
   const input={source:"chatgpt",objectiveId:"SIERRA-SEO-20260824-GEORGIE-001",idempotencyKey:"seo-autopilot-start-1",command:"Start durable SEO autopilot.",metadata:{capability:"sierra.seo.autopilot",target_device:"server",operation:"start",authority:"reversible_write",prohibited_routes:["arbitrary_domain","credentials.read","wordpress.publish","dns.write","email.send","lender.submit"]}};
   const envelope=validateCommandEnvelope(input);
