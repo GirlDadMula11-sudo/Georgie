@@ -18,3 +18,4 @@ const manifest=patch("src/capability-manifest.js",source=>{
   return source;
 });
 console.log(`[Georgie] autonomous SEO round2 installed: tools=${tools} manifest=${manifest}`);
+await import("./install-seo-phase2-executor.mjs");
