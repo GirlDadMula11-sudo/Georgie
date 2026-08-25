@@ -15,8 +15,14 @@ const locks = new Map();
 const now = () => new Date().toISOString();
 const clean = (value, max = 6000) => String(value || "").trim().slice(0, max);
 const digest = (value) => crypto.createHash("sha256").update(String(value)).digest("hex");
-export function summarizeGovernedMacJob(job = {}) { return { id: job.id, status: job.status, action: job.action, deviceId: job.deviceId, authority: job.args?.authority || null, checkpoint: job.args?.checkpoint || null, attempts: job.attempts, claimedAt: job.claimedAt, completedAt: job.completedAt, error: job.error, dispatchReceipt: job.dispatchReceipt, cursor: job.result?.mailboxEvidenceBatch?.cursor || {}, packetCount: job.result?.mailboxEvidenceBatch?.packets?.length || 0, quarantineCount: job.result?.quarantine?.length || job.result?.mailboxEvidenceBatch?.quarantine?.length || 0, connections: job.result?.connection || null, staticContractInspection: job.result?.neoStaticContractInspection || null }; }
+export function summarizeGovernedMacJob(job = {}) { return { id: job.id, status: job.status, action: job.action, deviceId: job.deviceId, authority: job.args?.authority || null, checkpoint: job.args?.checkpoint || null, attempts: job.attempts, claimedAt: job.claimedAt, completedAt: job.completedAt, error: job.error, dispatchReceipt: job.dispatchReceipt, cursor: job.result?.mailboxEvidenceBatch?.cursor || {}, packetCount: job.result?.mailboxEvidenceBatch?.packets?.length || 0, quarantineCount: job.result?.quarantine?.length || job.result?.mailboxEvidenceBatch?.quarantine?.length || 0, connections: job.result?.connection || null, staticContractInspection: job.result?.neoStaticContractInspection || null, browserInspection: job.result?.governedBrowserInspection || null }; }
 const CAPABILITIES = Object.freeze({
+  "primary_mac.browser.wordpress_read_only": Object.freeze({
+    targetDevice: "primary-mac",
+    authority: "read_only",
+    operations: new Set(["inspect_session"]),
+    prohibitedRoutes: new Set(["arbitrary_domain", "credentials.read", "form.submit", "content.write", "wordpress.publish", "dns.write", "email.send"])
+  }),
   "sierra.seo.workflow": Object.freeze({
     targetDevice: "server",
     authority: "read_only",
@@ -112,6 +118,21 @@ export function validateCommandEnvelope(input = {}) {
 
 async function executeTypedCapability({ userId, command }) {
   const route = command.routing;
+  if (route.capability === "primary_mac.browser.wordpress_read_only") {
+    const siteOrigin = clean(command.metadata?.site_origin || "https://sierramarketinginc.com", 300).replace(/\/$/, "");
+    if (siteOrigin !== "https://sierramarketinginc.com") throw new Error("PRIMARY_MAC_BROWSER_SITE_NOT_ALLOWLISTED");
+    const job = await enqueueMacJob({
+      userId,
+      deviceId: route.target_device,
+      action: "browser.wordpress_hostinger_inspect",
+      args: { objectiveId: route.objective_id, authority: route.authority, operation: route.operation, siteOrigin },
+      risk: "read",
+      reason: "Inspect the approved Sierra WordPress and Hostinger browser session without form values, credentials, or mutation",
+      idempotencyKey: `connector:${command.id}:${route.operation}`,
+      maxAttempts: 1
+    });
+    return { terminalState: "in_progress", completed: false, route, job: { id: job.id, status: job.status, deviceId: route.target_device, action: job.action, authority: route.authority, dispatchReceipt: job.dispatchReceipt } };
+  }
   if (route.capability === "sierra.seo.workflow") {
     const maxPages = Math.max(1, Math.min(Number(command.metadata?.max_pages || 150), 500));
     const integration = seoIntegrationStatus();
