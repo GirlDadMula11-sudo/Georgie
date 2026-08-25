@@ -1,5 +1,6 @@
 #!/bin/zsh
 set -euo pipefail
+if (( EUID == 0 )); then echo "Do not run this installer with sudo."; exit 1; fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)";cd "$ROOT"
 LOG_DIR="$HOME/Library/Logs";STATE_DIR="$HOME/Library/Application Support/Georgie";INSTALL_LOG="$LOG_DIR/georgie-mac-agent-install.log";INSTALL_RECEIPT="$STATE_DIR/mac-agent-install-receipt.json";mkdir -p "$LOG_DIR" "$STATE_DIR";exec > >(tee -a "$INSTALL_LOG") 2>&1
 INSTALL_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
