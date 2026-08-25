@@ -25,6 +25,15 @@ if (!runtime.includes(`const AGENT_VERSION = ${JSON.stringify(expectedVersion)};
   throw new Error("Mac runtime version replacement failed");
 }
 
+const legacyPoll = 'const payload = await api(`/api/mac/${encodeURIComponent(DEVICE_ID)}/jobs?limit=5`);';
+const versionedPoll = 'const payload = await api(`/api/mac/${encodeURIComponent(DEVICE_ID)}/jobs?limit=5&agentVersion=${encodeURIComponent(AGENT_VERSION)}`);';
+if (runtime.includes(legacyPoll)) {
+  runtime = runtime.replace(legacyPoll, versionedPoll);
+}
+if (!runtime.includes(versionedPoll)) {
+  throw new Error("Mac runtime version-aware polling replacement failed");
+}
+
 if (!runtime.includes("async function enableWordpressApplicationPasswords")) {
   const functionAnchor = "async function waitForAppProcess(app, timeoutMs = 8000) {";
   if (!runtime.includes(functionAnchor)) throw new Error("WordPress handler function anchor missing");
@@ -44,11 +53,12 @@ for (const invariant of [
   "async function enableWordpressApplicationPasswords",
   'case "browser.wordpress_enable_application_passwords"',
   "WORDPRESS_APP_PASSWORD_AUTHORIZATION_REJECTED",
-  "WORDPRESS_APP_PASSWORD_CONTROL_AMBIGUOUS"
+  "WORDPRESS_APP_PASSWORD_CONTROL_AMBIGUOUS",
+  "agentVersion=${encodeURIComponent(AGENT_VERSION)}"
 ]) {
   if (!runtime.includes(invariant)) throw new Error(`Generated Mac runtime missing invariant: ${invariant}`);
 }
 
 fs.writeFileSync(runtimePath, runtime, { mode: 0o600 });
 execFileSync(process.execPath, ["--check", runtimePath], { stdio: "inherit" });
-console.log(JSON.stringify({ ok: true, runtimePath, expectedVersion, wordpressApplicationPasswordCapability: true }));
+console.log(JSON.stringify({ ok: true, runtimePath, expectedVersion, wordpressApplicationPasswordCapability: true, versionAwarePolling: true }));
