@@ -11,10 +11,19 @@ import { verifyNeoCdpSession } from "./neo-cdp-reader.js";
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.32";
+const AGENT_VERSION = "2.2.33";
 const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;
 const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));
 const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));
+const HEALTH_DIR = path.join(os.homedir(), "Library", "Application Support", "Georgie");
+const HEALTH_FILE = path.join(HEALTH_DIR, "mac-agent-health.json");
+async function writeDaemonHealth(extra = {}) {
+  await fs.mkdir(HEALTH_DIR, { recursive: true, mode: 0o700 });
+  const payload = { deviceId: DEVICE_ID, agentVersion: AGENT_VERSION, pid: process.pid, serverOrigin: new URL(BASE).origin, successfulCycleAt: new Date().toISOString(), ...extra };
+  const temp = HEALTH_FILE + "." + process.pid + ".tmp";
+  await fs.writeFile(temp, JSON.stringify(payload), { mode: 0o600 });
+  await fs.rename(temp, HEALTH_FILE);
+}
 
 if (!BASE || !TOKEN) throw new Error("GEORGIE_SERVER_URL and GEORGIE_MAC_AGENT_TOKEN are required");
 
@@ -656,6 +665,7 @@ async function cycle() {
         await api(`/api/mac/${encodeURIComponent(DEVICE_ID)}/jobs/${job.id}/complete`, { method: "POST", body: JSON.stringify({ error: error instanceof Error ? error.message : String(error) }) });
       }
     }
+    await writeDaemonHealth({ lastPollOk: true });
     return true;
   } catch (error) {
     return { ok: false, error: safeErrorDetail(error) };
