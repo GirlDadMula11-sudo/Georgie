@@ -25,6 +25,7 @@ PLIST="$HOME/Library/LaunchAgents/com.georgie.mac-agent.plist"
 LOG_DIR="$HOME/Library/Logs"
 HEALTH_FILE="$HOME/Library/Application Support/Georgie/mac-agent-health.json"
 EXPECTED_AGENT_VERSION="2.2.33"
+RUNTIME_AGENT="$ROOT/mac-agent/agent.runtime.js"
 
 existing_value() {
   local key="$1"
@@ -85,6 +86,19 @@ chmod 600 "$ENV_FILE"
 say_step "Installing Georgie dependencies..."
 npm install --omit=dev
 
+say_step "Building deterministic governed Mac runtime..."
+rm -f "$RUNTIME_AGENT"
+"$NODE" mac-agent/build-runtime.mjs "$EXPECTED_AGENT_VERSION"
+"$NODE" --check "$RUNTIME_AGENT"
+if [[ ! -f "$RUNTIME_AGENT" ]]; then
+  echo "Generated Mac runtime was not created."
+  exit 1
+fi
+if ! grep -q 'browser.wordpress_enable_application_passwords' "$RUNTIME_AGENT"; then
+  echo "Generated Mac runtime is missing the governed WordPress Application Password capability."
+  exit 1
+fi
+
 mkdir -p "$HOME/Library/LaunchAgents" "$LOG_DIR" "$(dirname "$HEALTH_FILE")"
 rm -f "$HEALTH_FILE"
 
@@ -95,7 +109,7 @@ cat > "$PLIST" <<PLIST
 <dict>
   <key>Label</key><string>com.georgie.mac-agent</string>
   <key>ProgramArguments</key>
-  <array><string>$NODE</string><string>$ROOT/mac-agent/agent.js</string></array>
+  <array><string>$NODE</string><string>$RUNTIME_AGENT</string></array>
   <key>WorkingDirectory</key><string>$ROOT</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
