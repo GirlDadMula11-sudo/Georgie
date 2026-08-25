@@ -2,18 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 
 const root = process.cwd();
-
-const queueTarget = path.join(root, "src", "mac", "queue.js");
-let queueSource = fs.readFileSync(queueTarget, "utf8");
-const staleMerge = 'function mergeStores(localStore,cloudStore){const byId=new Map();for(const job of [...(cloudStore?.jobs||[]),...(localStore?.jobs||[])])if(job?.id)byId.set(job.id,job);return{jobs:[...byId.values()].sort((a,b)=>String(a.createdAt||"").localeCompare(String(b.createdAt||"))).slice(-5000)}}';
-const monotonicMerge = 'function macJobStateRank(job){return job?.status==="completed"?5:job?.status==="dead_letter"?4:job?.status==="failed"?4:job?.status==="claimed"?3:job?.status==="queued"?2:1;}function macJobLifecycleMs(job){return Date.parse(job?.completedAt||job?.claimedAt||job?.availableAt||job?.createdAt||0)||0;}function fresherMacJob(a,b){if(!a)return b;if(!b)return a;const rankA=macJobStateRank(a),rankB=macJobStateRank(b);if(rankA!==rankB)return rankA>rankB?a:b;const timeA=macJobLifecycleMs(a),timeB=macJobLifecycleMs(b);if(timeA!==timeB)return timeA>timeB?a:b;const attemptsA=Number(a?.attempts||0),attemptsB=Number(b?.attempts||0);return attemptsA>=attemptsB?a:b;}function mergeStores(localStore,cloudStore){const byId=new Map();for(const job of [...(cloudStore?.jobs||[]),...(localStore?.jobs||[])])if(job?.id)byId.set(job.id,fresherMacJob(byId.get(job.id),job));return{jobs:[...byId.values()].sort((a,b)=>String(a.createdAt||"").localeCompare(String(b.createdAt||"))).slice(-5000)}}';
-if (!queueSource.includes("function macJobStateRank(job)")) {
-  if (!queueSource.includes(staleMerge)) throw new Error("TERMINAL_RECONCILIATION_QUEUE_MERGE_ANCHOR_NOT_FOUND");
-  queueSource = queueSource.replace(staleMerge, monotonicMerge);
-  fs.writeFileSync(queueTarget, queueSource);
-}
-if (!fs.readFileSync(queueTarget, "utf8").includes("fresherMacJob(byId.get(job.id),job)")) throw new Error("TERMINAL_RECONCILIATION_QUEUE_MERGE_VERIFICATION_FAILED");
-
 const target = path.join(root, "src", "governed-connector.js");
 let source = fs.readFileSync(target, "utf8");
 const manifestImport = 'import { getCapabilityManifest } from "./capability-manifest.js";';
@@ -54,14 +42,14 @@ if (!source.includes('response.reconciliationScheduled=true')) {
   source = source.replace(statusAnchor, statusReplacement);
 }
 const resumeAnchor = 'async function resume(userId="primary"){const state=await read(userId),pending=state.commands.filter(row=>["accepted","running","recovering","failed"].includes(row.status)),scheduled=[];for(const command of pending){const lease=leaseFor(state,command.id);if(!activeLease(lease)||lease?.status==="queued"){schedule(userId,command);scheduled.push({commandId:command.id,objectiveId:command.objectiveId});}}return scheduled;}';
-const resumeReplacement = 'async function resume(userId="primary"){const state=await read(userId),jobs=await listMacJobs(userId,500),jobById=new Map(jobs.map(job=>[job.id,job])),nowMs=Date.now(),pending=state.commands.filter(row=>["accepted","running","recovering"].includes(row.status)).map(command=>{const child=jobById.get(clean(command.result?.job?.id||command.metadata?.existing_job_id||command.metadata?.existingJobId,200));const terminalChild=Boolean(child&&["completed","failed","dead_letter"].includes(child.status));const certificationGate=Boolean(command.metadata?.required_live_manifest||command.metadata?.requiredLiveManifest||String(command.command||"").includes("unified-georgie-runtime"));const updatedMs=Date.parse(command.updatedAt||command.createdAt||0)||0;return{command,terminalChild,certificationGate,updatedMs};}).filter(item=>item.terminalChild||nowMs-item.updatedMs<600000).sort((a,b)=>Number(b.certificationGate)-Number(a.certificationGate)||Number(b.terminalChild)-Number(a.terminalChild)||b.updatedMs-a.updatedMs).slice(0,12),scheduled=[];for(const item of pending){const command=item.command,lease=leaseFor(state,command.id);if(!activeLease(lease)||lease?.status==="queued"){schedule(userId,command);scheduled.push({commandId:command.id,objectiveId:command.objectiveId,terminalChild:item.terminalChild,certificationGate:item.certificationGate});}}return scheduled;}';
+const resumeReplacement = 'async function resume(userId="primary"){const state=await read(userId),jobs=await listMacJobs(userId,500),jobById=new Map(jobs.map(job=>[job.id,job])),nowMs=Date.now(),pending=state.commands.filter(row=>["accepted","running","recovering"].includes(row.status)).map(command=>{const child=jobById.get(clean(command.result?.job?.id||command.metadata?.existing_job_id||command.metadata?.existingJobId,200));const terminalChild=Boolean(child&&["completed","failed","dead_letter"].includes(child.status));const certificationGate=Boolean(command.metadata?.required_live_manifest||command.metadata?.requiredLiveManifest||String(command.command||"").includes("unified-georgie-runtime"));const updatedMs=Date.parse(command.updatedAt||command.createdAt||0)||0;return{command,terminalChild,certificationGate,updatedMs};}).filter(item=>item.certificationGate||item.terminalChild||nowMs-item.updatedMs<600000).sort((a,b)=>Number(b.certificationGate)-Number(a.certificationGate)||Number(b.terminalChild)-Number(a.terminalChild)||b.updatedMs-a.updatedMs).slice(0,12),scheduled=[];for(const item of pending){const command=item.command,lease=leaseFor(state,command.id);if(!activeLease(lease)||lease?.status==="queued"){schedule(userId,command);scheduled.push({commandId:command.id,objectiveId:command.objectiveId,terminalChild:item.terminalChild,certificationGate:item.certificationGate});}}return scheduled;}';
 if (!source.includes('certificationGate:item.certificationGate')) {
   if (!source.includes(resumeAnchor)) throw new Error("TERMINAL_RECONCILIATION_RESUME_ANCHOR_NOT_FOUND");
   source = source.replace(resumeAnchor, resumeReplacement);
 }
 fs.writeFileSync(target, source);
 const finalSource = fs.readFileSync(target, "utf8");
-for (const marker of [manifestImport, "authoritativeJob", "server_live_capability_manifest", "inspectionResultReturned", "liveManifestVerified", "response.reconciliationScheduled=true", "const requeue=()=>{if(!schedule(userId,command)", "certificationGate:item.certificationGate", "unified-georgie-runtime\\.v[a-z0-9]+(?:-[a-z0-9]+)*"]) if (!finalSource.includes(marker)) throw new Error(`TERMINAL_RECONCILIATION_VERIFICATION_FAILED:${marker}`);
+for (const marker of [manifestImport, "authoritativeJob", "server_live_capability_manifest", "inspectionResultReturned", "liveManifestVerified", "response.reconciliationScheduled=true", "const requeue=()=>{if(!schedule(userId,command)", "item.certificationGate||item.terminalChild", "unified-georgie-runtime\\.v[a-z0-9]+(?:-[a-z0-9]+)*"]) if (!finalSource.includes(marker)) throw new Error(`TERMINAL_RECONCILIATION_VERIFICATION_FAILED:${marker}`);
 
 const portableTarget = path.join(root, "src", "portable-connector-mcp.js");
 let portable = fs.readFileSync(portableTarget, "utf8");
@@ -73,4 +61,4 @@ if (!portable.includes('connector startup resume failed')) {
   fs.writeFileSync(portableTarget, portable);
 }
 if (!fs.readFileSync(portableTarget, "utf8").includes('connector.resume(userId)')) throw new Error("TERMINAL_RECONCILIATION_PORTABLE_RESUME_VERIFICATION_FAILED");
-console.log("[Georgie] monotonic Mac queue + authoritative terminal reconciliation + certification-priority recovery + normalized manifest gate installed");
+console.log("[Georgie] durable authoritative terminal reconciliation + certification-priority recovery + normalized manifest gate installed");
