@@ -1,9 +1,9 @@
 {
   "version": 1,
   "issueNumber": 163,
-  "commentId": 5412333650,
+  "commentId": 5412400312,
   "objectiveId": "SIERRA-SEO-AUTOPILOT-20260824-001",
-  "commandId": "cmd_primary_mac_repo_inspect_20260825_1057",
-  "idempotencyKey": "sierra-primary-mac-repo-inspect-20260825-v3",
-  "updatedAt": "2026-08-25T14:58:49.950Z"
+  "commandId": "cmd_primary_mac_terminal_refresh_20260825_1101",
+  "idempotencyKey": "sierra-primary-mac-terminal-refresh-20260825-v1",
+  "updatedAt": "2026-08-25T15:02:00Z"
 }
