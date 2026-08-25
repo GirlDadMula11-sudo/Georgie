@@ -1,0 +1,184 @@
+name: Materialize Phase2 installer clean checkout repair
+
+on:
+  push:
+    branches:
+      - repair/seo-phase2-installer-clean-checkout-v1
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Materialize deterministic Phase 2 runtime outputs
+        run: node scripts/install-seo-phase2-executor.mjs
+      - name: Add exact-origin-byte updater reconciliation helper
+        shell: bash
+        run: |
+          cat > mac-agent/git-update-reconcile.js <<'EOF'
+          function parsePorcelainZ(raw = "") {
+            if (!raw) return [];
+            const parts = String(raw).split("\0").filter(Boolean);
+            const rows = [];
+            for (let i = 0; i < parts.length; i += 1) {
+              const entry = parts[i];
+              const status = entry.slice(0, 2);
+              const path = entry.slice(3);
+              if ((status.includes("R") || status.includes("C")) && parts[i + 1]) i += 1;
+              rows.push({ status, path });
+            }
+            return rows;
+          }
+
+          export async function reconcileRemoteIdenticalDirtyPaths({ repo, run }) {
+            if (!repo || typeof run !== "function") throw new Error("REMOTE_IDENTICAL_RECONCILE_ARGS_REQUIRED");
+            const first = await run("git", ["-C", repo, "status", "--porcelain", "-z"]);
+            const rows = parsePorcelainZ(first.stdout || "");
+            if (!rows.length) return { reconciled: true, paths: [], remaining: "" };
+            const candidates = [];
+            for (const row of rows) {
+              if (row.status !== " M" || !row.path) return { reconciled: false, paths: [], remaining: String(first.stdout || "") };
+              let remote;
+              let local;
+              try {
+                remote = await run("git", ["-C", repo, "rev-parse", `origin/main:${row.path}`]);
+                local = await run("git", ["-C", repo, "hash-object", "--", row.path]);
+              } catch {
+                return { reconciled: false, paths: [], remaining: String(first.stdout || "") };
+              }
+              if (String(remote.stdout || "").trim() !== String(local.stdout || "").trim()) return { reconciled: false, paths: [], remaining: String(first.stdout || "") };
+              candidates.push(row.path);
+            }
+            for (const path of candidates) await run("git", ["-C", repo, "restore", "--source=HEAD", "--worktree", "--", path]);
+            const after = await run("git", ["-C", repo, "status", "--porcelain", "-z"]);
+            return { reconciled: !String(after.stdout || "").trim(), paths: candidates, remaining: String(after.stdout || "") };
+          }
+
+          export { parsePorcelainZ };
+          EOF
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('mac-agent/agent.js')
+          s=p.read_text()
+          import_anchor='import { verifyNeoCdpSession } from "./neo-cdp-reader.js";'
+          new_import='import { reconcileRemoteIdenticalDirtyPaths } from "./git-update-reconcile.js";'
+          if new_import not in s:
+              if import_anchor not in s: raise SystemExit('UPDATER_IMPORT_ANCHOR_MISSING')
+              s=s.replace(import_anchor, import_anchor+'\n'+new_import, 1)
+          old='''      let status = await runDeveloper("git", ["-C", repo, "status", "--porcelain"]);\n      if (status.stdout.trim() === "M package-lock.json") {\n        const lockDiff = await runDeveloper("git", ["-C", repo, "diff", "--unified=0", "--", "package-lock.json"]);\n        const changed = lockDiff.stdout.split("\\n").filter(line => /^[+-]/.test(line) && !/^(---|\\+\\+\\+)/.test(line));\n        const generatedVersionOnly = changed.length > 0 && changed.length <= 4 && changed.every(line => /^[+-]\\s+"version":\\s+"\\d+\\.\\d+\\.\\d+",?$/.test(line));\n        if (generatedVersionOnly) {\n          await runDeveloper("git", ["-C", repo, "restore", "--", "package-lock.json"]);\n          status = await runDeveloper("git", ["-C", repo, "status", "--porcelain"]);\n        }\n      }\n      if (status.stdout.trim()) throw new Error("PRIMARY_MAC_REPO_DIRTY");\n      await runDeveloper("git", ["-C", repo, "fetch", "origin", "main"], { timeout: 120000 });\n      await runDeveloper("git", ["-C", repo, "merge", "--ff-only", "origin/main"], { timeout: 120000 });'''
+          new='''      await runDeveloper("git", ["-C", repo, "fetch", "origin", "main"], { timeout: 120000 });\n      let status = await runDeveloper("git", ["-C", repo, "status", "--porcelain"]);\n      if (status.stdout.trim() === "M package-lock.json") {\n        const lockDiff = await runDeveloper("git", ["-C", repo, "diff", "--unified=0", "--", "package-lock.json"]);\n        const changed = lockDiff.stdout.split("\\n").filter(line => /^[+-]/.test(line) && !/^(---|\\+\\+\\+)/.test(line));\n        const generatedVersionOnly = changed.length > 0 && changed.length <= 4 && changed.every(line => /^[+-]\\s+"version":\\s+"\\d+\\.\\d+\\.\\d+",?$/.test(line));\n        if (generatedVersionOnly) {\n          await runDeveloper("git", ["-C", repo, "restore", "--", "package-lock.json"]);\n          status = await runDeveloper("git", ["-C", repo, "status", "--porcelain"]);\n        }\n      }\n      if (status.stdout.trim()) {\n        const remoteIdentical = await reconcileRemoteIdenticalDirtyPaths({ repo, run: runDeveloper });\n        status = await runDeveloper("git", ["-C", repo, "status", "--porcelain"]);\n        if (!remoteIdentical.reconciled || status.stdout.trim()) throw new Error("PRIMARY_MAC_REPO_DIRTY");\n      }\n      await runDeveloper("git", ["-C", repo, "merge", "--ff-only", "origin/main"], { timeout: 120000 });'''
+          if old not in s: raise SystemExit('UPDATER_DIRTY_BLOCK_ANCHOR_MISSING')
+          p.write_text(s.replace(old,new,1))
+          PY
+      - name: Add regression tests
+        shell: bash
+        run: |
+          cat > tests/seo-phase2-installer-clean-checkout.test.js <<'EOF'
+          import test from "node:test";
+          import assert from "node:assert/strict";
+          import fs from "node:fs";
+          import os from "node:os";
+          import path from "node:path";
+          import { execFile } from "node:child_process";
+          import { promisify } from "node:util";
+          import { reconcileRemoteIdenticalDirtyPaths } from "../mac-agent/git-update-reconcile.js";
+
+          const execFileAsync = promisify(execFile);
+          const run = (file,args,options={}) => execFileAsync(file,args,{...options,maxBuffer:8*1024*1024});
+          async function git(repo,...args){return run("git",["-C",repo,...args]);}
+          async function configure(repo){await git(repo,"config","user.email","test@example.com");await git(repo,"config","user.name","Georgie Test");}
+
+          test("Phase 2 installer is idempotent against committed runtime sources", async () => {
+            const files=["mac-agent/agent.js","src/governed-connector.js","src/tools.js"];
+            const before=Object.fromEntries(files.map(file=>[file,fs.readFileSync(file,"utf8")]));
+            await run(process.execPath,["scripts/install-seo-phase2-executor.mjs"]);
+            const after=Object.fromEntries(files.map(file=>[file,fs.readFileSync(file,"utf8")]));
+            assert.deepEqual(after,before);
+          });
+
+          test("remote-identical generated bytes reconcile safely and permit ff-only bootstrap", async () => {
+            const root=fs.mkdtempSync(path.join(os.tmpdir(),"georgie-remote-identical-"));
+            const origin=path.join(root,"origin.git"), seed=path.join(root,"seed"), local=path.join(root,"local"), advance=path.join(root,"advance");
+            await run("git",["init","--bare",origin]);
+            await run("git",["init","-b","main",seed]); await configure(seed);
+            fs.writeFileSync(path.join(seed,"generated.txt"),"v1\n"); await git(seed,"add","generated.txt"); await git(seed,"commit","-m","v1"); await git(seed,"remote","add","origin",origin); await git(seed,"push","-u","origin","main");
+            await run("git",["clone","--branch","main",origin,local]); await configure(local);
+            await run("git",["clone","--branch","main",origin,advance]); await configure(advance);
+            fs.writeFileSync(path.join(advance,"generated.txt"),"v2\n"); await git(advance,"add","generated.txt"); await git(advance,"commit","-m","v2"); await git(advance,"push","origin","main");
+            await git(local,"fetch","origin","main");
+            fs.writeFileSync(path.join(local,"generated.txt"),"v2\n");
+            const result=await reconcileRemoteIdenticalDirtyPaths({repo:local,run});
+            assert.equal(result.reconciled,true); assert.deepEqual(result.paths,["generated.txt"]);
+            assert.equal((await git(local,"status","--porcelain")).stdout.trim(),"");
+            await git(local,"merge","--ff-only","origin/main");
+            assert.equal(fs.readFileSync(path.join(local,"generated.txt"),"utf8"),"v2\n");
+          });
+
+          test("unrelated dirty work remains untouched and fails closed", async () => {
+            const root=fs.mkdtempSync(path.join(os.tmpdir(),"georgie-unrelated-dirty-"));
+            await run("git",["init","-b","main",root]); await configure(root);
+            fs.writeFileSync(path.join(root,"file.txt"),"base\n"); await git(root,"add","file.txt"); await git(root,"commit","-m","base");
+            const bare=path.join(os.tmpdir(),`georgie-origin-${process.pid}-${Date.now()}.git`); await run("git",["clone","--bare",root,bare]); await git(root,"remote","add","origin",bare); await git(root,"fetch","origin","main");
+            fs.writeFileSync(path.join(root,"file.txt"),"human work\n");
+            const result=await reconcileRemoteIdenticalDirtyPaths({repo:root,run});
+            assert.equal(result.reconciled,false);
+            assert.equal(fs.readFileSync(path.join(root,"file.txt"),"utf8"),"human work\n");
+            assert.notEqual((await git(root,"status","--porcelain")).stdout.trim(),"");
+          });
+
+          test("updater fetches before dirty reconciliation and retains fail-closed guard", () => {
+            const source=fs.readFileSync("mac-agent/agent.js","utf8");
+            const fetchIndex=source.indexOf('"fetch", "origin", "main"');
+            const dirtyIndex=source.indexOf('PRIMARY_MAC_REPO_DIRTY');
+            assert.ok(fetchIndex>=0 && dirtyIndex>fetchIndex);
+            assert.match(source,/reconcileRemoteIdenticalDirtyPaths/);
+            assert.ok(source.includes('runDeveloper("git", ["-C", repo, "merge", "--ff-only", "origin/main"]'));
+          });
+          EOF
+      - name: Snapshot exact intended branch diff
+        shell: bash
+        run: |
+          mkdir -p /tmp/seo-phase2-intended/mac-agent /tmp/seo-phase2-intended/src /tmp/seo-phase2-intended/tests
+          cp mac-agent/agent.js /tmp/seo-phase2-intended/mac-agent/agent.js
+          cp mac-agent/git-update-reconcile.js /tmp/seo-phase2-intended/mac-agent/git-update-reconcile.js
+          cp src/governed-connector.js /tmp/seo-phase2-intended/src/governed-connector.js
+          cp src/tools.js /tmp/seo-phase2-intended/src/tools.js
+          cp tests/seo-phase2-installer-clean-checkout.test.js /tmp/seo-phase2-intended/tests/seo-phase2-installer-clean-checkout.test.js
+      - name: Verify convergence and full gates
+        shell: bash
+        run: |
+          node --test tests/seo-phase2-installer-clean-checkout.test.js
+          npm run check
+          npm test
+          npm run reliability:gate
+          docker build -t georgie-phase2-clean-checkout-test .
+      - name: Restore exact intended diff after mutation-capable checks
+        shell: bash
+        run: |
+          cp /tmp/seo-phase2-intended/mac-agent/agent.js mac-agent/agent.js
+          cp /tmp/seo-phase2-intended/mac-agent/git-update-reconcile.js mac-agent/git-update-reconcile.js
+          cp /tmp/seo-phase2-intended/src/governed-connector.js src/governed-connector.js
+          cp /tmp/seo-phase2-intended/src/tools.js src/tools.js
+          cp /tmp/seo-phase2-intended/tests/seo-phase2-installer-clean-checkout.test.js tests/seo-phase2-installer-clean-checkout.test.js
+      - name: Commit bounded repair to canonical branch
+        shell: bash
+        run: |
+          git rm .github/workflows/seo-phase2-installer-clean-checkout-materialize.yml
+          git add mac-agent/agent.js mac-agent/git-update-reconcile.js src/governed-connector.js src/tools.js tests/seo-phase2-installer-clean-checkout.test.js
+          git diff --cached --quiet && exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Converge Phase 2 installer without dirty checkout deadlock"
+          git push origin HEAD:repair/seo-phase2-installer-clean-checkout-v1
