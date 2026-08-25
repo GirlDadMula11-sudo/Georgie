@@ -64,6 +64,9 @@ if [[ -z "$POLL_MS" ]]; then
   POLL_MS="2000"
 fi
 
+say_step "Validating daemon-owned polling health installer..."
+"$NODE" --check mac-agent/install-daemon-health.mjs
+
 say_step "Installing daemon-owned polling health instrumentation..."
 "$NODE" mac-agent/install-daemon-health.mjs
 
