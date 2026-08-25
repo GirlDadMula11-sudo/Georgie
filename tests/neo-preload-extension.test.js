@@ -94,7 +94,7 @@ test("NEO preload installer reopens only the scoped NEO mail page",()=>{
 test("Mac self-update schedules restart only after returning a completion receipt",()=>{
   const agent=fs.readFileSync(new URL("../mac-agent/agent.js",import.meta.url),"utf8");
   assert.match(agent,/setTimeout\(\(\) =>/);
-  assert.match(agent,/spawn\("\/bin\/bash"/);
+  assert.match(agent,/spawn\("\/bin\/zsh"/);
   assert.match(agent,/restartScheduled: true/);
   assert.doesNotMatch(agent,/const install = await runDeveloper\("\/bin\/bash"/);
 });
