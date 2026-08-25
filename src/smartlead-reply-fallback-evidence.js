@@ -20,18 +20,23 @@ export function evaluateSmartleadWebhookThreadFallback({ job, leadId, replyEvent
   const replySender = lower(job.lead_email || job.metadata?.reply_sender_email);
   const eventSender = lower(replyEvent.metadata?.email);
   if (!providerLeadEmail || !replySender || !eventSender || eventSender !== replySender) return deny("WEBHOOK_FALLBACK_REPLY_SENDER_MISMATCH");
-  if (domain(providerLeadEmail) !== domain(replySender)) return deny("WEBHOOK_FALLBACK_COMPANY_DOMAIN_MISMATCH");
+  const companyDomain = domain(providerLeadEmail);
+  if (!companyDomain || companyDomain !== domain(replySender)) return deny("WEBHOOK_FALLBACK_COMPANY_DOMAIN_MISMATCH");
   const originalOutbound = text(job.metadata?.original_outbound_message_id);
   if (!originalOutbound) return deny("WEBHOOK_FALLBACK_ORIGINAL_OUTBOUND_MISSING");
   const body = text(replyEvent.metadata?.reply_body);
-  const encodedOriginal = encodeURIComponent(originalOutbound).replace(/%40/g, "%40");
+  const encodedOriginal = encodeURIComponent(originalOutbound);
   const bodyHasOriginal = body.includes(originalOutbound) || body.includes(encodedOriginal) || body.includes(originalOutbound.replace(/^<|>$/g, ""));
   if (!bodyHasOriginal) return deny("WEBHOOK_FALLBACK_ORIGINAL_OUTBOUND_NOT_CORRELATED");
   const replyAt = time(replyEvent.occurred_at || job.metadata?.provider_occurred_at || job.created_at);
   if (!Number.isFinite(replyAt)) return deny("WEBHOOK_FALLBACK_REPLY_TIME_INVALID");
-  const newerInbound = relatedEvents.some(e => lower(e.event_type) === "email_reply" && text(e.provider_message_id) !== text(job.provider_message_id) && time(e.occurred_at) > replyAt + 1000);
+  const sameIdentity = e => {
+    const email = lower(e?.metadata?.email || e?.lead_email);
+    return Boolean(email) && (email === replySender || email === providerLeadEmail || domain(email) === companyDomain);
+  };
+  const newerInbound = relatedEvents.some(e => sameIdentity(e) && lower(e.event_type) === "email_reply" && text(e.provider_message_id) !== text(job.provider_message_id) && time(e.occurred_at) > replyAt + 1000);
   if (newerInbound) return deny("WEBHOOK_FALLBACK_NEWER_INBOUND_EXISTS");
-  const laterOutbound = relatedEvents.some(e => lower(e.event_type) === "email_sent" && time(e.occurred_at) > replyAt + 1000);
+  const laterOutbound = relatedEvents.some(e => sameIdentity(e) && lower(e.event_type) === "email_sent" && time(e.occurred_at) > replyAt + 1000);
   if (laterOutbound) return deny("WEBHOOK_FALLBACK_LATER_OUTBOUND_EXISTS");
   return {
     ok: true,
