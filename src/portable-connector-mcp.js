@@ -4,7 +4,7 @@ import { createGovernedConnector } from "./governed-connector.js";
 import { verifyConnectorAccessToken } from "./connector-oauth.js";
 import { getMailboxEvidencePacket, listMailboxPacketManifests } from "./mailbox-evidence-bridge.js";
 
-const SERVER = { name: "georgie-governed-connector", version: "1.0.0" };
+const SERVER = { name: "georgie-governed-connector-r2", version: "2.4.1" };
 const PROTOCOL = "2025-03-26";
 const clean = (value, max = 6000) => String(value || "").trim().slice(0, max);
 
