@@ -41,3 +41,14 @@ test("GitHub control fallback is signal-bound and not hardcoded to one legacy ob
   assert.match(workflow,/Control comment command does not match signal/);
   assert.match(workflow,/Control comment idempotency does not match signal/);
 });
+
+
+test("GitHub OIDC fallback admits into the governed connector with canonical identity",()=>{
+  const source=fs.readFileSync(new URL("../src/github-control-inbound.js",import.meta.url),"utf8");
+  const installer=fs.readFileSync(new URL("../scripts/install-github-receipt-relay.mjs",import.meta.url),"utf8");
+  assert.match(source,/createGovernedConnector/);
+  assert.match(source,/connector\.submit/);
+  assert.match(source,/source:"github_ai_control"/);
+  assert.match(source,/connectorCommandId:admitted\.commandId/);
+  assert.match(installer,/createGithubControlInboundRouter\(\{executeCommand:/);
+});
