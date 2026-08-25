@@ -222,6 +222,15 @@ test("Mac self-update source only permits generated package-lock version drift c
   assert.match(source,/PRIMARY_MAC_REPO_DIRTY/);
 });
 
+test("hash-proven installer drift normalization is one exact local patch",async()=>{
+  const input={source:"chatgpt",objectiveId:"SIERRA-SEO-AUTOPILOT-20260824-001",idempotencyKey:"normalize-installer-drift-1",command:"Normalize exact installer drift.",metadata:{capability:"primary_mac.agent.maintenance",target_device:"primary-mac",operation:"normalize_installer_generated_drift",authority:"local_admin",prohibited_routes:["cm-100","stale_continuation","gmail","apple_mail","mailbox.read","mailbox.write"],repo:"/Users/mac/Georgie"}};
+  const connector=harness({executeCommand:async()=>assert.fail("maintenance entered prose router")});
+  const result=await connector.submit("normalize-installer-drift",input);
+  const stored=await waitFor(connector,"normalize-installer-drift",result.commandId,["recovering"]);
+  assert.deepEqual(stored.result.jobs.map(job=>job.action),["developer.apply_patch"]);
+  assert.equal(stored.result.route.operation,"normalize_installer_generated_drift");
+});
+
 test("generated lock normalization is an exact local patch route",async()=>{
   const input={source:"chatgpt",objectiveId:"SIERRA-LI-MBX-20260823-001",idempotencyKey:"normalize-lock-1",command:"Normalize generated lock drift.",metadata:{capability:"primary_mac.agent.maintenance",target_device:"primary-mac",operation:"normalize_generated_lock",authority:"local_admin",prohibited_routes:["cm-100","stale_continuation","gmail","apple_mail","mailbox.read","mailbox.write"],repo:"/Users/mac/Georgie"}};
   const connector=harness({executeCommand:async()=>assert.fail("maintenance entered prose router")});
