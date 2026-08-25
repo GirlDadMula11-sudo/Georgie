@@ -16,7 +16,7 @@ if(!server.includes(relayMount)){
   if(!server.includes(anchor))throw new Error("github receipt relay installer: connector mount anchor missing");
   server=server.replace(anchor,`${relayMount}\n${anchor}`);
 }
-const inboundMount='app.use("/api/ai-control/inbound",createGithubControlInboundRouter());';
+const inboundMount='app.use("/api/ai-control/inbound",createGithubControlInboundRouter({executeCommand:({userId,sessionId,input})=>completeTurn({userId,sessionId,input,history:[]})}));';
 if(!server.includes(inboundMount))server=server.replace(relayMount,`${relayMount}\n${inboundMount}`);
 fs.writeFileSync(serverFile,server);
 
