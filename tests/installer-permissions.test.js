@@ -22,6 +22,8 @@ test("Mac installer recovers stale LaunchAgent registrations without sudo", asyn
   assert.match(installer, /CURRENT_STEP/);
   assert.match(installer, /GEORGIE_NODE_BINARY/);
   assert.match(installer, /Checking Node\.js runtime/);
+  assert.match(installer, /PlistBuddy -c "Print :ProgramArguments:0"/);
+  assert.match(installer, /\[\[ -x "\$PLIST_NODE" \]\]/);
   assert.match(installer, /write_diagnostic "failed"/);
   assert.doesNotMatch(installer, /tail .*INSTALL_LOG/);
   assert.match(installer, /launchctl bootout "\$SERVICE_TARGET"/);
