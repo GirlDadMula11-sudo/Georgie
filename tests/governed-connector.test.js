@@ -321,3 +321,14 @@ test("Mac browser handler filters domains, redacts credentials, and cannot mutat
   assert.match(source, /mutationPerformed: false/);
   assert.match(source, /GOVERNED_BROWSER_SITE_REJECTED/);
 });
+
+
+test("dirty-safe governed browser agent repair is an exact maintenance patch", async () => {
+  const input={source:"chatgpt",objectiveId:"SIERRA-SEO-MAC-BROWSER-20260824-001",idempotencyKey:"apply-browser-agent-1",command:"Apply the exact governed browser agent patch.",metadata:{capability:"primary_mac.agent.maintenance",target_device:"primary-mac",operation:"apply_governed_browser_agent",authority:"local_admin",prohibited_routes:["cm-100","stale_continuation","gmail","apple_mail","mailbox.read","mailbox.write"],repo:"/Users/mac/Georgie"}};
+  const connector=harness({executeCommand:async()=>assert.fail("maintenance entered prose router")});
+  const result=await connector.submit("primary-browser-repair",input);
+  const stored=await waitFor(connector,"primary-browser-repair",result.commandId,["recovering"]);
+  assert.deepEqual(stored.result.jobs.map(job=>job.action),["developer.apply_patch"]);
+  assert.equal(stored.result.route.operation,"apply_governed_browser_agent");
+  assert.throws(()=>validateCommandEnvelope({...input,metadata:{...input.metadata,operation:"overwrite_repository"}}),/UNSUPPORTED_OPERATION/);
+});
