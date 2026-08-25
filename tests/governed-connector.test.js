@@ -144,9 +144,23 @@ test("developer typed capabilities are exact, allowlisted, and approval separate
   assert.equal(validateCommandEnvelope(apply).routing.capability,"developer.patch_application");
 });
 
+
+
+test("developer file receipts expose hashes and capability facts without source text", () => {
+  const text='const AGENT_VERSION = "2.2.33";\nagentVersion=${encodeURIComponent(AGENT_VERSION)}\nasync function enableWordpressApplicationPasswords() {}\n';
+  const summary=summarizeGovernedMacJob({id:"job-source",status:"completed",action:"developer.file_read",result:{repo:"/Users/mac/Georgie",path:"mac-agent/agent.js",text,readOnly:true}});
+  assert.equal(summary.sourceInspection.path,"mac-agent/agent.js");
+  assert.match(summary.sourceInspection.gitBlobSha,/^[a-f0-9]{40}$/);
+  assert.equal(summary.sourceInspection.agentVersion,"2.2.33");
+  assert.equal(summary.sourceInspection.versionAwarePolling,true);
+  assert.equal(summary.sourceInspection.wordpressApplicationPasswordHandler,true);
+  assert.equal("text" in summary.sourceInspection,false);
+});
+
 test("developer source read is exact and allowlisted", () => {
   const base={source:"openai",objectiveId:"obj-source-read",idempotencyKey:"dev-read-1",command:"Read allowlisted source",metadata:{capability:"developer.repository_inspection",target_device:"primary-mac",operation:"read_file",authority:"read_only",repo:"/Users/mac/Georgie",path:"mac-agent/agent.js",prohibited_routes:["email.send","production.deploy"]}};
   assert.equal(validateCommandEnvelope(base).routing.operation,"read_file");
+  assert.equal(validateCommandEnvelope({...base,idempotencyKey:"dev-read-lock",metadata:{...base.metadata,path:"package-lock.json"}}).routing.operation,"read_file");
   assert.throws(()=>validateCommandEnvelope({...base,metadata:{...base.metadata,operation:"write_file"}}),/UNSUPPORTED_OPERATION/);
 });
 
