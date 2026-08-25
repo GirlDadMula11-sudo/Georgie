@@ -358,7 +358,7 @@ test("dirty-safe SEO JSON boundary repair is an exact maintenance patch", async 
   const source=fs.readFileSync(new URL("../src/governed-connector.js",import.meta.url),"utf8");
   assert.match(source,/baseRunAppleScriptForWordpress/);
   assert.match(source,/WORDPRESS_JAVASCRIPT_RESULT_NOT_SERIALIZED/);
-  assert.match(source,/source\\.replace\\(marker, \\(\\) =>/);
+  assert.equal(source.includes("source.replace(marker, () =>"),true);
 });
 
 
