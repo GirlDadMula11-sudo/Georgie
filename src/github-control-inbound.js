@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import express from "express";
-import { cloudStateStatus, readCloudState, writeCloudState } from "./cloud-state.js";
+import { readCloudState, writeCloudState } from "./cloud-state.js";
 import { parseAIControlEnvelopes } from "./ai-control-envelope.js";
 import { enqueueHandoff } from "./shared-mission.js";
 import { createGovernedConnector } from "./governed-connector.js";
@@ -13,7 +13,6 @@ const ISSUER="https://token.actions.githubusercontent.com";
 const JWKS_URL=`${ISSUER}/.well-known/jwks`;
 const AUDIENCE_PREFIX="georgie-github-control-inbound:";
 const NS="github_control_inbound_oidc_v1";
-const CHALLENGE_NS_PREFIX="github_control_inbound_oidc_challenge_v2";
 const CHALLENGE_TTL_MS=2*60_000;
 const JWT_MAX_AGE_MS=5*60_000;
 const JWKS_TTL_MS=10*60_000;
@@ -21,16 +20,16 @@ const locks=new Map();
 let jwksCache={at:0,keys:[]};
 const now=()=>new Date().toISOString();
 const clean=(value,max=4000)=>String(value??"").trim().slice(0,max);
-const digest=value=>crypto.createHash("sha256").update(String(value)).digest("hex");
-const challengeNamespace=nonce=>`${CHALLENGE_NS_PREFIX}:${digest(nonce)}`;
 const b64=value=>Buffer.from(String(value).replace(/-/g,"+").replace(/_/g,"/"),"base64");
+function challengeKey(){const source=clean(process.env.GEORGIE_GITHUB_CONTROL_CHALLENGE_SECRET||process.env.GEORGIE_MAC_AGENT_TOKEN||process.env.GEORGIE_SUPABASE_SERVICE_ROLE_KEY,12000);if(source.length<32)throw new Error("OIDC_CHALLENGE_SECRET_UNAVAILABLE");return crypto.createHash("sha256").update("georgie-github-control-challenge-v3\0").update(source).digest();}
+function signChallenge(payload){return crypto.createHmac("sha256",challengeKey()).update(payload).digest("base64url");}
+export function validateSignedGithubControlChallenge(nonce,{nowMs=Date.now()}={}){const parts=String(nonce||"").split(".");if(parts.length!==2)throw new Error("OIDC_CHALLENGE_REJECTED");const [payload,signature]=parts,expected=signChallenge(payload),provided=Buffer.from(signature),wanted=Buffer.from(expected);if(provided.length!==wanted.length||!crypto.timingSafeEqual(provided,wanted))throw new Error("OIDC_CHALLENGE_REJECTED");let decoded;try{decoded=JSON.parse(b64(payload).toString("utf8"));}catch{throw new Error("OIDC_CHALLENGE_REJECTED");}const issuedAt=Number(decoded?.iat||0),expiresAt=Number(decoded?.exp||0);if(!issuedAt||!expiresAt||issuedAt>nowMs+30_000||expiresAt<=nowMs||expiresAt-issuedAt!==CHALLENGE_TTL_MS)throw new Error("OIDC_CHALLENGE_REJECTED");return decoded;}
 function defaultState(){return{version:1,challenges:[],events:[],updatedAt:null};}
 async function serialized(userId,work){const key=String(userId||"primary"),prior=locks.get(key)||Promise.resolve();const run=prior.catch(()=>{}).then(work);locks.set(key,run.catch(()=>{}));return run;}
 async function load(userId){const state=await readCloudState(userId,NS,defaultState());return{...defaultState(),...(state||{}),challenges:Array.isArray(state?.challenges)?state.challenges:[],events:Array.isArray(state?.events)?state.events:[]};}
 async function save(userId,state){state.updatedAt=now();state.challenges=state.challenges.filter(x=>Date.parse(x.expiresAt||0)>Date.now()-60_000).slice(-100);state.events=state.events.slice(-500);await writeCloudState(userId,NS,state);return state;}
-function requireSharedChallengePersistence(persisted){const status=cloudStateStatus();if(!persisted||status.degraded||status.providerCircuitOpen)throw new Error("OIDC_CHALLENGE_STORE_UNAVAILABLE");}
-async function issueChallenge(userId){const nonce=crypto.randomBytes(24).toString("base64url"),createdAt=now(),expiresAt=new Date(Date.now()+CHALLENGE_TTL_MS).toISOString();const persisted=await writeCloudState(userId,challengeNamespace(nonce),{version:1,nonceHash:digest(nonce),createdAt,expiresAt,usedAt:null});requireSharedChallengePersistence(persisted);return{nonce,expiresAt,audience:`${AUDIENCE_PREFIX}${nonce}`};}
-async function consumeChallenge(userId,nonce){const namespace=challengeNamespace(nonce);if(cloudStateStatus().providerCircuitOpen)throw new Error("OIDC_CHALLENGE_STORE_UNAVAILABLE");const row=await readCloudState(userId,namespace,null);if(!row||row.nonceHash!==digest(nonce)||row.usedAt||Date.parse(row.expiresAt||0)<=Date.now())throw new Error("OIDC_CHALLENGE_REJECTED");const persisted=await writeCloudState(userId,namespace,{...row,usedAt:now()});requireSharedChallengePersistence(persisted);}
+async function issueChallenge(){const issuedAt=Date.now(),expiresAt=issuedAt+CHALLENGE_TTL_MS,payload=Buffer.from(JSON.stringify({v:3,iat:issuedAt,exp:expiresAt,r:crypto.randomBytes(24).toString("base64url")})).toString("base64url"),nonce=`${payload}.${signChallenge(payload)}`;return{nonce,expiresAt:new Date(expiresAt).toISOString(),audience:`${AUDIENCE_PREFIX}${nonce}`,persistence:"stateless-hmac-v3"};}
+async function consumeChallenge(_userId,nonce){validateSignedGithubControlChallenge(nonce);}
 function parseJwt(token){const parts=String(token||"").split(".");if(parts.length!==3)throw new Error("OIDC_TOKEN_MALFORMED");try{return{parts,header:JSON.parse(b64(parts[0]).toString("utf8")),claims:JSON.parse(b64(parts[1]).toString("utf8"))};}catch{throw new Error("OIDC_TOKEN_MALFORMED");}}
 async function fetchJwks(){if(jwksCache.keys.length&&Date.now()-jwksCache.at<JWKS_TTL_MS)return jwksCache.keys;const response=await fetch(JWKS_URL,{headers:{accept:"application/json"},signal:AbortSignal.timeout(5000)});if(!response.ok)throw new Error(`OIDC_JWKS_UNAVAILABLE_${response.status}`);const data=await response.json(),keys=Array.isArray(data?.keys)?data.keys:[];if(!keys.length)throw new Error("OIDC_JWKS_EMPTY");jwksCache={at:Date.now(),keys};return keys;}
 export function validateGithubControlOidcClaims(claims={},audience,{nowMs=Date.now()}={}){
