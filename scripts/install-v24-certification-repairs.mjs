@@ -19,6 +19,14 @@ patch("src/capability-manifest.js", source => {
 }, source => source.includes('unifiedOperatingRuntime: "unified-georgie-runtime.v2-control-plane"'));
 
 patch("src/mac/queue.js", source => {
+  const legacy = 'function mergeStores(localStore,cloudStore){const byId=new Map();for(const job of [...(cloudStore?.jobs||[]),...(localStore?.jobs||[])])if(job?.id)byId.set(job.id,job);return{jobs:[...byId.values()].sort((a,b)=>String(a.createdAt||"").localeCompare(String(b.createdAt||""))).slice(-5000)}}';
+  if (source.includes("function macJobLifecycleMs(job)")) return source;
+  if (!source.includes(legacy)) throw new Error("V24_MAC_MONOTONIC_MERGE_ANCHOR_NOT_FOUND");
+  const upgraded = `function macJobLifecycleMs(job){\n  const timestamps=[job?.createdAt,job?.availableAt,job?.claimedAt,job?.dispatchReceipt?.claimedAt,job?.completedAt];\n  if(job?.status==="dead_letter")timestamps.push(job?.alert?.raisedAt);\n  return Math.max(0,...timestamps.map(value=>{const ms=new Date(value||0).getTime();return Number.isFinite(ms)?ms:0}));\n}\nfunction macJobStateRank(job){return ({completed:6,failed:5,dead_letter:5,claimed:4,queued:3}[String(job?.status||"")]||0);}\nfunction fresherMacJob(a,b){\n  const at=macJobLifecycleMs(a),bt=macJobLifecycleMs(b);\n  if(at!==bt)return at>bt?a:b;\n  const aa=Number(a?.attempts||0),ba=Number(b?.attempts||0);\n  if(aa!==ba)return aa>ba?a:b;\n  const ar=macJobStateRank(a),br=macJobStateRank(b);\n  if(ar!==br)return ar>br?a:b;\n  return b||a;\n}\nfunction mergeStores(localStore,cloudStore){\n  const byId=new Map();\n  for(const job of [...(cloudStore?.jobs||[]),...(localStore?.jobs||[])]){\n    if(!job?.id)continue;\n    const prior=byId.get(job.id);\n    byId.set(job.id,prior?fresherMacJob(prior,job):job);\n  }\n  return{jobs:[...byId.values()].sort((a,b)=>String(a.createdAt||"").localeCompare(String(b.createdAt||""))).slice(-5000)};\n}`;
+  return source.replace(legacy, upgraded);
+}, source => source.includes("function macJobLifecycleMs(job)") && source.includes("function fresherMacJob(a,b)") && source.includes("prior?fresherMacJob(prior,job):job"));
+
+patch("src/mac/queue.js", source => {
   if (source.includes("function macClaimScore(job, nowMs)")) return source;
   const helper = `function macClaimScore(job, nowMs){\n  const action=String(job?.action||"");\n  const risk=String(job?.risk||"");\n  const availableMs=new Date(job?.availableAt||job?.createdAt||0).getTime();\n  const ageMs=Number.isFinite(availableMs)?Math.max(0,Number(nowMs)-availableMs):0;\n  const base=action==="developer.repo_inspect"?0:action==="developer.file_read"?5000:risk==="read"?10000:20000;\n  return base-Math.min(ageMs,30000);\n}\n`;
   const versionedFunction = "export async function claimMacJobs(deviceId,limit=5,{agentVersion=null}={})";
