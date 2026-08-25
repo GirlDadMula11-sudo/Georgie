@@ -2,115 +2,27 @@ import express from "express";
 import crypto from "crypto";
 import { checkpointMacJob, claimMacJobs, completeMacJob, enqueueMacJob, importRecoveredMacJob, listMacJobs, reconcileMacDispatches, repairRecoveredMailboxPayload, resumeFailedMacJob } from "./queue.js";
 import { acceptMailboxEvidenceBatch } from "../mailbox-evidence-bridge.js";
+import { claimPortalDelivery, completeLenderDelivery, lenderDeliveryConfigured } from "../lender-delivery-worker.js";
 
 const heartbeats = new Map();
+function tokenMatches(value){const expected=Buffer.from(String(process.env.GEORGIE_MAC_AGENT_TOKEN||"")),actual=Buffer.from(String(value||""));return expected.length>20&&expected.length===actual.length&&crypto.timingSafeEqual(expected,actual)}
+function requireAgent(req,res,next){const auth=String(req.headers.authorization||""),token=auth.startsWith("Bearer ")?auth.slice(7):"";if(!tokenMatches(token))return res.status(401).json({ok:false,error:"Unauthorized Mac agent"});next()}
+export function getMacDeviceStatus(){const now=Date.now();return[...heartbeats.entries()].map(([deviceId,info])=>({deviceId,...info,online:now-new Date(info.lastSeenAt).getTime()<30000}))}
 
-function tokenMatches(value) {
-  const expected = Buffer.from(String(process.env.GEORGIE_MAC_AGENT_TOKEN || ""));
-  const actual = Buffer.from(String(value || ""));
-  return expected.length > 20 && expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
-}
+export function createMacRouter(){
+ const router=express.Router();const timer=setInterval(()=>reconcileMacDispatches().catch(error=>console.error("Mac dispatch reconciliation failed:",error instanceof Error?error.message:error)),2000);timer.unref?.();router.use(requireAgent);
+ router.post("/:deviceId/heartbeat",(req,res)=>{const deviceId=String(req.params.deviceId).slice(0,160);heartbeats.set(deviceId,{hostname:String(req.body?.hostname||"").slice(0,160),platform:String(req.body?.platform||"macOS").slice(0,50),arch:String(req.body?.arch||"").slice(0,50),agentVersion:String(req.body?.agentVersion||"unknown").slice(0,50),capabilities:Array.isArray(req.body?.capabilities)?req.body.capabilities.map(String).slice(0,30):[],lastSeenAt:new Date().toISOString()});res.json({ok:true,serverTime:new Date().toISOString()})});
 
-function requireAgent(req, res, next) {
-  const auth = String(req.headers.authorization || "");
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  if (!tokenMatches(token)) return res.status(401).json({ ok: false, error: "Unauthorized Mac agent" });
-  next();
-}
+ router.post("/:deviceId/portal-delivery/claim",async(req,res)=>{try{if(!lenderDeliveryConfigured())return res.status(503).json({ok:false,error:"Lender delivery control plane unavailable"});const deviceId=String(req.params.deviceId);if(deviceId!=="primary-mac-portal")return res.status(403).json({ok:false,error:"Dedicated portal worker identity required"});const event=await claimPortalDelivery(`mac:${deviceId}:${String(req.body?.workerVersion||"unknown").slice(0,40)}`);res.json({ok:true,event:event||null})}catch(error){res.status(500).json({ok:false,error:error instanceof Error?error.message:"Portal delivery claim failed"})}});
+ router.post("/:deviceId/portal-delivery/:eventId/complete",async(req,res)=>{try{const deviceId=String(req.params.deviceId);if(deviceId!=="primary-mac-portal")return res.status(403).json({ok:false,error:"Dedicated portal worker identity required"});const leaseToken=String(req.body?.leaseToken||""),outcome=String(req.body?.outcome||"");if(!leaseToken||!["provider_confirmed","blocked","retry"].includes(outcome))return res.status(400).json({ok:false,error:"Valid leaseToken and outcome required"});const receipt=req.body?.receipt&&typeof req.body.receipt==="object"?req.body.receipt:{};if(outcome==="provider_confirmed"&&receipt.providerConfirmed!==true)return res.status(409).json({ok:false,error:"Provider confirmation proof required"});const result=await completeLenderDelivery(String(req.params.eventId),leaseToken,outcome,receipt,String(req.body?.error||"")||null);res.json({ok:true,result})}catch(error){res.status(409).json({ok:false,error:error instanceof Error?error.message:"Portal delivery completion rejected"})}});
 
-export function getMacDeviceStatus() {
-  const now = Date.now();
-  return [...heartbeats.entries()].map(([deviceId, info]) => ({
-    deviceId,
-    ...info,
-    online: now - new Date(info.lastSeenAt).getTime() < 30000
-  }));
-}
-
-export function createMacRouter() {
-  const router = express.Router();
-  const timer=setInterval(()=>reconcileMacDispatches().catch(error=>console.error("Mac dispatch reconciliation failed:",error instanceof Error?error.message:error)),2000);timer.unref?.();
-  router.use(requireAgent);
-
-  router.post("/:deviceId/heartbeat", (req, res) => {
-    const deviceId = String(req.params.deviceId).slice(0, 160);
-    heartbeats.set(deviceId, {
-      hostname: String(req.body?.hostname || "").slice(0, 160),
-      platform: String(req.body?.platform || "macOS").slice(0, 50),
-      arch: String(req.body?.arch || "").slice(0, 50),
-      agentVersion: String(req.body?.agentVersion || "unknown").slice(0, 50),
-      lastSeenAt: new Date().toISOString()
-    });
-    res.json({ ok: true, serverTime: new Date().toISOString() });
-  });
-
-  router.get("/:deviceId/jobs", async (req, res) => {
-    try {
-      const jobs = await claimMacJobs(String(req.params.deviceId), Number(req.query?.limit || 5), { agentVersion: String(req.query?.agentVersion || "") });
-      res.json({ ok: true, jobs });
-    } catch (error) {
-      res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Could not claim Mac jobs" });
-    }
-  });
-
-  router.post("/:deviceId/jobs/:jobId/complete", async (req, res) => {
-    try {
-      if (req.body?.result?.mailboxEvidenceBatch) await acceptMailboxEvidenceBatch(req.body?.result?.userId || process.env.GEORGIE_PRIMARY_USER_ID || "primary", req.body.result.mailboxEvidenceBatch);
-      const job = await completeMacJob(String(req.params.deviceId), String(req.params.jobId), {
-        result: req.body?.result ?? null,
-        error: req.body?.error ?? null
-      });
-      res.status(job ? 200 : 404).json({ ok: Boolean(job), job });
-    } catch (error) {
-      res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Could not complete Mac job" });
-    }
-  });
-  router.post("/:deviceId/jobs/:jobId/checkpoint",async(req,res)=>{try{const job=await checkpointMacJob(String(req.params.deviceId),String(req.params.jobId),req.body||{});res.status(job?200:404).json({ok:Boolean(job),checkpoint:job?.workflowCheckpoint||null});}catch(error){res.status(409).json({ok:false,error:error instanceof Error?error.message:"Could not checkpoint Mac workflow"})}});
-
-  router.post("/:deviceId/test", async (req, res) => {
-    try {
-      const deviceId = String(req.params.deviceId).slice(0, 160);
-      const online = getMacDeviceStatus().some(device => device.deviceId === deviceId && device.online);
-      const job = await enqueueMacJob({
-        deviceId,
-        action: "notification.show",
-        args: {
-          title: "Georgie",
-          body: String(req.body?.message || "Georgie is connected to this Mac.").slice(0, 500)
-        },
-        risk: "low_risk_write",
-        reason: "Protected Mac round-trip connection test"
-      });
-      res.status(202).json({ ok: true, online, jobId: job.id, status: job.status });
-    } catch (error) {
-      res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Could not queue Mac test" });
-    }
-  });
-
-  router.post("/:deviceId/jobs/recovery-import",async(req,res)=>{try{if(String(req.params.deviceId)!=="primary-mac"||req.body?.job?.deviceId!=="primary-mac")throw new Error("MAC_RECOVERY_IMPORT_DEVICE_MISMATCH");const job=await importRecoveredMacJob(req.body.job);res.status(202).json({ok:true,job});}catch(error){res.status(409).json({ok:false,error:error instanceof Error?error.message:"Could not import recovered Mac job"})}});
-  router.post("/:deviceId/jobs/:jobId/recovery-payload-repair",async(req,res)=>{try{const job=await repairRecoveredMailboxPayload(String(req.params.deviceId),String(req.params.jobId),req.body||{});res.status(job?202:404).json({ok:Boolean(job),job:job||null});}catch(error){res.status(409).json({ok:false,error:error instanceof Error?error.message:"Could not repair recovered Mac job payload"})}});
-
-  router.get("/:deviceId/jobs/:jobId/status", async (req, res) => {
-    try {
-      const jobs = await listMacJobs(undefined, 500);
-      const job = jobs.find(item => item.id === String(req.params.jobId) && item.deviceId === String(req.params.deviceId));
-      res.status(job ? 200 : 404).json({ ok: Boolean(job), job: job || null });
-    } catch (error) {
-      res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Could not read Mac job status" });
-    }
-  });
-
-  router.post("/:deviceId/jobs/:jobId/resume", async (req, res) => {
-    try {
-      const job = await resumeFailedMacJob(String(req.params.deviceId), String(req.params.jobId), {
-        objectiveId: String(req.body?.objectiveId || ""),
-        expectedAction: String(req.body?.expectedAction || "")
-      });
-      res.status(job ? 200 : 404).json({ ok: Boolean(job), job: job || null });
-    } catch (error) {
-      res.status(409).json({ ok: false, error: error instanceof Error ? error.message : "Could not resume Mac job" });
-    }
-  });
-
-  return router;
+ router.get("/:deviceId/jobs",async(req,res)=>{try{const jobs=await claimMacJobs(String(req.params.deviceId),Number(req.query?.limit||5),{agentVersion:String(req.query?.agentVersion||"")});res.json({ok:true,jobs})}catch(error){res.status(500).json({ok:false,error:error instanceof Error?error.message:"Could not claim Mac jobs"})}});
+ router.post("/:deviceId/jobs/:jobId/complete",async(req,res)=>{try{if(req.body?.result?.mailboxEvidenceBatch)await acceptMailboxEvidenceBatch(req.body?.result?.userId||process.env.GEORGIE_PRIMARY_USER_ID||"primary",req.body.result.mailboxEvidenceBatch);const job=await completeMacJob(String(req.params.deviceId),String(req.params.jobId),{result:req.body?.result??null,error:req.body?.error??null});res.status(job?200:404).json({ok:Boolean(job),job})}catch(error){res.status(500).json({ok:false,error:error instanceof Error?error.message:"Could not complete Mac job"})}});
+ router.post("/:deviceId/jobs/:jobId/checkpoint",async(req,res)=>{try{const job=await checkpointMacJob(String(req.params.deviceId),String(req.params.jobId),req.body||{});res.status(job?200:404).json({ok:Boolean(job),checkpoint:job?.workflowCheckpoint||null})}catch(error){res.status(409).json({ok:false,error:error instanceof Error?error.message:"Could not checkpoint Mac workflow"})}});
+ router.post("/:deviceId/test",async(req,res)=>{try{const deviceId=String(req.params.deviceId).slice(0,160),online=getMacDeviceStatus().some(device=>device.deviceId===deviceId&&device.online),job=await enqueueMacJob({deviceId,action:"notification.show",args:{title:"Georgie",body:String(req.body?.message||"Georgie is connected to this Mac.").slice(0,500)},risk:"low_risk_write",reason:"Protected Mac round-trip connection test"});res.status(202).json({ok:true,online,jobId:job.id,status:job.status})}catch(error){res.status(500).json({ok:false,error:error instanceof Error?error.message:"Could not queue Mac test"})}});
+ router.post("/:deviceId/jobs/recovery-import",async(req,res)=>{try{if(String(req.params.deviceId)!=="primary-mac"||req.body?.job?.deviceId!=="primary-mac")throw new Error("MAC_RECOVERY_IMPORT_DEVICE_MISMATCH");const job=await importRecoveredMacJob(req.body.job);res.status(202).json({ok:true,job})}catch(error){res.status(409).json({ok:false,error:error instanceof Error?error.message:"Could not import recovered Mac job"})}});
+ router.post("/:deviceId/jobs/:jobId/recovery-payload-repair",async(req,res)=>{try{const job=await repairRecoveredMailboxPayload(String(req.params.deviceId),String(req.params.jobId),req.body||{});res.status(job?202:404).json({ok:Boolean(job),job:job||null})}catch(error){res.status(409).json({ok:false,error:error instanceof Error?error.message:"Could not repair recovered Mac job payload"})}});
+ router.get("/:deviceId/jobs/:jobId/status",async(req,res)=>{try{const jobs=await listMacJobs(undefined,500),job=jobs.find(item=>item.id===String(req.params.jobId)&&item.deviceId===String(req.params.deviceId));res.status(job?200:404).json({ok:Boolean(job),job:job||null})}catch(error){res.status(500).json({ok:false,error:error instanceof Error?error.message:"Could not read Mac job status"})}});
+ router.post("/:deviceId/jobs/:jobId/resume",async(req,res)=>{try{const job=await resumeFailedMacJob(String(req.params.deviceId),String(req.params.jobId),{objectiveId:String(req.body?.objectiveId||""),expectedAction:String(req.body?.expectedAction||"")});res.status(job?200:404).json({ok:Boolean(job),job:job||null})}catch(error){res.status(409).json({ok:false,error:error instanceof Error?error.message:"Could not resume Mac job"})}});
+ return router;
 }
