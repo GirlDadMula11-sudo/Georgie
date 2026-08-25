@@ -11,7 +11,7 @@ import { verifyNeoCdpSession } from "./neo-cdp-reader.js";
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.30";
+const AGENT_VERSION = "2.2.31";
 const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;
 const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));
 const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));
@@ -193,6 +193,8 @@ async function repairWordpressLinkIntegrity(args = {}) {
     }
   })()`;
   const script = `const prefix="https://sierramarketinginc.com/wp-admin/";const js=${JSON.stringify(pageScript)};let out=null;const chrome=Application('Google Chrome');if(chrome.running())for(const win of chrome.windows())for(const tab of win.tabs()){if(String(tab.url()).startsWith(prefix)){out=tab.execute({javascript:js});break;}if(out!==null)break;}if(out===null)throw new Error('No approved Sierra WordPress admin tab');JSON.stringify(out);`;
+  await execFileAsync("open", ["-a", "Google Chrome", "https://sierramarketinginc.com/wp-admin/"], { timeout: 15000 });
+  await new Promise(resolve => setTimeout(resolve, 3000));
   const result = JSON.parse(await runJxa(script) || "{}");
   return { wordpressLinkIntegrityRepair: result, siteOrigin: "https://sierramarketinginc.com", authority: "reversible_write", credentialsTransferred: false, formValuesCaptured: false, backupCreated: true, mutationPerformed: result.changedCount > 0, verified: result.verified === true, rollbackPerformed: result.rollbackPerformed === true };
 }
