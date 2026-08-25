@@ -547,7 +547,7 @@ async function execute(job) {
       const after = await runDeveloper("git", ["-C", repo, "rev-parse", "HEAD"]);
       const installer = path.join(repo, "mac-agent/install.sh");
       setTimeout(() => {
-        const child = spawn("/bin/bash", [installer], { cwd: repo, detached: true, stdio: "ignore", env: process.env });
+        const child = spawn("/bin/zsh", [installer], { cwd: repo, detached: true, stdio: "ignore", env: { ...process.env, GEORGIE_NODE_BINARY: process.execPath } });
         child.unref();
       }, 3000);
       return { repo, before: before.stdout.trim(), after: after.stdout.trim(), fastForwardOnly: true, restartScheduled: true, restartDelayMs: 3000 };

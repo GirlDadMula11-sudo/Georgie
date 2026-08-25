@@ -20,6 +20,8 @@ test("Mac installer recovers stale LaunchAgent registrations without sudo", asyn
   assert.match(installer, /if \[ -z "\$\{ZSH_VERSION:-\}" \]; then exec \/bin\/zsh "\$0" "\$@"; fi/);
   assert.match(installer, /mac-agent\/\.install-diagnostic\.json/);
   assert.match(installer, /CURRENT_STEP/);
+  assert.match(installer, /GEORGIE_NODE_BINARY/);
+  assert.match(installer, /Checking Node\.js runtime/);
   assert.match(installer, /write_diagnostic "failed"/);
   assert.doesNotMatch(installer, /tail .*INSTALL_LOG/);
   assert.match(installer, /launchctl bootout "\$SERVICE_TARGET"/);
@@ -34,6 +36,8 @@ test("Mac agent uses single-flight polling, bounded backoff, and safe network di
   assert.match(agent, /async function runForever/);
   assert.match(agent, /MAX_BACKOFF/);
   assert.match(agent, /mac_agent_connection_failed/);
+  assert.match(agent, /spawn\("\/bin\/zsh", \[installer\]/);
+  assert.match(agent, /GEORGIE_NODE_BINARY: process\.execPath/);
   assert.match(agent, /serverOrigin: new URL\(BASE\)\.origin/);
   assert.doesNotMatch(agent, /Authorization.*console\.(?:log|error)/);
 });
