@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "issueNumber": 162,
-  "commentId": 5410986266,
-  "objectiveId": "SIERRA-SEO-20260824-GEORGIE-001",
-  "commandId": "cmd_sierra_seo_json_boundary_callback_20260825_1243",
-  "idempotencyKey": "apply-seo-json-boundary-callback-20260825-1243",
-  "updatedAt": "2026-08-25T13:20:30Z"
+  "issueNumber": 163,
+  "commentId": 5411036260,
+  "objectiveId": "SIERRA-SEO-AUTOPILOT-20260824-001",
+  "commandId": "cmd_sierra_wp_access_repair_20260825_0924",
+  "idempotencyKey": "sierra-wp-access-repair-oidc-20260825-v1",
+  "updatedAt": "2026-08-25T13:24:30Z"
 }
