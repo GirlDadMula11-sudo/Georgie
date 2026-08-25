@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { enforceHumanAccessHtml } from "./master-closer.js";
 
 const SIERRA_URL = String(process.env.GEORGIE_SUPABASE_URL || "").replace(/\/$/, "");
@@ -5,11 +6,14 @@ const SIERRA_KEY = String(process.env.GEORGIE_SUPABASE_SERVICE_ROLE_KEY || "");
 const SMARTLEAD_BASE = String(process.env.GEORGIE_SMARTLEAD_BASE_URL || "https://server.smartlead.ai/api/v1").replace(/\/$/, "");
 const SMARTLEAD_KEY = String(process.env.GEORGIE_SMARTLEAD_API_KEY || "").trim();
 const WORKER_ID = "georgie-smartlead-reply-closer-v1";
-const WORKER_VERSION = "georgie.smartlead-reply-closer.v2.1";
+const WORKER_VERSION = "georgie.smartlead-reply-closer.v2.2";
+const INSTANCE_ID = String(process.env.RENDER_INSTANCE_ID || process.env.HOSTNAME || randomUUID()).slice(0, 200);
 const POLL_MS = Math.max(15_000, Number(process.env.GEORGIE_SMARTLEAD_REPLY_POLL_MS || 30_000));
 const AUTO_CLASSES = new Set(["partner_interest", "interested", "follow_up_later", "call_request"]);
 let timer = null;
 let running = false;
+let authorityGeneration = null;
+let authorityStale = false;
 
 function configured() { return Boolean(SIERRA_URL && SIERRA_KEY && SMARTLEAD_KEY); }
 function clean(v, max = 5000) { return String(v ?? "").trim().slice(0, max); }
@@ -17,6 +21,7 @@ function esc(v) { return clean(v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<":
 function idem(id) { return `smartlead-reply:${id}:v1`; }
 function headers(extra = {}) { return { apikey: SIERRA_KEY, authorization: `Bearer ${SIERRA_KEY}`, ...extra }; }
 function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+function isStaleAuthorityError(error) { return /SMARTLEAD_REPLY_CLOSER_STALE_GENERATION|LEGACY_CLAIM_DISABLED|LEGACY_HEARTBEAT_DISABLED/i.test(String(error?.message || error)); }
 
 async function rpc(name, body = {}, timeoutMs = 10_000) {
   const response = await fetch(`${SIERRA_URL}/rest/v1/rpc/${name}`, {
@@ -41,17 +46,59 @@ async function db(path, init = {}) {
   try { return JSON.parse(text); } catch { return text; }
 }
 
-async function heartbeat(phase, { ok = true, error = null, result = {} } = {}) {
+async function activateAuthority() {
+  if (authorityGeneration != null || authorityStale) return authorityGeneration;
+  const result = await rpc("activate_smartlead_reply_closer_authority", {
+    p_worker_id: WORKER_ID,
+    p_worker_version: WORKER_VERSION,
+    p_instance_id: INSTANCE_ID
+  }, 8000);
+  authorityGeneration = Number(result?.generation);
+  if (!Number.isFinite(authorityGeneration)) throw new Error("SMARTLEAD_REPLY_CLOSER_AUTHORITY_GENERATION_MISSING");
+  console.log("SMARTLEAD_REPLY_CLOSER_AUTHORITY", JSON.stringify({ worker: WORKER_ID, version: WORKER_VERSION, instance: INSTANCE_ID, generation: authorityGeneration }));
+  return authorityGeneration;
+}
+
+async function assertAuthority() {
+  if (authorityGeneration == null || authorityStale) throw new Error("SMARTLEAD_REPLY_CLOSER_STALE_GENERATION");
   try {
-    await rpc("record_smartlead_reply_closer_heartbeat", {
+    return await rpc("assert_smartlead_reply_closer_authority", {
       p_worker_id: WORKER_ID,
       p_worker_version: WORKER_VERSION,
+      p_instance_id: INSTANCE_ID,
+      p_generation: authorityGeneration
+    }, 5000);
+  } catch (error) {
+    if (isStaleAuthorityError(error)) authorityStale = true;
+    throw error;
+  }
+}
+
+async function releaseStaleClaim(job) {
+  try {
+    return await rpc("release_smartlead_reply_closer_claim", {
+      p_obligation_id: job.obligation_id,
+      p_worker_id: WORKER_ID,
+      p_generation: authorityGeneration
+    }, 5000);
+  } catch { return null; }
+}
+
+async function heartbeat(phase, { ok = true, error = null, result = {} } = {}) {
+  if (authorityGeneration == null || authorityStale) return;
+  try {
+    await rpc("record_smartlead_reply_closer_heartbeat_v2", {
+      p_worker_id: WORKER_ID,
+      p_worker_version: WORKER_VERSION,
+      p_instance_id: INSTANCE_ID,
+      p_generation: authorityGeneration,
       p_phase: phase,
       p_ok: ok,
       p_error: error ? clean(error?.message || error, 1800) : null,
       p_result: result || {}
     }, 5000);
   } catch (e) {
+    if (isStaleAuthorityError(e)) authorityStale = true;
     console.error("SMARTLEAD_REPLY_CLOSER_HEARTBEAT_ERROR", clean(e?.message || e, 400));
   }
 }
@@ -84,6 +131,7 @@ async function smartleadRead(path) {
 }
 
 async function smartleadWrite(path, body) {
+  await assertAuthority();
   return smartleadRequest(path, { method: "POST", body, timeoutMs: 15_000 });
 }
 
@@ -140,6 +188,7 @@ function replyHtml(job) {
 }
 
 async function reserve(job) {
+  await assertAuthority();
   const key = idem(job.obligation_id);
   const existing = await db(`smartlead_reply_delivery_receipts?idempotency_key=eq.${encodeURIComponent(key)}&select=id,provider_message_id,accepted,metadata`);
   if (Array.isArray(existing) && existing.length) return { key, existing: existing[0] };
@@ -155,7 +204,7 @@ async function reserve(job) {
       subject: job.subject,
       accepted: false,
       rejected: [],
-      metadata: { stage: "reserved", worker: WORKER_ID, worker_version: WORKER_VERSION, transport: "smartlead_thread", reply_class: job.reply_class, thread_preservation_required: true, provider_lead_id: job.provider_lead_id || null, provider_lead_email: job.provider_lead_email || null }
+      metadata: { stage: "reserved", worker: WORKER_ID, worker_version: WORKER_VERSION, authority_generation: authorityGeneration, authority_instance_id: INSTANCE_ID, transport: "smartlead_thread", reply_class: job.reply_class, thread_preservation_required: true, provider_lead_id: job.provider_lead_id || null, provider_lead_email: job.provider_lead_email || null }
     })
   });
   return { key, existing: Array.isArray(rows) ? rows[0] : null };
@@ -207,12 +256,12 @@ async function markProviderAccepted(job, key, providerResponse) {
   await db(`smartlead_reply_delivery_receipts?idempotency_key=eq.${encodeURIComponent(key)}`, {
     method: "PATCH",
     headers: { Prefer: "return=minimal" },
-    body: JSON.stringify({ metadata: { stage: "provider_accepted_waiting_message_id", worker: WORKER_ID, worker_version: WORKER_VERSION, transport: "smartlead_thread", provider_response: providerResponse, thread_preservation_required: true, provider_lead_id: job.provider_lead_id || null, provider_lead_email: job.provider_lead_email || null } })
+    body: JSON.stringify({ metadata: { stage: "provider_accepted_waiting_message_id", worker: WORKER_ID, worker_version: WORKER_VERSION, authority_generation: authorityGeneration, authority_instance_id: INSTANCE_ID, transport: "smartlead_thread", provider_response: providerResponse, thread_preservation_required: true, provider_lead_id: job.provider_lead_id || null, provider_lead_email: job.provider_lead_email || null } })
   });
   await db(`smartlead_reply_obligations?id=eq.${encodeURIComponent(job.obligation_id)}`, {
     method: "PATCH",
     headers: { Prefer: "return=minimal" },
-    body: JSON.stringify({ response_status: "queued", lease_expires_at: null, updated_at: at, metadata: { ...(job.metadata || {}), provider_send_accepted: true, provider_send_accepted_at: at, send_reservation: key, send_authority: "georgie_runtime", transport: "smartlead_thread", worker_version: WORKER_VERSION } })
+    body: JSON.stringify({ response_status: "queued", lease_expires_at: null, updated_at: at, metadata: { ...(job.metadata || {}), provider_send_accepted: true, provider_send_accepted_at: at, send_reservation: key, send_authority: "georgie_runtime", transport: "smartlead_thread", worker_version: WORKER_VERSION, authority_generation: authorityGeneration, authority_instance_id: INSTANCE_ID } })
   });
   return at;
 }
@@ -227,7 +276,7 @@ async function complete(job, key, receipt, providerResponse, receiptSource) {
     p_subject: job.subject,
     p_accepted: true,
     p_rejected: [],
-    p_metadata: { provider: "smartlead", provider_response: providerResponse, receipt_source: receiptSource, worker: WORKER_ID, worker_version: WORKER_VERSION, transport: "smartlead_thread", thread_preserved: true, provider_lead_id: job.provider_lead_id || null, provider_lead_email: job.provider_lead_email || null, reply_sender_email: job.lead_email, sender_mailbox_expected: job.sender_mailbox, sender_exposed_by_provider: receipt.senderExposed ?? null, sender_verified_when_exposed: receipt.senderVerified ?? null, human_access_disclosure: true }
+    p_metadata: { provider: "smartlead", provider_response: providerResponse, receipt_source: receiptSource, worker: WORKER_ID, worker_version: WORKER_VERSION, authority_generation: authorityGeneration, authority_instance_id: INSTANCE_ID, transport: "smartlead_thread", thread_preserved: true, provider_lead_id: job.provider_lead_id || null, provider_lead_email: job.provider_lead_email || null, reply_sender_email: job.lead_email, sender_mailbox_expected: job.sender_mailbox, sender_exposed_by_provider: receipt.senderExposed ?? null, sender_verified_when_exposed: receipt.senderVerified ?? null, human_access_disclosure: true }
   });
 }
 
@@ -246,7 +295,7 @@ async function quarantine(job, reason, extra = {}) {
       lease_expires_at: null,
       last_error: clean(reason, 1000),
       updated_at: now,
-      metadata: { ...(job.metadata || {}), ...extra, quarantine_reason: clean(reason, 500), quarantined_at: now, auto_retry_blocked: true, send_authority: "georgie_runtime", worker_version: WORKER_VERSION }
+      metadata: { ...(job.metadata || {}), ...extra, quarantine_reason: clean(reason, 500), quarantined_at: now, auto_retry_blocked: true, send_authority: "georgie_runtime", worker_version: WORKER_VERSION, authority_generation: authorityGeneration, authority_instance_id: INSTANCE_ID }
     })
   });
 }
@@ -258,18 +307,21 @@ async function enrichJob(job) {
 }
 
 async function reconcileAccepted(limit = 5) {
+  await assertAuthority();
   const rows = await db(`smartlead_reply_obligations?response_status=eq.queued&metadata->>provider_send_accepted=eq.true&select=*&limit=${Math.max(1, Math.min(limit, 10))}`);
   const results = [];
   for (const row of rows || []) {
     try {
+      await assertAuthority();
       const job = { ...row, obligation_id: row.id };
       const leadId = await resolveLeadId(job);
       const receipt = await findSentReceipt(job, leadId, row.metadata?.provider_send_accepted_at || row.updated_at);
       if (!receipt?.providerMessageId) { results.push({ id: row.id, status: "waiting_receipt" }); continue; }
       await complete({ ...job, worker_id: WORKER_ID }, row.metadata?.send_reservation || idem(row.id), receipt, { reconciled: true }, "message_history");
-      console.log("SMARTLEAD_REPLY_CLOSER_RECEIPT", JSON.stringify({ obligationId: row.id, providerMessageId: receipt.providerMessageId }));
+      console.log("SMARTLEAD_REPLY_CLOSER_RECEIPT", JSON.stringify({ obligationId: row.id, providerMessageId: receipt.providerMessageId, generation: authorityGeneration }));
       results.push({ id: row.id, status: "reconciled", providerMessageId: receipt.providerMessageId });
     } catch (error) {
+      if (isStaleAuthorityError(error)) { authorityStale = true; break; }
       console.error("SMARTLEAD_REPLY_CLOSER_RECEIPT_ERROR", clean(error?.message || error, 500));
       results.push({ id: row.id, status: "receipt_error", error: clean(error?.message || error, 300) });
     }
@@ -279,20 +331,37 @@ async function reconcileAccepted(limit = 5) {
 
 export async function runSmartleadReplyCloserOnce() {
   if (!configured()) return { ok: false, skipped: true, reason: "not_configured" };
+  if (authorityGeneration == null || authorityStale) return { ok: true, skipped: true, reason: authorityStale ? "stale_generation" : "authority_not_activated" };
   if (running) return { ok: true, skipped: true, reason: "already_running" };
   running = true;
   await heartbeat("start");
-  const cycle = { receipts: [], jobs: [] };
+  const cycle = { receipts: [], jobs: [], generation: authorityGeneration, instance: INSTANCE_ID };
   try {
     try { cycle.receipts = await reconcileAccepted(5); }
     catch (error) {
+      if (isStaleAuthorityError(error)) {
+        authorityStale = true;
+        return { ok: true, skipped: true, reason: "stale_generation", ...cycle };
+      }
       cycle.receipts = [{ status: "reconcile_batch_error", error: clean(error?.message || error, 300) }];
       console.error("SMARTLEAD_REPLY_CLOSER_RECONCILE_BATCH_ERROR", clean(error?.message || error, 500));
     }
 
     let claim;
-    try { claim = await rpc("claim_smartlead_reply_closer_work", { p_worker_id: WORKER_ID, p_limit: 5, p_lease_seconds: 300 }); }
-    catch (error) {
+    try {
+      claim = await rpc("claim_smartlead_reply_closer_work_v2", {
+        p_worker_id: WORKER_ID,
+        p_worker_version: WORKER_VERSION,
+        p_instance_id: INSTANCE_ID,
+        p_generation: authorityGeneration,
+        p_limit: 5,
+        p_lease_seconds: 300
+      });
+    } catch (error) {
+      if (isStaleAuthorityError(error)) {
+        authorityStale = true;
+        return { ok: true, skipped: true, reason: "stale_generation", ...cycle };
+      }
       await heartbeat("error", { ok: false, error, result: cycle });
       return { ok: false, worker: WORKER_ID, error: clean(error?.message || error, 500), ...cycle };
     }
@@ -302,6 +371,7 @@ export async function runSmartleadReplyCloserOnce() {
       const job = await enrichJob(raw);
       let sendAttempted = false;
       try {
+        await assertAuthority();
         if (!AUTO_CLASSES.has(job.reply_class) || job.requires_human_review || !job.auto_response_allowed) {
           await quarantine(job, "AUTO_SEND_POLICY_BLOCK");
           cycle.jobs.push({ obligationId: job.obligation_id, status: "human_review_policy" });
@@ -332,6 +402,7 @@ export async function runSmartleadReplyCloserOnce() {
           continue;
         }
 
+        await assertAuthority();
         const reservation = await reserve(job);
         if (reservation.existing) {
           const receipt = findSentReceiptFromMessages(job, thread.messages, job.metadata?.provider_send_accepted_at || job.updated_at || job.created_at);
@@ -348,6 +419,7 @@ export async function runSmartleadReplyCloserOnce() {
         const html = replyHtml(job);
         const replyTime = job.metadata?.provider_occurred_at || job.created_at || new Date().toISOString();
         const sendStartedAt = new Date().toISOString();
+        await assertAuthority();
         sendAttempted = true;
         const providerResponse = await smartleadWrite(`/campaigns/${job.provider_campaign_id}/reply-email-thread`, {
           lead_id: Number(leadId),
@@ -366,6 +438,12 @@ export async function runSmartleadReplyCloserOnce() {
           cycle.jobs.push({ obligationId: job.obligation_id, status: "provider_accepted_waiting_receipt" });
         }
       } catch (error) {
+        if (isStaleAuthorityError(error)) {
+          authorityStale = true;
+          if (!sendAttempted) await releaseStaleClaim(job);
+          cycle.jobs.push({ obligationId: job.obligation_id, status: "stale_generation_released" });
+          break;
+        }
         if (sendAttempted) {
           await quarantine(job, "AMBIGUOUS_PROVIDER_SEND_NO_AUTO_RETRY", { provider_error: clean(error?.message || error, 500), send_attempted: true });
           cycle.jobs.push({ obligationId: job.obligation_id, status: "human_review_ambiguous_send", error: clean(error?.message || error, 300) });
@@ -376,10 +454,10 @@ export async function runSmartleadReplyCloserOnce() {
       }
     }
 
-    await heartbeat("success", { ok: true, result: cycle });
+    if (!authorityStale) await heartbeat("success", { ok: true, result: cycle });
     return { ok: true, worker: WORKER_ID, ...cycle };
   } catch (error) {
-    await heartbeat("error", { ok: false, error, result: cycle });
+    if (!authorityStale) await heartbeat("error", { ok: false, error, result: cycle });
     throw error;
   } finally {
     running = false;
@@ -392,11 +470,15 @@ export function startSmartleadReplyCloserWorker() {
     return;
   }
   const tick = () => runSmartleadReplyCloserOnce().catch(error => console.error("SMARTLEAD_REPLY_CLOSER_ERROR", clean(error?.stack || error, 1200)));
-  heartbeat("heartbeat").catch(() => {});
-  setTimeout(tick, 5_000).unref?.();
-  timer = setInterval(tick, POLL_MS);
-  timer.unref?.();
-  console.log(`Georgie Smartlead threaded reply closer worker online (${POLL_MS}ms) ${WORKER_VERSION}`);
+  activateAuthority().then(async generation => {
+    await heartbeat("heartbeat");
+    setTimeout(tick, 5_000).unref?.();
+    timer = setInterval(tick, POLL_MS);
+    timer.unref?.();
+    console.log(`Georgie Smartlead threaded reply closer worker online (${POLL_MS}ms) ${WORKER_VERSION} generation=${generation} instance=${INSTANCE_ID}`);
+  }).catch(error => {
+    console.error("SMARTLEAD_REPLY_CLOSER_AUTHORITY_START_ERROR", clean(error?.stack || error, 1200));
+  });
 }
 
 export const smartleadReplyCloserWorkerContract = Object.freeze({
@@ -406,6 +488,9 @@ export const smartleadReplyCloserWorkerContract = Object.freeze({
   threadPreservationRequired: true,
   immutableProviderLeadIdentityPreferred: true,
   replySenderSeparatedFromProviderLead: true,
+  rollingDeployGenerationFence: true,
+  preSendAuthorityReassertion: true,
+  legacyWorkerClaimsDisabled: true,
   originalSenderAssignmentRequired: true,
   providerThreadInboundIdentityRequired: true,
   suppressIfNewerInboundExists: true,
