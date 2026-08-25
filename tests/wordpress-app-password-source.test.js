@@ -14,10 +14,10 @@ test("WordPress Application Password capability is committed to distributable so
   const {agent}=handlerSource();
   const connector=fs.readFileSync(new URL("../src/governed-connector.js",import.meta.url),"utf8");
   assert.match(agent,/case "browser\.wordpress_enable_application_passwords"/);
-  assert.match(agent,/const AGENT_VERSION = "2\.2\.34"/);
+  assert.match(agent,/const AGENT_VERSION = "2\.2\.35"/);
   assert.match(connector,/"primary_mac\.browser\.wordpress_security_repair"/);
   assert.match(connector,/action: "browser\.wordpress_enable_application_passwords"/);
-  assert.match(connector,/requiredAgentVersion: "2\.2\.34"/);
+  assert.match(connector,/requiredAgentVersion: "2\.2\.35"/);
 });
 
 test("canonical template and committed Mac handler cannot drift",()=>{
@@ -26,24 +26,28 @@ test("canonical template and committed Mac handler cannot drift",()=>{
   assert.equal(handler,template);
 });
 
-test("v7 selects a unique target tab and exact Wordfence option signature",()=>{
+test("v7 selects a unique target tab and exact Hostinger Tools option signature",()=>{
   const {handler}=handlerSource();
-  assert.match(handler,/admin\.php\?page=WordfenceOptions/);
+  assert.match(handler,/admin\.php\?page=hostinger-tools/);
   assert.match(handler,/crypto\.randomUUID\(\)/);
-  assert.match(handler,/if tabUrl is \$\{JSON\.stringify\(targetUrl\)\}/);
-  assert.match(handler,/wf-option-loginSec-disableApplicationPasswords/);
-  assert.match(handler,/data-option="\'\+expected\.option\+\'"/);
-  assert.match(handler,/loginSec_disableApplicationPasswords/);
-  assert.match(handler,/wf-option-checkbox\[role="checkbox"\]/);
-  assert.match(handler,/wf-option-loginSec-disableApplicationPasswords-label/);
-  assert.doesNotMatch(handler,/input\[type="checkbox"\]/);
+  assert.match(handler,/targetCount is not 1/);
+  assert.match(handler,/page:'hostinger-tools'/);
+  assert.match(handler,/section:'security'/);
+  assert.match(handler,/item:'disable application passwords'/);
+  assert.match(handler,/wordpress application passwords allow users to authenticate api requests without using their main login credentials, allowing for third-party integrations\./);
+  assert.match(handler,/home-section__section-item/);
+  assert.match(handler,/toggle__element-container label\.toggle input\[type="checkbox"\]/);
+  assert.match(handler,/input\.disabled===true/);
+  assert.match(handler,/checked===classActive/);
+  assert.doesNotMatch(handler,/WordfenceOptions|WFAD|loginSec_disableApplicationPasswords/);
 });
 
-test("v7 saves only one clean Wordfence pending change and remains fail closed",()=>{
+test("v7 changes only the exact Hostinger toggle, reload-verifies, and remains fail closed",()=>{
   const {handler}=handlerSource();
-  assert.match(handler,/Object\.keys\(WFAD\.pendingChanges\)\.length!==0/);
-  assert.match(handler,/keys\.length!==1\|\|keys\[0\]!==option/);
-  assert.match(handler,/querySelectorAll\('#wf-save-changes'\)/);
+  assert.match(handler,/label\.click\(\)/);
+  assert.match(handler,/location\.reload\(\)/);
+  assert.match(handler,/provider:"hostinger-tools"/);
+  assert.match(handler,/setting:"disableAuthenticationPassword"/);
   assert.match(handler,/WORDPRESS_APP_PASSWORD_CONTROL_AMBIGUOUS/);
   assert.match(handler,/WORDPRESS_APP_PASSWORD_MUTATION_REJECTED/);
   assert.match(handler,/WORDPRESS_APP_PASSWORD_VERIFY_FAILED_ROLLBACK_/);
