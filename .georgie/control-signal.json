@@ -1,9 +1,9 @@
 {
   "version": 1,
   "issueNumber": 163,
-  "commentId": 5413246040,
+  "commentId": 5414140089,
   "objectiveId": "SIERRA-SEO-AUTOPILOT-20260824-001",
-  "commandId": "cmd_wp_enable_app_passwords_20260825_1153",
-  "idempotencyKey": "sierra-wp-enable-application-passwords-20260825-v7",
-  "updatedAt": "2026-08-25T17:14:30Z"
+  "commandId": "cmd_sierra_seo_phase2_integrity_attack_20260825_1303",
+  "idempotencyKey": "sierra-seo-phase2-integrity-attack-20260825-v1",
+  "updatedAt": "2026-08-25T17:15:30Z"
 }
