@@ -9,6 +9,8 @@ import { listMessagesBefore, readMessage } from "./integrations/neo-mail.js";
 import { projectSierraMailboxEvidence } from "./integrations/sierra-workforce.js";
 import { scheduleObjective, listScheduledObjectives, runObjectiveWorkerCycle } from "./objective-worker.js";
 import { crawlWebsite, pageSpeed, getApplicationFunnel, seoIntegrationStatus, websiteControlStatus } from "./integrations/seo-ops.js";
+import { buildSeoPhase2Objective } from "./seo-phase2-executor.js";
+import { SEO_PHASE2_COMMAND_SEQUENCE } from "./seo-phase2-batches.js";
 
 const NS = "governed_external_connector";
 const SCHEMA = "georgie.governed-connector.v1";
@@ -179,6 +181,17 @@ async function executeTypedCapability({ userId, command }) {
       const objective = objectives.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0] || null;
       const repairJobs = (await listMacJobs(userId, 100)).filter(job => job.action === "browser.wordpress_link_integrity_repair").slice(-20).map(summarizeGovernedMacJob);
       return { terminalState: "completed", completed: true, route, objectiveStatus: objective ? { id: objective.id, stableKey: objective.stableKey, status: objective.status, stepIndex: objective.stepIndex, steps: objective.steps.map(step => step.id), attempts: objective.attempts, nextRunAt: objective.nextRunAt, lease: objective.lease, checkpoint: objective.checkpoint, evidence: objective.evidence.slice(-20), repairJobs } : null, productionMutation: false };
+    }
+    // SEO_PHASE2_TYPED_START: preserved Phase-2 command identities compile to distinct bounded workflows.
+    const suppliedPhase2Id=clean(command.metadata?.phase2_command_id||command.metadata?.phase2CommandId||command.metadata?.command_id||command.metadata?.commandId,220);
+    const embeddedPhase2Id=SEO_PHASE2_COMMAND_SEQUENCE.find(item=>String(command.command||"").includes(item.commandId))?.commandId||null;
+    const phase2CommandId=suppliedPhase2Id||embeddedPhase2Id;
+    if(phase2CommandId){
+      const completedCommandIds=[...new Set((command.metadata?.completed_command_ids||command.metadata?.completedCommandIds||[]).map(value=>clean(value,220)).filter(Boolean))];
+      const spec=buildSeoPhase2Objective({commandId:phase2CommandId,batch:command.metadata?.batch||command.metadata?.program,completedCommandIds});
+      const scheduled=await scheduleObjective(userId,spec);
+      setImmediate(()=>runObjectiveWorkerCycle(userId).catch(error=>console.warn("[Georgie] SEO Phase2 objective wake failed:",error instanceof Error?error.message:error)));
+      return{terminalState:"completed",completed:true,route,phase2:{commandId:spec.phase2.commandId,batch:spec.phase2.batch,sequenceIndex:spec.phase2.sequenceIndex,predecessorCommandId:spec.phase2.predecessorCommandId,planHash:spec.phase2.planHash},scheduledObjective:{id:scheduled.objective.id,stableKey:scheduled.objective.stableKey,status:scheduled.objective.status,stepIndex:scheduled.objective.stepIndex,steps:scheduled.objective.steps.map(step=>step.id)},productionMutation:false};
     }
     const scheduled = await scheduleObjective(userId, {
       stableKey: route.objective_id,
