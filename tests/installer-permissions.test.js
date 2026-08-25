@@ -17,6 +17,7 @@ test("every Mac installer is committed as an executable entry point", async () =
 
 test("Mac installer recovers stale LaunchAgent registrations without sudo", async () => {
   const installer = await readFile(new URL("../mac-agent/install.sh", import.meta.url), "utf8");
+  assert.match(installer, /if \[ -z "\$\{ZSH_VERSION:-\}" \]; then exec \/bin\/zsh "\$0" "\$@"; fi/);
   assert.match(installer, /launchctl bootout "\$SERVICE_TARGET"/);
   assert.match(installer, /launchctl bootout "\$GUI_DOMAIN" "\$PLIST"/);
   assert.match(installer, /launchctl print "\$SERVICE_TARGET"/);
