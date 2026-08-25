@@ -252,11 +252,20 @@ jobs:
 
           attempts=1
           if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then attempts=8; fi
+          delivered=0
           for ((i=1; i<=attempts; i++)); do
-            if relay_one_receipt; then exit 0; fi
-            status=$?
+            if relay_one_receipt; then
+              delivered=$((delivered + 1))
+              continue
+            else
+              status=$?
+            fi
             [[ "$status" == "2" ]] || exit "$status"
-            if (( i < attempts )); then sleep 5; fi
+            break
           done
 
-          echo "Control was accepted; no relay-eligible receipt is pending yet."
+          if (( delivered > 0 )); then
+            echo "Receipt relay drained $delivered pending receipt(s) with GitHub marker read-back."
+          else
+            echo "Control was accepted; no relay-eligible receipt is pending yet."
+          fi
