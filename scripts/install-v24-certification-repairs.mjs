@@ -32,4 +32,21 @@ patch("src/mac/queue.js", source => {
   return source.replace(activeJobs, activeJobs.replace("const now=new Date(),jobs=", "const now=new Date(),nowMs=now.getTime(),jobs=").replace(".slice(0,limit);", '.sort((a,b)=>macClaimScore(a,nowMs)-macClaimScore(b,nowMs)||String(a.createdAt||"").localeCompare(String(b.createdAt||""))).slice(0,limit);'));
 }, source => source.includes("function macClaimScore(job, nowMs)") && source.includes("developer.repo_inspect") && source.includes(".sort((a,b)=>macClaimScore(a,nowMs)-macClaimScore(b,nowMs)"));
 
+patch("src/mac/queue.js", source => {
+  const start = source.indexOf("export async function enqueueMacJob(");
+  const end = source.indexOf("\nexport async function importRecoveredMacJob", start);
+  if (start < 0 || end < 0) throw new Error("V24_MAC_ENQUEUE_FUNCTION_NOT_FOUND");
+  const block = source.slice(start, end);
+  if (block.includes("},{durableClaimBoundary:true});")) return source;
+  const oldTail = '    store.jobs.push(job);store.jobs=store.jobs.slice(-5000);return job;\n  });\n}';
+  const newTail = '    store.jobs.push(job);store.jobs=store.jobs.slice(-5000);return job;\n  },{durableClaimBoundary:true});\n}';
+  if (!block.includes(oldTail)) throw new Error("V24_MAC_ENQUEUE_DURABILITY_ANCHOR_NOT_FOUND");
+  const nextBlock = block.replace(oldTail, newTail);
+  return source.slice(0, start) + nextBlock + source.slice(end);
+}, source => {
+  const start = source.indexOf("export async function enqueueMacJob(");
+  const end = source.indexOf("\nexport async function importRecoveredMacJob", start);
+  return start >= 0 && end > start && source.slice(start, end).includes("},{durableClaimBoundary:true});");
+});
+
 console.log("[Georgie] v2.4 certification repairs installed");
