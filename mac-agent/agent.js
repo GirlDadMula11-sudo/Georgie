@@ -203,6 +203,101 @@ async function repairWordpressLinkIntegrity(args = {}) {
   return { wordpressLinkIntegrityRepair: result, siteOrigin: "https://sierramarketinginc.com", authority: "reversible_write", credentialsTransferred: false, formValuesCaptured: false, backupCreated: true, mutationPerformed: result.changedCount > 0, verified: result.verified === true, rollbackPerformed: result.rollbackPerformed === true };
 }
 
+async function enableWordpressApplicationPasswords(args = {}) {
+  if (args.authority !== "reversible_write" || args.operation !== "enable_application_passwords") throw new Error("WORDPRESS_APP_PASSWORD_AUTHORIZATION_REJECTED");
+  if (String(args.siteOrigin || "").replace(/\/$/, "") !== "https://sierramarketinginc.com") throw new Error("WORDPRESS_APP_PASSWORD_SITE_REJECTED");
+  const adminUrl = "https://sierramarketinginc.com/wp-admin/admin.php?page=WordfenceOptions";
+  await execFileAsync("open", ["-a", "Google Chrome", adminUrl], { timeout: 15000 });
+  await new Promise(resolve => setTimeout(resolve, 4000));
+
+  const inspectJavascript = `JSON.stringify((()=>{
+    const wanted='disable wordpress application passwords';
+    const norm=s=>String(s||'').replace(/\\s+/g,' ').trim().toLowerCase();
+    const labels=[...document.querySelectorAll('label,span,td,div')].filter(el=>norm(el.textContent)===wanted);
+    const candidates=[];
+    for(const label of labels){
+      let checkbox=null;
+      if(label.htmlFor) checkbox=document.getElementById(label.htmlFor);
+      if(!checkbox) checkbox=label.querySelector('input[type="checkbox"]');
+      if(!checkbox){ const scope=label.closest('tr,.wfConfigOption,.wfConfigSection,form,div'); checkbox=scope&&scope.querySelector('input[type="checkbox"]'); }
+      if(checkbox&&checkbox.type==='checkbox'&&!candidates.includes(checkbox)) candidates.push(checkbox);
+    }
+    return {url:location.href,matchCount:candidates.length,checked:candidates.length===1?Boolean(candidates[0].checked):null,label:wanted};
+  })())`;
+
+  const runOnApprovedTab = async javascript => {
+    const apple = `tell application "Google Chrome"\nrepeat with browserWindow in windows\nrepeat with browserTab in tabs of browserWindow\nset tabUrl to URL of browserTab\nif tabUrl starts with "https://sierramarketinginc.com/wp-admin/" then\nreturn execute browserTab javascript ${JSON.stringify(javascript)}\nend if\nend repeat\nend repeat\nreturn "WORDPRESS_ADMIN_TAB_NOT_FOUND"\nend tell`;
+    return runAppleScript(apple);
+  };
+  const inspect = async () => {
+    const raw = await runOnApprovedTab(inspectJavascript);
+    if (raw === "WORDPRESS_ADMIN_TAB_NOT_FOUND") throw new Error("WORDPRESS_ADMIN_TAB_NOT_FOUND");
+    return JSON.parse(raw || "{}");
+  };
+
+  const before = await inspect();
+  if (before.matchCount !== 1) throw new Error(`WORDPRESS_APP_PASSWORD_CONTROL_AMBIGUOUS:${before.matchCount}`);
+  if (before.checked === false) return { wordpressApplicationPasswords: { changed:false, alreadyEnabled:true, beforeChecked:false, afterChecked:false, verified:true, rollbackPerformed:false }, siteOrigin:args.siteOrigin, authority:args.authority, credentialsTransferred:false, formValuesCaptured:false };
+
+  const mutateJavascript = `JSON.stringify((()=>{
+    const wanted='disable wordpress application passwords';
+    const norm=s=>String(s||'').replace(/\\s+/g,' ').trim().toLowerCase();
+    const labels=[...document.querySelectorAll('label,span,td,div')].filter(el=>norm(el.textContent)===wanted);
+    const candidates=[];
+    for(const label of labels){
+      let checkbox=null;
+      if(label.htmlFor) checkbox=document.getElementById(label.htmlFor);
+      if(!checkbox) checkbox=label.querySelector('input[type="checkbox"]');
+      if(!checkbox){ const scope=label.closest('tr,.wfConfigOption,.wfConfigSection,form,div'); checkbox=scope&&scope.querySelector('input[type="checkbox"]'); }
+      if(checkbox&&checkbox.type==='checkbox'&&!candidates.includes(checkbox)) candidates.push(checkbox);
+    }
+    if(candidates.length!==1) return {ok:false,code:'CONTROL_AMBIGUOUS',count:candidates.length};
+    const checkbox=candidates[0];
+    const form=checkbox.closest('form');
+    if(!form) return {ok:false,code:'FORM_NOT_FOUND'};
+    const buttons=[...form.querySelectorAll('button[type="submit"],input[type="submit"],button')].filter(el=>norm(el.textContent||el.value)==='save changes');
+    if(buttons.length!==1) return {ok:false,code:'SAVE_CONTROL_AMBIGUOUS',count:buttons.length};
+    if(checkbox.checked) checkbox.click();
+    if(checkbox.checked) return {ok:false,code:'CHECKBOX_DID_NOT_CLEAR'};
+    buttons[0].click();
+    return {ok:true,submitted:true};
+  })())`;
+  const mutation = JSON.parse(await runOnApprovedTab(mutateJavascript) || "{}");
+  if (mutation.ok !== true) throw new Error(`WORDPRESS_APP_PASSWORD_MUTATION_REJECTED:${mutation.code||"UNKNOWN"}:${mutation.count??""}`);
+  await new Promise(resolve => setTimeout(resolve, 4000));
+  await execFileAsync("open", ["-a", "Google Chrome", adminUrl], { timeout: 15000 });
+  await new Promise(resolve => setTimeout(resolve, 3000));
+  const after = await inspect();
+  if (after.matchCount === 1 && after.checked === false) {
+    return { wordpressApplicationPasswords: { changed:true, alreadyEnabled:false, beforeChecked:true, afterChecked:false, verified:true, rollbackPerformed:false }, siteOrigin:args.siteOrigin, authority:args.authority, credentialsTransferred:false, formValuesCaptured:false };
+  }
+
+  const rollbackJavascript = `JSON.stringify((()=>{
+    const wanted='disable wordpress application passwords';
+    const norm=s=>String(s||'').replace(/\\s+/g,' ').trim().toLowerCase();
+    const labels=[...document.querySelectorAll('label,span,td,div')].filter(el=>norm(el.textContent)===wanted);
+    const candidates=[];
+    for(const label of labels){
+      let checkbox=null;
+      if(label.htmlFor) checkbox=document.getElementById(label.htmlFor);
+      if(!checkbox) checkbox=label.querySelector('input[type="checkbox"]');
+      if(!checkbox){ const scope=label.closest('tr,.wfConfigOption,.wfConfigSection,form,div'); checkbox=scope&&scope.querySelector('input[type="checkbox"]'); }
+      if(checkbox&&checkbox.type==='checkbox'&&!candidates.includes(checkbox)) candidates.push(checkbox);
+    }
+    if(candidates.length!==1) return {ok:false,code:'ROLLBACK_CONTROL_AMBIGUOUS'};
+    const checkbox=candidates[0],form=checkbox.closest('form');
+    if(!form) return {ok:false,code:'ROLLBACK_FORM_NOT_FOUND'};
+    const buttons=[...form.querySelectorAll('button[type="submit"],input[type="submit"],button')].filter(el=>norm(el.textContent||el.value)==='save changes');
+    if(buttons.length!==1) return {ok:false,code:'ROLLBACK_SAVE_AMBIGUOUS'};
+    if(!checkbox.checked) checkbox.click();
+    if(!checkbox.checked) return {ok:false,code:'ROLLBACK_CHECKBOX_DID_NOT_SET'};
+    buttons[0].click(); return {ok:true};
+  })())`;
+  const rollback = JSON.parse(await runOnApprovedTab(rollbackJavascript) || "{}");
+  await new Promise(resolve => setTimeout(resolve, 3000));
+  throw new Error(`WORDPRESS_APP_PASSWORD_VERIFY_FAILED_ROLLBACK_${rollback.ok===true?"SUBMITTED":"FAILED"}:${after.matchCount}:${after.checked}`);
+}
+
 async function waitForAppProcess(app, timeoutMs = 8000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -516,6 +611,8 @@ async function execute(job) {
       return inspectGovernedWordpressSession(a);
     case "browser.wordpress_link_integrity_repair":
       return repairWordpressLinkIntegrity(a);
+    case "browser.wordpress_enable_application_passwords":
+      return enableWordpressApplicationPasswords(a);
     case "browser.workflow":
       return executeBrowserWorkflow(job);
     case "mailbox.neo_static_contract_inspect":
