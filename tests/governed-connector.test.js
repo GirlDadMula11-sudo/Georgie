@@ -280,3 +280,44 @@ test("typed SEO evidence survives the durable connector return channel", () => {
   const source = fs.readFileSync(new URL("../src/governed-connector.js", import.meta.url), "utf8");
   for (const field of ["integration:result?.integration", "websiteControl:result?.websiteControl", "crawl:result?.crawl", "performance:Array.isArray", "applicationFunnel:result?.applicationFunnel", "defects:result?.defects"]) assert.match(source, new RegExp(field.replaceAll("?", "\\?").replaceAll(".", "\\.")));
 });
+
+
+const governedMacBrowserEnvelope = (overrides = {}) => ({
+  source: "chatgpt",
+  objectiveId: "SIERRA-SEO-MAC-BROWSER-20260824-001",
+  idempotencyKey: "governed-mac-browser-inspect-1",
+  command: "Inspect the approved Sierra WordPress and Hostinger browser session.",
+  metadata: {
+    capability: "primary_mac.browser.wordpress_read_only",
+    target_device: "primary-mac",
+    operation: "inspect_session",
+    authority: "read_only",
+    prohibited_routes: ["arbitrary_domain", "credentials.read", "form.submit", "content.write", "wordpress.publish", "dns.write", "email.send"],
+    site_origin: "https://sierramarketinginc.com"
+  },
+  ...overrides
+});
+
+test("dedicated governed Mac browser capability is typed, allowlisted, and read-only", async () => {
+  const envelope = validateCommandEnvelope(governedMacBrowserEnvelope());
+  assert.equal(envelope.routing.capability, "primary_mac.browser.wordpress_read_only");
+  assert.equal(envelope.routing.target_device, "primary-mac");
+  assert.equal(envelope.routing.authority, "read_only");
+  const connector = harness({ executeCommand: async () => assert.fail("governed browser command entered prose router") });
+  const result = await connector.submit("primary", governedMacBrowserEnvelope());
+  const stored = await waitFor(connector, "primary", result.commandId, ["recovering"]);
+  assert.equal(stored.result.job.action, "browser.wordpress_hostinger_inspect");
+  assert.equal(stored.result.job.authority, "read_only");
+  assert.throws(() => validateCommandEnvelope(governedMacBrowserEnvelope({ metadata: { ...governedMacBrowserEnvelope().metadata, authority: "write" } })), /CAPABILITY_AUTHORITY_MISMATCH/);
+  assert.throws(() => validateCommandEnvelope(governedMacBrowserEnvelope({ metadata: { ...governedMacBrowserEnvelope().metadata, operation: "publish" } })), /UNSUPPORTED_OPERATION/);
+  assert.throws(() => validateCommandEnvelope(governedMacBrowserEnvelope({ metadata: { ...governedMacBrowserEnvelope().metadata, prohibited_routes: ["arbitrary_domain", "mouse.unrestricted"] } })), /UNKNOWN_PROHIBITED_ROUTE/);
+});
+
+test("Mac browser handler filters domains, redacts credentials, and cannot mutate", () => {
+  const source = fs.readFileSync(new URL("../mac-agent/agent.js", import.meta.url), "utf8");
+  assert.match(source, /GOVERNED_WORDPRESS_BROWSER_HOSTS.*sierramarketinginc\.com.*hostinger\.com/);
+  assert.match(source, /formValuesCaptured: false/);
+  assert.match(source, /credentialsTransferred: false/);
+  assert.match(source, /mutationPerformed: false/);
+  assert.match(source, /GOVERNED_BROWSER_SITE_REJECTED/);
+});
