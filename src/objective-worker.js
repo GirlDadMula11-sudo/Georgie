@@ -59,6 +59,15 @@ export async function scheduleObjective(userId, input = {}) {
   if (!steps.length) throw new Error("At least one objective step is required");
   const store = await readStore(userId);
   let objective = store.objectives.find(o => o.stableKey === stableKey && !["cancelled", "verified"].includes(o.status));
+  if (objective && objective.status === "blocked" && input.resumeBlocked === true) {
+    objective.status = "queued";
+    objective.attempts = 0;
+    objective.lease = null;
+    objective.nextRunAt = now();
+    objective.checkpoint = { ...objective.checkpoint, lastStatus: "queued", lastError: null, resumedAt: now() };
+    await persistObjective(userId, objective);
+    return { status: "resumed", objective };
+  }
   if (objective) return { status: "deduplicated", objective };
   objective = {
     id: crypto.randomUUID(), stableKey, title: clean(input.title || stableKey, 300), domain: clean(input.domain || "general", 80),
