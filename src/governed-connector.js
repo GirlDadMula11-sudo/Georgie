@@ -39,7 +39,7 @@ const CAPABILITIES = Object.freeze({
   "developer.repository_inspection": Object.freeze({
     targetDevice: "primary-mac",
     authority: "read_only",
-    operations: new Set(["inspect"]),
+    operations: new Set(["inspect", "read_file"]),
     prohibitedRoutes: new Set(["email.send", "smtp", "mailbox.write", "lender.submit", "production.deploy"])
   }),
   "developer.patch_preparation": Object.freeze({
@@ -239,7 +239,13 @@ async function executeTypedCapability({ userId, command }) {
     const patchHash = clean(command.metadata?.patch_hash || command.metadata?.patchHash, 128);
     let action, args, risk, reason;
     if (route.capability === "developer.repository_inspection") {
-      action = "developer.repo_inspect"; args = { repo }; risk = "read"; reason = "Governed repository inspection";
+      if (route.operation === "read_file") {
+        const filePath = clean(command.metadata?.path, 300);
+        if (filePath !== "mac-agent/agent.js") throw new Error("DEVELOPER_READ_PATH_NOT_ALLOWLISTED");
+        action = "developer.file_read"; args = { repo, path: filePath }; risk = "read"; reason = "Governed allowlisted source read";
+      } else {
+        action = "developer.repo_inspect"; args = { repo }; risk = "read"; reason = "Governed repository inspection";
+      }
     } else if (route.operation === "run_allowlisted_checks") {
       const script = clean(command.metadata?.script || "test", 40);
       if (!["check", "test", "benchmark"].includes(script)) throw new Error("DEVELOPER_CHECK_NOT_ALLOWLISTED");
