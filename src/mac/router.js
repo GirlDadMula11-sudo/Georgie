@@ -46,7 +46,7 @@ export function createMacRouter() {
 
   router.get("/:deviceId/jobs", async (req, res) => {
     try {
-      const jobs = await claimMacJobs(String(req.params.deviceId), Number(req.query?.limit || 5));
+      const jobs = await claimMacJobs(String(req.params.deviceId), Number(req.query?.limit || 5), { agentVersion: String(req.query?.agentVersion || "") });
       res.json({ ok: true, jobs });
     } catch (error) {
       res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "Could not claim Mac jobs" });
