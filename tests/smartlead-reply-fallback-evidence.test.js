@@ -54,13 +54,18 @@ test("blocks mismatched provider lead", () => {
   assert.equal(evaluateSmartleadWebhookThreadFallback(x).reason, "WEBHOOK_FALLBACK_PROVIDER_LEAD_MISMATCH");
 });
 
-test("blocks newer inbound", () => {
-  const x = base(); x.relatedEvents.push({ event_type: "email_reply", provider_message_id: "<newer>", occurred_at: "2026-08-20T20:00:00Z" });
+test("blocks newer inbound for same lead identity", () => {
+  const x = base(); x.relatedEvents.push({ event_type: "email_reply", provider_message_id: "<newer>", occurred_at: "2026-08-20T20:00:00Z", metadata: { email: "premal@safehavencommercial.com" } });
   assert.equal(evaluateSmartleadWebhookThreadFallback(x).reason, "WEBHOOK_FALLBACK_NEWER_INBOUND_EXISTS");
 });
 
-test("blocks later outbound", () => {
-  const x = base(); x.relatedEvents.push({ event_type: "email_sent", provider_message_id: "<later>", occurred_at: "2026-08-20T20:00:00Z" });
+test("ignores unrelated campaign contact activity", () => {
+  const x = base(); x.relatedEvents.push({ event_type: "email_sent", provider_message_id: "<unrelated>", occurred_at: "2026-08-20T20:00:00Z", metadata: { email: "other@example.com" } });
+  assert.equal(evaluateSmartleadWebhookThreadFallback(x).ok, true);
+});
+
+test("blocks later outbound for same lead identity", () => {
+  const x = base(); x.relatedEvents.push({ event_type: "email_sent", provider_message_id: "<later>", occurred_at: "2026-08-20T20:00:00Z", metadata: { email: "contactus@safehavencommercial.com" } });
   assert.equal(evaluateSmartleadWebhookThreadFallback(x).reason, "WEBHOOK_FALLBACK_LATER_OUTBOUND_EXISTS");
 });
 
