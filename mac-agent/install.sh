@@ -3,14 +3,21 @@ if [ -z "${ZSH_VERSION:-}" ]; then exec /bin/zsh "$0" "$@"; fi
 set -euo pipefail
 if (( EUID == 0 )); then echo "Do not run this installer with sudo."; exit 1; fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)";cd "$ROOT"
-LOG_DIR="$HOME/Library/Logs";STATE_DIR="$HOME/Library/Application Support/Georgie";INSTALL_LOG="$LOG_DIR/georgie-mac-agent-install.log";INSTALL_RECEIPT="$STATE_DIR/mac-agent-install-receipt.json";mkdir -p "$LOG_DIR" "$STATE_DIR";exec > >(tee -a "$INSTALL_LOG") 2>&1
+LOG_DIR="$HOME/Library/Logs";STATE_DIR="$HOME/Library/Application Support/Georgie";INSTALL_LOG="$LOG_DIR/georgie-mac-agent-install.log";INSTALL_RECEIPT="$STATE_DIR/mac-agent-install-receipt.json";INSTALL_DIAGNOSTIC="$ROOT/mac-agent/.install-diagnostic.json";CURRENT_STEP="initializing";mkdir -p "$LOG_DIR" "$STATE_DIR";exec > >(tee -a "$INSTALL_LOG") 2>&1
 INSTALL_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 write_receipt(){ local receipt_status="$1" receipt_code="$2";/usr/bin/python3 - "$INSTALL_RECEIPT" "$receipt_status" "$receipt_code" "$INSTALL_STARTED_AT" <<'PY'
 import json,sys,datetime,os,tempfile
 path,status,code,started=sys.argv[1:5];payload={"status":status,"code":code,"startedAt":started,"completedAt":datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),"pid":os.getpid()};fd,tmp=tempfile.mkstemp(prefix='.mac-agent-install-',dir=os.path.dirname(path));os.close(fd);open(tmp,'w').write(json.dumps(payload));os.replace(tmp,path)
 PY
 }
-trap 'rc=$?; if (( rc != 0 )); then write_receipt "failed" "INSTALLER_EXIT_${rc}"; fi' EXIT;write_receipt "running" "INSTALLER_STARTED";say_step(){ printf '\n[Georgie] %s\n' "$1"; }
+write_diagnostic(){ local receipt_status="$1" receipt_code="$2"; /usr/bin/python3 - "$INSTALL_DIAGNOSTIC" "$receipt_status" "$receipt_code" "$CURRENT_STEP" "$INSTALL_STARTED_AT" <<'PY'
+import json,sys,datetime,os,tempfile
+path,status,code,step,started=sys.argv[1:6]
+payload={"version":1,"status":status,"code":code,"stage":step,"startedAt":started,"observedAt":datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z')}
+fd,tmp=tempfile.mkstemp(prefix='.install-diagnostic-',dir=os.path.dirname(path));os.close(fd);open(tmp,'w').write(json.dumps(payload));os.replace(tmp,path)
+PY
+}
+trap 'rc=$?; if (( rc != 0 )); then write_receipt "failed" "INSTALLER_EXIT_${rc}"; write_diagnostic "failed" "INSTALLER_EXIT_${rc}"; fi' EXIT;write_receipt "running" "INSTALLER_STARTED";write_diagnostic "running" "INSTALLER_STARTED";say_step(){ CURRENT_STEP="$1";write_diagnostic "running" "INSTALLER_STAGE";printf '\n[Georgie] %s\n' "$1"; }
 command -v node >/dev/null 2>&1||{ echo "Node.js 20+ is required before installing the Georgie Mac Agent.";exit 1; };NODE="$(command -v node)";NODE_VERSION="$($NODE -p 'process.versions.node')";NODE_MAJOR="${NODE_VERSION%%.*}";(( NODE_MAJOR>=20 ))||{ echo "Georgie requires Node.js 20 or newer. Current version: $NODE_VERSION";exit 1; }
 ENV_FILE="$ROOT/.env";PLIST="$HOME/Library/LaunchAgents/com.georgie.mac-agent.plist";HEALTH_FILE="$STATE_DIR/mac-agent-health.json";EXPECTED_AGENT_VERSION="2.2.35";RUNTIME_AGENT="$ROOT/mac-agent/agent.runtime.js"
 existing_value(){ local key="$1";[[ -f "$ENV_FILE" ]]||return 0;grep -E "^${key}=" "$ENV_FILE"|tail -1|cut -d= -f2-; }
@@ -27,4 +34,4 @@ plutil -lint "$PLIST";GUI_DOMAIN="gui/$(id -u)";SERVICE_TARGET="$GUI_DOMAIN/com.
 say_step "Waiting for daemon-owned heartbeat + poll receipt...";DAEMON_OK=0;for _attempt in {1..25};do if [[ -f "$HEALTH_FILE" ]]&&"$NODE" -e 'const fs=require("fs"),h=JSON.parse(fs.readFileSync(process.argv[1],"utf8")),age=Date.now()-Date.parse(h.successfulCycleAt||0);if(h.deviceId!==process.argv[2]||h.agentVersion!==process.argv[3]||h.serverOrigin!==new URL(process.argv[4]).origin||h.lastPollOk!==true||!Number.isInteger(h.pid)||h.pid<=1||!Number.isFinite(age)||age<0||age>15000)process.exit(1)' "$HEALTH_FILE" "$DEVICE_ID" "$EXPECTED_AGENT_VERSION" "$SERVER_URL";then DAEMON_OK=1;break;fi;sleep 1;done
 if (( DAEMON_OK!=1 ));then echo "Daemon heartbeat proof failed.";launchctl print "$SERVICE_TARGET" 2>&1|tail -40||true;tail -40 "$LOG_DIR/georgie-mac-agent-error.log" 2>/dev/null||true;exit 1;fi
 say_step "Installing isolated governed lender-portal worker...";if ! /bin/zsh "$ROOT/mac-agent/install-portal-agent.sh";then write_receipt "failed" "PORTAL_HEARTBEAT_NOT_PROVEN";echo "Isolated lender-portal worker failed fresh heartbeat certification; bootstrap is nonterminal and lender portal automation remains fail-closed.";exit 1;fi
-write_receipt "completed" "DAEMON_AND_PORTAL_HEARTBEATS_PROVEN";trap - EXIT;echo "Georgie Mac Agent installed; primary daemon and isolated governed portal worker both proven."
+write_receipt "completed" "DAEMON_AND_PORTAL_HEARTBEATS_PROVEN";write_diagnostic "completed" "DAEMON_AND_PORTAL_HEARTBEATS_PROVEN";trap - EXIT;echo "Georgie Mac Agent installed; primary daemon and isolated governed portal worker both proven."

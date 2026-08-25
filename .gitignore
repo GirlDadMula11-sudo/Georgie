@@ -10,3 +10,4 @@ data/memory.json
 data/*.tmp
 data/mac-jobs/
 mac-agent/agent.runtime.js
+mac-agent/.install-diagnostic.json
