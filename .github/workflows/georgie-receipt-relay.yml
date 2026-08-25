@@ -71,13 +71,16 @@ jobs:
 
             payload="$(jq -c --arg repository "$GITHUB_REPOSITORY" --argjson issue "$issue" '{repository:$repository, issueNumber:$issue, commentId:.id, author:.user.login, body:.body}' <<<"$comment")"
             token="$(oidc_token "$GEORGIE_INBOUND_URL")"
-            response="$(curl --fail --silent --show-error \
+            response="$(curl --silent --show-error \
               -X POST \
               -H "Authorization: Bearer $token" \
               -H "Content-Type: application/json" \
               --data-binary "$payload" \
               "$GEORGIE_INBOUND_URL/ingest")"
-            jq -e '.ok == true and (.accepted | length) >= 1' <<<"$response" >/dev/null
+            if ! jq -e '.ok == true and (.accepted | length) >= 1' <<<"$response" >/dev/null; then
+              jq -r '"Inbound control rejected: " + (.error // "unknown")' <<<"$response" >&2
+              return 1
+            fi
             jq -e --arg command "$command" '.accepted[] | select(.commandId == $command) | .connectorCommandId' <<<"$response" > connector-command-id.json
             printf '%s' "$response" > ingest-response.json
             echo "Certified control issue #$issue accepted by Georgie."
