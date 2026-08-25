@@ -7,6 +7,8 @@ import fs from "fs/promises";
 import crypto from "crypto";
 import { buildNeoObservationScript, validateNeoObservation, buildNeoStaticContractInspectionScript, validateNeoStaticContractInspection } from "./neo-mail-reader.js";
 import { verifyNeoCdpSession } from "./neo-cdp-reader.js";
+import { reconcileRemoteIdenticalDirtyPaths } from "./git-update-reconcile.js";
+import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressRollbackScript, stripRollbackBundle, validateSeoPhase2MacRequest } from "./seo-phase2-writer-v2.js";
 
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
@@ -17,6 +19,7 @@ const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));
 const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));
 const HEALTH_DIR = path.join(os.homedir(), "Library", "Application Support", "Georgie");
 const HEALTH_FILE = path.join(HEALTH_DIR, "mac-agent-health.json");
+const SEO_PHASE2_EXECUTION_FILE = path.join(HEALTH_DIR, "seo-phase2-executions.json");
 async function writeDaemonHealth(extra = {}) {
   await fs.mkdir(HEALTH_DIR, { recursive: true, mode: 0o700 });
   const payload = { deviceId: DEVICE_ID, agentVersion: AGENT_VERSION, pid: process.pid, serverOrigin: new URL(BASE).origin, successfulCycleAt: new Date().toISOString(), ...extra };
@@ -211,6 +214,12 @@ async function repairWordpressLinkIntegrity(args = {}) {
   const result = JSON.parse(rawResult);
   return { wordpressLinkIntegrityRepair: result, siteOrigin: "https://sierramarketinginc.com", authority: "reversible_write", credentialsTransferred: false, formValuesCaptured: false, backupCreated: true, mutationPerformed: result.changedCount > 0, verified: result.verified === true, rollbackPerformed: result.rollbackPerformed === true };
 }
+
+async function readSeoPhase2ExecutionState(){try{return JSON.parse(await fs.readFile(SEO_PHASE2_EXECUTION_FILE,"utf8"))}catch(error){if(error?.code!=="ENOENT")throw error;return{version:1,commands:{}}}}
+async function writeSeoPhase2ExecutionState(state){await fs.mkdir(HEALTH_DIR,{recursive:true,mode:0o700});const temp=SEO_PHASE2_EXECUTION_FILE+"."+process.pid+".tmp";await fs.writeFile(temp,JSON.stringify(state),{mode:0o600});await fs.rename(temp,SEO_PHASE2_EXECUTION_FILE)}
+async function runWordpressAdminPageScript(pageScript){const serializedPageScript=`JSON.stringify(${pageScript})`;const script=`tell application "Google Chrome"\nrepeat with browserWindow in windows\nrepeat with browserTab in tabs of browserWindow\nset tabUrl to URL of browserTab\nif tabUrl starts with "https://sierramarketinginc.com/wp-admin/" then\nreturn execute browserTab javascript ${JSON.stringify(serializedPageScript)}\nend if\nend repeat\nend repeat\nreturn "WORDPRESS_ADMIN_TAB_NOT_FOUND"\nend tell`;await execFileAsync("open",["-a","Google Chrome","https://sierramarketinginc.com/wp-admin/"],{timeout:15000});await new Promise(resolve=>setTimeout(resolve,3000));const rawResult=await runAppleScript(script);if(rawResult==="WORDPRESS_ADMIN_TAB_NOT_FOUND")throw new Error("No approved Sierra WordPress admin tab");if(!rawResult||rawResult==="missing value")throw new Error("WORDPRESS_JAVASCRIPT_RESULT_NOT_SERIALIZED");return JSON.parse(rawResult)}
+async function executeSeoPhase2WordpressBatch(args={}){const plan=validateSeoPhase2MacRequest(args),state=await readSeoPhase2ExecutionState(),existing=state.commands?.[plan.commandId]||null;if(existing&&existing.planHash!==plan.planHash)throw new Error("SEO_PHASE2_LOCAL_RECEIPT_HASH_MISMATCH");if(existing?.verified===true&&existing?.rolledBack!==true)return{seoPhase2Execution:{...existing,duplicateReplay:true,mutationPerformed:false},authority:"reversible_write",siteOrigin:"https://sierramarketinginc.com",credentialsTransferred:false,formValuesCaptured:false};const pageScript=buildSeoPhase2WordpressPageScriptWithRollback(args),raw=await runWordpressAdminPageScript(pageScript),{publicResult,rollbackBundle}=stripRollbackBundle(raw);const receipt={commandId:plan.commandId,batch:plan.batch,planHash:plan.planHash,appliedAt:new Date().toISOString(),verified:publicResult.verified===true,mutationPerformed:Number(publicResult.changedCount||0)>0,beforeStateCaptured:true,rollbackMaterialCreated:true,publicReadbackVerified:false,rollbackBundle,rolledBack:false,internalResult:publicResult};state.version=1;state.commands={...(state.commands||{}),[plan.commandId]:receipt};await writeSeoPhase2ExecutionState(state);return{seoPhase2Execution:{...receipt,rollbackBundle:undefined},authority:"reversible_write",siteOrigin:"https://sierramarketinginc.com",credentialsTransferred:false,formValuesCaptured:false,backupCreated:true,mutationPerformed:receipt.mutationPerformed,verified:receipt.verified,rollbackPerformed:false}}
+async function rollbackSeoPhase2WordpressBatch(args={}){if(args.authority!=="reversible_write"||args.operation!=="rollback_phase2_batch")throw new Error("SEO_PHASE2_ROLLBACK_AUTHORITY_REJECTED");const state=await readSeoPhase2ExecutionState(),existing=state.commands?.[String(args.commandId||"")]||null;if(!existing)throw new Error("SEO_PHASE2_ROLLBACK_RECEIPT_NOT_FOUND");if(existing.planHash!==String(args.planHash||""))throw new Error("SEO_PHASE2_ROLLBACK_PLAN_HASH_MISMATCH");if(existing.rolledBack===true)return{seoPhase2Rollback:{commandId:existing.commandId,planHash:existing.planHash,duplicateReplay:true,rollbackPerformed:true,mutationPerformed:false}};if(!Array.isArray(existing.rollbackBundle)||!existing.rollbackBundle.length){existing.rolledBack=true;existing.rolledBackAt=new Date().toISOString();state.commands[existing.commandId]=existing;await writeSeoPhase2ExecutionState(state);return{seoPhase2Rollback:{commandId:existing.commandId,planHash:existing.planHash,rollbackPerformed:false,noMutationToRollback:true,mutationPerformed:false}}}const script=buildSeoPhase2WordpressRollbackScript({commandId:existing.commandId,planHash:existing.planHash,rollbackBundle:existing.rollbackBundle}),result=await runWordpressAdminPageScript(script);existing.rolledBack=result.rollbackPerformed===true;existing.rolledBackAt=new Date().toISOString();existing.publicReadbackVerified=false;state.commands[existing.commandId]=existing;await writeSeoPhase2ExecutionState(state);return{seoPhase2Rollback:result,mutationPerformed:result.rollbackPerformed===true,authority:"reversible_write",siteOrigin:"https://sierramarketinginc.com",credentialsTransferred:false}}
 
 async function enableWordpressApplicationPasswords(args = {}) {
   if (args.authority !== "reversible_write" || args.operation !== "enable_application_passwords") throw new Error("WORDPRESS_APP_PASSWORD_AUTHORIZATION_REJECTED");
@@ -531,6 +540,7 @@ async function execute(job) {
       const repo = assertDeveloperRoot(a.repo);
       if (repo !== "/Users/mac/Georgie") throw new Error("PRIMARY_MAC_REPO_NOT_ALLOWLISTED");
       const before = await runDeveloper("git", ["-C", repo, "rev-parse", "HEAD"]);
+      await runDeveloper("git", ["-C", repo, "fetch", "origin", "main"], { timeout: 120000 });
       let status = await runDeveloper("git", ["-C", repo, "status", "--porcelain"]);
       if (status.stdout.trim() === "M package-lock.json") {
         const lockDiff = await runDeveloper("git", ["-C", repo, "diff", "--unified=0", "--", "package-lock.json"]);
@@ -541,8 +551,11 @@ async function execute(job) {
           status = await runDeveloper("git", ["-C", repo, "status", "--porcelain"]);
         }
       }
-      if (status.stdout.trim()) throw new Error("PRIMARY_MAC_REPO_DIRTY");
-      await runDeveloper("git", ["-C", repo, "fetch", "origin", "main"], { timeout: 120000 });
+      if (status.stdout.trim()) {
+        const remoteIdentical = await reconcileRemoteIdenticalDirtyPaths({ repo, run: runDeveloper });
+        status = await runDeveloper("git", ["-C", repo, "status", "--porcelain"]);
+        if (!remoteIdentical.reconciled || status.stdout.trim()) throw new Error("PRIMARY_MAC_REPO_DIRTY");
+      }
       await runDeveloper("git", ["-C", repo, "merge", "--ff-only", "origin/main"], { timeout: 120000 });
       const after = await runDeveloper("git", ["-C", repo, "rev-parse", "HEAD"]);
       const installer = path.join(repo, "mac-agent/install.sh");
@@ -642,6 +655,10 @@ async function execute(job) {
       return inspectGovernedWordpressSession(a);
     case "browser.wordpress_link_integrity_repair":
       return repairWordpressLinkIntegrity(a);
+    case "browser.wordpress_phase2_batch":
+      return executeSeoPhase2WordpressBatch(a);
+    case "browser.wordpress_phase2_rollback":
+      return rollbackSeoPhase2WordpressBatch(a);
     case "browser.wordpress_enable_application_passwords":
       return enableWordpressApplicationPasswords(a);
     case "browser.workflow":
