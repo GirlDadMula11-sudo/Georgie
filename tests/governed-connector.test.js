@@ -383,8 +383,14 @@ test("SEO repair opens only the allowlisted Sierra admin origin before mutation"
 
 test("SEO repair uses the certified AppleScript Chrome tab path", () => {
   const source=fs.readFileSync(new URL("../mac-agent/agent.js",import.meta.url),"utf8");
-  assert.match(source,/tell application "Google Chrome"/);
-  assert.match(source,/return execute browserTab javascript/);
-  assert.match(source,/WORDPRESS_ADMIN_TAB_NOT_FOUND/);
-  assert.doesNotMatch(source,/const chrome=Application\('Google Chrome'\)/);
+  const start=source.indexOf("async function repairWordpressLinkIntegrity");
+  const end=source.indexOf("\nasync function waitForAppProcess",start);
+  const handler=source.slice(start,end);
+  assert.ok(start>=0&&end>start);
+  assert.match(handler,/tell application "Google Chrome"/);
+  assert.match(handler,/return execute browserTab javascript/);
+  assert.match(handler,/WORDPRESS_ADMIN_TAB_NOT_FOUND/);
+  assert.match(handler,/JSON\.stringify\(\$\{pageScript\}\)/);
+  assert.match(handler,/WORDPRESS_JAVASCRIPT_RESULT_NOT_SERIALIZED/);
+  assert.doesNotMatch(handler,/const chrome=Application\('Google Chrome'\)/);
 });
