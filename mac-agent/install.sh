@@ -93,7 +93,13 @@ launchctl bootout "$GUI_DOMAIN" "$PLIST" >/dev/null 2>&1 || true
 for _attempt in {1..20}; do if ! launchctl print "$SERVICE_TARGET" >/dev/null 2>&1; then break; fi; sleep 0.1; done
 BOOTSTRAP_ERROR="$(mktemp)"
 if ! launchctl bootstrap "$GUI_DOMAIN" "$PLIST" 2>"$BOOTSTRAP_ERROR"; then
-  if ! launchctl print "$SERVICE_TARGET" >/dev/null 2>&1; then echo "LaunchAgent bootstrap failed:"; cat "$BOOTSTRAP_ERROR"; rm -f "$BOOTSTRAP_ERROR"; exit 1; fi
+  if ! launchctl print "$SERVICE_TARGET" >/dev/null 2>&1; then
+    echo "LaunchAgent bootstrap failed:"
+    cat "$BOOTSTRAP_ERROR"
+    echo "Do not run this installer with sudo."
+    rm -f "$BOOTSTRAP_ERROR"
+    exit 1
+  fi
 fi
 rm -f "$BOOTSTRAP_ERROR"
 launchctl enable "$SERVICE_TARGET"
