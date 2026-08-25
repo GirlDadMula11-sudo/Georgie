@@ -192,7 +192,7 @@ async function repairWordpressLinkIntegrity(args = {}) {
       throw new Error('WORDPRESS_LINK_REPAIR_ROLLED_BACK:' + String(error.message || error) + (rollbackErrors.length ? ':ROLLBACK_ERRORS:' + rollbackErrors.join(',') : ''));
     }
   })()`;
-  const script = `tell application "Google Chrome"\nrepeat with browserWindow in windows\nrepeat with browserTab in tabs of browserWindow\nset tabUrl to URL of browserTab\nif tabUrl starts with "https://sierramarketinginc.com/wp-admin/" then\nreturn execute browserTab javascript ${JSON.stringify(pageScript)}\nend if\nend repeat\nend repeat\nreturn "WORDPRESS_ADMIN_TAB_NOT_FOUND"\nend tell`;
+  const serializedPageScript = `JSON.stringify(${pageScript})`;\n  const script = `tell application "Google Chrome"\nrepeat with browserWindow in windows\nrepeat with browserTab in tabs of browserWindow\nset tabUrl to URL of browserTab\nif tabUrl starts with "https://sierramarketinginc.com/wp-admin/" then\nreturn execute browserTab javascript ${JSON.stringify(serializedPageScript)}\nend if\nend repeat\nend repeat\nreturn "WORDPRESS_ADMIN_TAB_NOT_FOUND"\nend tell`;
   await execFileAsync("open", ["-a", "Google Chrome", "https://sierramarketinginc.com/wp-admin/"], { timeout: 15000 });
   await new Promise(resolve => setTimeout(resolve, 3000));
   const rawResult = await runAppleScript(script);
