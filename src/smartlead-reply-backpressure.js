@@ -17,7 +17,7 @@ export function nextReplyCloserSchedule({ result = null, error = null, failures 
     return { delayMs: Math.min(maxBackoffMs, idleMs * (2 ** Math.min(nextFailures, 3))), failures: nextFailures, mode: "infra_backoff" };
   }
   const hasJobs = Array.isArray(result?.jobs) && result.jobs.length > 0;
-  const hasReceiptWork = Array.isArray(result?.receipts) && result.receipts.some(row => row && !["waiting_receipt"].includes(String(row.status || "")));
+  const hasReceiptWork = Array.isArray(result?.receipts) && result.receipts.some(row => row && !/error|deferred/.test(String(row.status || "")));
   if (hasJobs || hasReceiptWork) return { delayMs: activeMs, failures: 0, mode: "active" };
   if (result?.ok === false) return { delayMs: activeMs, failures: 0, mode: "nontransient_error" };
   return { delayMs: idleMs, failures: 0, mode: "idle" };
@@ -29,5 +29,6 @@ export const replyCloserBackpressureContract = Object.freeze({
   transientFailureBackoff: true,
   idlePollRelaxation: true,
   activePollPreserved: true,
+  receiptReconcileStaysActive: true,
   maxBackoffBounded: true
 });
