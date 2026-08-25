@@ -29,6 +29,24 @@ const CAPABILITIES = Object.freeze({
     operations: new Set(["discovery_baseline"]),
     prohibitedRoutes: new Set(["sierra.diagnostic_investigation", "sierra.continue_diagnostic_investigation", "sierra.deal", "sierra.reprocess_documents", "email.send", "lender.submit", "dns.write", "production.deploy"])
   }),
+  "developer.repository_inspection": Object.freeze({
+    targetDevice: "primary-mac",
+    authority: "read_only",
+    operations: new Set(["inspect"]),
+    prohibitedRoutes: new Set(["email.send", "smtp", "mailbox.write", "lender.submit", "production.deploy"])
+  }),
+  "developer.patch_preparation": Object.freeze({
+    targetDevice: "primary-mac",
+    authority: "prepare_only",
+    operations: new Set(["prepare_hash_bound_patch", "run_allowlisted_checks"]),
+    prohibitedRoutes: new Set(["email.send", "smtp", "mailbox.write", "lender.submit", "production.deploy"])
+  }),
+  "developer.patch_application": Object.freeze({
+    targetDevice: "primary-mac",
+    authority: "approved_exact_patch",
+    operations: new Set(["apply_hash_bound_patch"]),
+    prohibitedRoutes: new Set(["email.send", "smtp", "mailbox.write", "lender.submit", "production.deploy"])
+  }),
   "neo_mail.imap.read_only": Object.freeze({
     targetDevice: "server",
     authority: "read_only",
@@ -37,8 +55,8 @@ const CAPABILITIES = Object.freeze({
   }),
   "sierra.mailbox_evidence.project": Object.freeze({
     targetDevice: "server",
-    authority: "evidence_write",
-    operations: new Set(["project_immutable_receipts"]),
+    authorityByOperation: Object.freeze({ checkpoint_status: "read_only", project_immutable_receipts: "evidence_write" }),
+    operations: new Set(["checkpoint_status", "project_immutable_receipts"]),
     prohibitedRoutes: new Set(["email.send", "smtp", "mailbox.write", "external.notification", "lender.submit"])
   }),
   "primary_mac.neo.cdp_read_only": Object.freeze({
@@ -109,8 +127,9 @@ export function validateCommandEnvelope(input = {}) {
     const contract = CAPABILITIES[capability];
     if (!contract) throw new Error(`UNSUPPORTED_CAPABILITY: ${capability}`);
     if (targetDevice !== contract.targetDevice) throw new Error(`CAPABILITY_TARGET_MISMATCH: ${capability} requires ${contract.targetDevice}`);
-    if (authority !== contract.authority) throw new Error(`CAPABILITY_AUTHORITY_MISMATCH: ${capability} requires ${contract.authority}`);
     if (!contract.operations.has(operation)) throw new Error(`UNSUPPORTED_OPERATION: ${capability}/${operation}`);
+    const requiredAuthority = contract.authorityByOperation?.[operation] || contract.authority;
+    if (authority !== requiredAuthority) throw new Error(`CAPABILITY_AUTHORITY_MISMATCH: ${capability}/${operation} requires ${requiredAuthority}`);
     for (const route of prohibitedRoutes) if (!contract.prohibitedRoutes.has(route)) throw new Error(`UNKNOWN_PROHIBITED_ROUTE: ${route}`);
   }
   return { source, idempotencyKey, command, kind, objectiveId: objectiveIdValue, planId: clean(input.planId, 160) || null, approvalId: clean(input.approvalId, 160) || null, metadata, routing: typed ? { objective_id: objectiveIdValue, capability, target_device: targetDevice, operation, authority, idempotency_key: idempotencyKey, prohibited_routes: prohibitedRoutes } : null };
@@ -177,7 +196,36 @@ async function executeTypedCapability({ userId, command }) {
       productionMutation: false
     };
   }
+  if (route.capability.startsWith("developer.")) {
+    const repo = clean(command.metadata?.repo || "/Users/mac/Georgie", 300);
+    if (repo !== "/Users/mac/Georgie") throw new Error("PRIMARY_MAC_REPO_NOT_ALLOWLISTED");
+    const patch = String(command.metadata?.patch || "");
+    const patchHash = clean(command.metadata?.patch_hash || command.metadata?.patchHash, 128);
+    let action, args, risk, reason;
+    if (route.capability === "developer.repository_inspection") {
+      action = "developer.repo_inspect"; args = { repo }; risk = "read"; reason = "Governed repository inspection";
+    } else if (route.operation === "run_allowlisted_checks") {
+      const script = clean(command.metadata?.script || "test", 40);
+      if (!["check", "test", "benchmark"].includes(script)) throw new Error("DEVELOPER_CHECK_NOT_ALLOWLISTED");
+      action = "developer.run_checks"; args = { repo, script }; risk = "sensitive_write"; reason = "Governed allowlisted repository verification";
+    } else {
+      if (!patch || !patchHash || digest(patch) !== patchHash) throw new Error("DEVELOPER_PATCH_HASH_MISMATCH");
+      action = route.capability === "developer.patch_preparation" ? "developer.prepare_patch" : "developer.apply_patch";
+      args = { repo, patch, patchHash, approvalId: command.approvalId, planId: command.planId };
+      risk = route.capability === "developer.patch_preparation" ? "low_risk_write" : "sensitive_write";
+      reason = route.capability === "developer.patch_preparation" ? "Prepare exact hash-bound patch" : "Apply exact approved hash-bound patch";
+      if (route.capability === "developer.patch_application" && (!command.planId || !command.approvalId)) throw new Error("DEVELOPER_PATCH_APPROVAL_REQUIRED");
+    }
+    const job = await enqueueMacJob({ userId, deviceId: route.target_device, action, args, risk, reason, idempotencyKey: `connector:${command.id}:${route.operation}`, maxAttempts: 1 });
+    return { terminalState: "in_progress", completed: false, route, job: { id: job.id, status: job.status, action: job.action, deviceId: job.deviceId, dispatchReceipt: job.dispatchReceipt } };
+  }
   if (route.capability === "sierra.mailbox_evidence.project") {
+    if (route.operation === "checkpoint_status") {
+      const state = normalizeConnectorState(await readCloudState(String(userId), NS, baseState()));
+      const commands = state.commands.filter((item) => item.objectiveId === route.objective_id);
+      const receipts = state.receipts.filter((item) => item.objectiveId === route.objective_id);
+      return { terminalState:"completed", completed:true, route, checkpoint:{ objectiveId:route.objective_id, commandCount:commands.length, receiptCount:receipts.length, latestCommandStatus:commands.at(-1)?.status||null, latestReceiptStatus:receipts.at(-1)?.status||null }, evidence:[], errors:[], mailboxMutation:false, markSeen:false, prohibitedTool:"email.send" };
+    }
     const receiptIds = [...new Set((command.metadata?.receipt_ids || []).map(value => clean(value, 200)))];
     if (!receiptIds.length || receiptIds.length > 100) throw new Error("SIERRA_MAILBOX_PROJECTION_RECEIPTS_REQUIRED");
     const state = normalizeConnectorState(await readCloudState(String(userId), NS, baseState()));
@@ -291,7 +339,7 @@ export function createGovernedConnector({ executeCommand, emitStatus = async () 
   function activeLease(lease, at = Date.now()) { return lease && ["queued", "running"].includes(lease.status) && Date.parse(lease.expiresAt || 0) > at; }
   function terminalLease(lease) { return lease && ["completed", "blocked", "failed", "cancelled"].includes(lease.status); }
   function newLease(command) { const createdAt=now(); return { id:`lease_${digest(`${command.id}:${command.objectiveId}`).slice(0,32)}`, commandId:command.id, objectiveId:command.objectiveId, status:"queued", owner:null, generation:0, claimedAt:null, heartbeatAt:null, expiresAt:new Date(Date.now()+boundedLeaseTtlMs).toISOString(), attempts:0, terminalReceiptId:null, createdAt, updatedAt:createdAt }; }
-  async function acquireOrReturnLease(userId, command, { reclaim = true } = {}) { return exclusive(userId, async()=>{ const state=await read(userId); let lease=leaseFor(state,command.id); if(!lease){lease=newLease(command);state.leases.push(lease);await persist(userId,state);return{acquired:false,created:true,lease:leasePublic(lease)}} if(terminalLease(lease))return{acquired:false,terminal:true,lease:leasePublic(lease)}; const at=Date.now(); if(lease.status==="queued"||(!activeLease(lease,at)&&reclaim)){lease.owner=workerId;lease.generation=Number(lease.generation||0)+1;lease.status="running";lease.claimedAt=now();lease.heartbeatAt=lease.claimedAt;lease.expiresAt=new Date(at+boundedLeaseTtlMs).toISOString();lease.attempts=Number(lease.attempts||0)+1;lease.updatedAt=lease.claimedAt;await persist(userId,state);return{acquired:true,reclaimed:lease.generation>1,lease:leasePublic(lease)}} return{acquired:lease.owner===workerId,lease:leasePublic(lease)}; }); }
+  async function acquireOrReturnLease(userId, command, { reclaim = true } = {}) { return exclusive(userId, async()=>{ const state=await read(userId); let lease=leaseFor(state,command.id); if(!lease){lease=newLease(command);state.leases.push(lease);await persist(userId,state);return{acquired:false,created:true,lease:leasePublic(lease)}} if(terminalLease(lease))return{acquired:false,terminal:true,lease:leasePublic(lease)}; const at=Date.now(); if(lease.status==="queued"||(!activeLease(lease,at)&&reclaim)){lease.owner=workerId;lease.generation=Number(lease.generation||0)+1;lease.status="running";lease.claimedAt=now();lease.heartbeatAt=lease.claimedAt;lease.expiresAt=new Date(at+boundedLeaseTtlMs).toISOString();lease.attempts=Number(lease.attempts||0)+1;lease.updatedAt=lease.claimedAt;await persist(userId,state);return{acquired:true,reclaimed:lease.generation>1,lease:leasePublic(lease)}} return{acquired:false,active:true,lease:leasePublic(lease)}; }); }
   async function heartbeatLease(userId, claim) { return exclusive(userId,async()=>{ const state=await read(userId),lease=leaseFor(state,claim?.commandId); if(!lease||lease.id!==claim?.id||lease.owner!==workerId||Number(lease.generation)!==Number(claim?.generation)||terminalLease(lease))return{ok:false,fenced:true,lease:leasePublic(lease)}; lease.heartbeatAt=now();lease.expiresAt=new Date(Date.now()+boundedLeaseTtlMs).toISOString();lease.updatedAt=lease.heartbeatAt;await persist(userId,state);return{ok:true,lease:leasePublic(lease)}; }); }
   async function record(userId, command, status, payload = {}, claim = null) { return exclusive(userId,async()=>{ const state=await read(userId),item=state.commands.find(row=>row.id===command.id),lease=leaseFor(state,command.id); if(claim&&(!lease||lease.id!==claim.id||lease.owner!==workerId||Number(lease.generation)!==Number(claim.generation)))throw new Error("LEASE_FENCED: execution ownership changed before terminalization"); if(item){item.status=status;item.updatedAt=now();if(["completed","blocked"].includes(status))item.completedAt=item.updatedAt;if(["failed","recovering","blocked"].includes(status))item.error=clean(payload.error,1000);if(payload.resultSummary)item.result=payload.resultSummary;} const event={id:crypto.randomUUID(),commandId:command.id,objectiveId:command.objectiveId,status,createdAt:now()},receipt=receiptFor(command,status,payload); if(lease&&claim){lease.status=status==="completed"?"completed":status==="blocked"?"blocked":status==="failed"?"failed":status==="recovering"?"queued":status;lease.terminalReceiptId=["completed","blocked","failed"].includes(status)?receipt.receiptId:lease.terminalReceiptId;lease.updatedAt=event.createdAt;if(lease.status==="queued"){lease.owner=null;lease.expiresAt=new Date(Date.now()+boundedLeaseTtlMs).toISOString();}} state.events.push(event);state.receipts.push(receipt);await persist(userId,state);await emitStatus({...event,receipt}).catch(()=>{});return receipt; }); }
   async function run(userId, command) { const claimResult=await acquireOrReturnLease(userId,command); if(claimResult.terminal||!claimResult.acquired)return{commandId:command.id,objectiveId:command.objectiveId,status:claimResult.lease?.status||command.status,lease:claimResult.lease,duplicateExecutionPrevented:true}; const claim=claimResult.lease; await record(userId,command,"running",{},claim); await transition(userId,command.operatingNodeId,{status:"active",attempted:true,nextAction:"Execute, verify, and return durable evidence."}).catch(()=>{}); const heartbeat=setInterval(()=>heartbeatLease(userId,claim).catch(()=>{}),Math.max(500,Math.floor(boundedLeaseTtlMs/3)));heartbeat.unref?.(); try{ const result=command.routing?await executeTypedCapability({userId,command}):await executeCommand({userId,sessionId:`connector:${command.source}:objective:${command.objectiveId}`,input:command.command,connector:{commandId:command.id,objectiveId:command.objectiveId,planId:command.planId,approvalId:command.approvalId,leaseId:claim.id,leaseGeneration:claim.generation}}); const resultSummary=command.routing?{terminalState:result?.terminalState||null,completed:result?.completed===true,route:result?.route||null,job:result?.job||null,jobs:result?.jobs||null,evidence:Array.isArray(result?.evidence)?result.evidence.slice(0,50):[],errors:Array.isArray(result?.errors)?result.errors.slice(0,50):[],cursors:result?.cursors||{},mailboxMutation:result?.mailboxMutation===true,markSeen:result?.markSeen===true,prohibitedTool:result?.prohibitedTool||null,expectedAgentVersion:result?.expectedAgentVersion||null,projection:result?.projection||null,integration:result?.integration||null,websiteControl:result?.websiteControl||null,crawl:result?.crawl?{...result.crawl,pages:Array.isArray(result.crawl.pages)?result.crawl.pages.slice(0,150):[]}:null,performance:Array.isArray(result?.performance)?result.performance.slice(0,20):[],applicationFunnel:result?.applicationFunnel||null,applicationFunnelError:result?.applicationFunnelError||null,defects:result?.defects||null,productionMutation:result?.productionMutation===true}:{text:clean(result?.text||result?.response||"",50000),actions:Array.isArray(result?.actions)?result.actions.slice(0,100):[]}; const terminalState=clean(result?.outcome?.terminalState||result?.terminalState||(result?.completed===false?"recovering":"completed"),80),evidence={responseHash:digest(JSON.stringify(result||{})),terminalState,...(resultSummary?{resultSummary}:{})}; if(result?.completed===false||["in_progress","working","recovering","queued","running"].includes(terminalState)){const receipt=await record(userId,command,"recovering",{...evidence,error:clean(result?.error||result?.exactBlocker||terminalState,1000)},claim);await transition(userId,command.operatingNodeId,{status:"recovering",recovery:"Resume this same command and lease checkpoint; do not create a duplicate.",nextAction:"Continue from the durable lease checkpoint."}).catch(()=>{});return{commandId:command.id,objectiveId:command.objectiveId,status:"recovering",result,receipt,lease:await readLease(userId,command.id)};} const blocked=terminalState==="blocked"||result?.outcome?.terminalState==="blocked"; const receipt=await record(userId,command,blocked?"blocked":"completed",evidence,claim);await transition(userId,command.operatingNodeId,blocked?{status:"blocked",nextAction:clean(result?.exactBlocker||result?.error||"Resolve the verified blocker and resume the same objective.",1000)}:{status:"verified",verification:`Connector completion receipt ${receipt.receiptId}`}).catch(()=>{});return{commandId:command.id,objectiveId:command.objectiveId,status:blocked?"blocked":"completed",result,receipt,lease:await readLease(userId,command.id)}; }catch(error){const message=error instanceof Error?error.message:String(error);if(/^LEASE_FENCED:/.test(message))return{commandId:command.id,objectiveId:command.objectiveId,status:(await readLease(userId,command.id))?.status||"running",error:message,lease:await readLease(userId,command.id),duplicateExecutionPrevented:true};const receipt=await record(userId,command,"recovering",{error:message},claim);await transition(userId,command.operatingNodeId,{status:"recovering",recovery:"Resume this same command ID after the temporary blocker is resolved; do not create a duplicate.",nextAction:message}).catch(()=>{});return{commandId:command.id,objectiveId:command.objectiveId,status:"recovering",error:message,receipt,lease:await readLease(userId,command.id)};}finally{clearInterval(heartbeat);} }

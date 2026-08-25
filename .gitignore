@@ -8,3 +8,4 @@ coverage/
 dist/
 data/memory.json
 data/*.tmp
+data/mac-jobs/

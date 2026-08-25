@@ -136,6 +136,14 @@ test("unsupported capabilities and mismatched authority fail explicitly", () => 
   assert.throws(() => validateCommandEnvelope(mailboxEnvelope({ metadata: { ...mailboxEnvelope().metadata, authority: "write" } })), /CAPABILITY_AUTHORITY_MISMATCH/);
 });
 
+test("developer typed capabilities are exact, allowlisted, and approval separated", () => {
+  const base={source:"openai",objectiveId:"obj-engineering",idempotencyKey:"dev-inspect-1",command:"Inspect",metadata:{capability:"developer.repository_inspection",target_device:"primary-mac",operation:"inspect",authority:"read_only",repo:"/Users/mac/Georgie",prohibited_routes:["email.send","production.deploy"]}};
+  assert.equal(validateCommandEnvelope(base).routing.capability,"developer.repository_inspection");
+  assert.throws(()=>validateCommandEnvelope({...base,metadata:{...base.metadata,authority:"approved_exact_patch"}}),/CAPABILITY_AUTHORITY_MISMATCH/);
+  const apply={...base,kind:"approval",planId:"plan-1",approvalId:"approval-1",idempotencyKey:"dev-apply-1",metadata:{...base.metadata,capability:"developer.patch_application",operation:"apply_hash_bound_patch",authority:"approved_exact_patch",patch:"diff --git a/a b/a",patch_hash:"bad"}};
+  assert.equal(validateCommandEnvelope(apply).routing.capability,"developer.patch_application");
+});
+
 test("Sierra mailbox projection is a separate typed evidence-write capability", () => {
   const input={source:"chatgpt",objectiveId:"SIERRA-LI-MBX-20260823-001",idempotencyKey:"project-mailbox-evidence-1",command:"Project immutable receipts.",metadata:{capability:"sierra.mailbox_evidence.project",target_device:"server",operation:"project_immutable_receipts",authority:"evidence_write",prohibited_routes:["email.send","smtp","mailbox.write","external.notification","lender.submit"],receipt_ids:["rcpt_one"]}};
   const envelope=validateCommandEnvelope(input);

@@ -189,3 +189,73 @@ export function closingOutcomeLearningRecord({ brief, outcome = {}, evidenceRefs
 }
 
 export const masterCloserContract = CONTRACT;
+const DISCLOSURE = "If you would prefer to speak directly with a human, I can connect you with CEO Jason Sierra or Louri Brown.";
+const VERIFIED = new Set(["verified", "authoritative"]);
+
+const boundaryClean = (value, max = 5000) => String(value || "").trim().slice(0, max);
+const disclosureLike = (line) => /Jason Sierra/i.test(line) && /Louri Brown/i.test(line) && /(?:human|speak|contact|connect|direct)/i.test(line);
+
+export function enforceHumanAccessText(input = "") {
+  const lines = String(input).replace(/\r\n/g, "\n").split("\n").filter((line) => !disclosureLike(line));
+  let signature = lines.findIndex((line) => /^\s*(?:--\s*)?(?:Georgie|Best,|Best regards,|Regards,|Sincerely,)\s*$/i.test(line));
+  if (signature < 0) { lines.push("Georgie", "Sierra Capital Advisory"); signature = lines.length - 2; }
+  while (signature > 0 && !lines[signature - 1].trim()) { lines.splice(signature - 1, 1); signature -= 1; }
+  lines.splice(signature, 0, "", DISCLOSURE, "");
+  return lines.join("\n").trim();
+}
+
+export function enforceHumanAccessHtml(input = "") {
+  let html = String(input || "");
+  html = html.replace(/<(?:p|div)[^>]*>[\s\S]*?Jason Sierra[\s\S]*?Louri Brown[\s\S]*?<\/(?:p|div)>/gi, "");
+  const disclosure = `<p data-georgie-human-access="v1">${DISCLOSURE}</p>`;
+  const signature = /(<(?:p|div)[^>]*>\s*(?:--\s*)?(?:Georgie|Best,|Best regards,|Regards,|Sincerely,)[\s\S]*$)/i;
+  if (signature.test(html)) return html.replace(signature, `${disclosure}$1`);
+  return `${html}${disclosure}<p>Georgie<br>Sierra Capital Advisory</p>`;
+}
+
+export function prepareOutboundCorrespondence(message = {}) {
+  if (!boundaryClean(message.idempotencyKey, 200)) throw new Error("OUTBOUND_IDEMPOTENCY_KEY_REQUIRED");
+  if (!boundaryClean(message.rationale, 2000)) throw new Error("OUTBOUND_RATIONALE_REQUIRED");
+  if (!message.evidenceState || typeof message.evidenceState !== "object") throw new Error("OUTBOUND_EVIDENCE_STATE_REQUIRED");
+  const claims = Array.isArray(message.evidenceState.claims) ? message.evidenceState.claims : [];
+  const sensitive = new Set(["approval", "term", "lender_position", "deadline", "document", "authority", "commitment"]);
+  if (claims.some((claim) => sensitive.has(claim?.type) && !VERIFIED.has(claim?.status))) throw new Error("UNVERIFIED_AUTHORITY_SENSITIVE_CLAIM");
+  if (message.escalation?.required === true && message.escalation?.approved !== true) throw new Error("HUMAN_ESCALATION_REQUIRED");
+  return { ...message, text: message.text == null ? undefined : enforceHumanAccessText(message.text), html: message.html == null ? undefined : enforceHumanAccessHtml(message.html) };
+}
+
+export function selectNextBestAction({ audience, deal = {}, evidence = [], requestedNegotiation = null } = {}) {
+  const authoritative = evidence.filter((item) => VERIFIED.has(item?.status) && item?.source && item?.observedAt);
+  const stale = authoritative.some((item) => item.expiresAt && Date.parse(item.expiresAt) <= Date.now());
+  const contradictory = authoritative.some((item) => item.contradicted === true);
+  if (!authoritative.length || stale || contradictory) return { action: "human_escalation", target: "Jason Sierra or Louri Brown", reason: !authoritative.length ? "missing_authoritative_evidence" : stale ? "stale_evidence" : "contradictory_evidence", sendAllowed: false };
+  if (requestedNegotiation && (!requestedNegotiation.authority || requestedNegotiation.withinAuthority !== true)) return { action: "human_escalation", target: "Jason Sierra or Louri Brown", reason: "authority_sensitive_negotiation", sendAllowed: false };
+  const missing = Array.isArray(deal.stipulations) ? deal.stipulations.filter((item) => item.status !== "satisfied") : [];
+  if (missing.length) return { action: "resolve_stipulation", audience: boundaryClean(audience, 40), outcome: `obtain:${boundaryClean(missing[0].id || missing[0].name, 120)}`, evidenceIds: authoritative.map((item) => item.id).filter(Boolean), sendAllowed: true };
+  if (deal.offer?.status === "verified" && deal.offer?.accepted !== true) return { action: "clarify_verified_offer", outcome: "verified_acceptance_or_specific_objection", evidenceIds: authoritative.map((item) => item.id).filter(Boolean), sendAllowed: true };
+  if (deal.accepted === true && deal.funding?.status !== "funded") return { action: "progress_funding", outcome: "next_verified_funding_milestone", evidenceIds: authoritative.map((item) => item.id).filter(Boolean), sendAllowed: true };
+  return { action: "request_next_measurable_commitment", outcome: "dated_recipient_commitment", evidenceIds: authoritative.map((item) => item.id).filter(Boolean), sendAllowed: true };
+}
+
+export function createOutboundBoundary({ deliver, audit, lookup = async () => null }) {
+  if (typeof deliver !== "function" || typeof audit !== "function") throw new Error("Outbound boundary dependencies are required");
+  const inFlight = new Map(), completed = new Map();
+  return async function send(message) {
+    const prepared = prepareOutboundCorrespondence(message); const key = boundaryClean(prepared.idempotencyKey, 200);
+    if (completed.has(key)) return { ...completed.get(key), deduplicated: true };
+    if (inFlight.has(key)) return inFlight.get(key);
+    const work = (async () => {
+      const base = { idempotencyKey: key, correlationId: boundaryClean(prepared.correlationId || key, 200), dealId: boundaryClean(prepared.dealId, 200) || null, threadId: boundaryClean(prepared.threadId, 200) || null, audience: boundaryClean(prepared.audience, 40) || "unknown", rationale: prepared.rationale, evidenceState: prepared.evidenceState, escalation: prepared.escalation || null };
+      const prior = await lookup(key);
+      if (prior?.status === "sent") { const result = { provider: prior.provider, idempotencyKey: key, deduplicated: true }; completed.set(key, result); return result; }
+      if (prior) throw new Error("OUTBOUND_DELIVERY_STATE_UNCERTAIN");
+      await audit({ ...base, status: "attempted", at: new Date().toISOString() });
+      try { const provider = await deliver(prepared); const result = { provider, idempotencyKey: key, deduplicated: false }; completed.set(key, result); await audit({ ...base, status: "sent", provider, at: new Date().toISOString() }); return result; }
+      catch (error) { await audit({ ...base, status: "failed", error: boundaryClean(error?.message || error, 500), at: new Date().toISOString() }); throw error; }
+      finally { inFlight.delete(key); }
+    })();
+    inFlight.set(key, work); return work;
+  };
+}
+
+export { DISCLOSURE as HUMAN_ACCESS_DISCLOSURE };

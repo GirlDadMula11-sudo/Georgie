@@ -1,6 +1,8 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import nodemailer from "nodemailer";
+import { createOutboundBoundary } from "../master-closer.js";
+import { readCloudState, writeCloudState } from "../cloud-state.js";
 
 const DEFAULT_IMAP_HOST = process.env.GEORGIE_NEO_IMAP_HOST || "imap0001.neo.space";
 const DEFAULT_IMAP_PORT = Number(process.env.GEORGIE_NEO_IMAP_PORT || 993);
@@ -232,24 +234,27 @@ export async function readMessageForProcessing(id, uid) {
   return parseMessage(id, uid, { markSeen: false, includeAttachmentContent: true });
 }
 
-export async function sendMessage(id, { to, cc, bcc, subject, text, html, replyTo, attachments = [] }) {
+const outboundAudit = async (event) => {
+  const userId = process.env.GEORGIE_PRIMARY_USER_ID || "primary";
+  const state = await readCloudState(userId, "outbound_correspondence_audit", { events: [] });
+  state.events = [...(Array.isArray(state.events) ? state.events : []), event].slice(-10000);
+  await writeCloudState(userId, "outbound_correspondence_audit", state);
+};
+const outboundLookup = async (idempotencyKey) => {
+  const userId = process.env.GEORGIE_PRIMARY_USER_ID || "primary";
+  const state = await readCloudState(userId, "outbound_correspondence_audit", { events: [] });
+  return [...(Array.isArray(state.events) ? state.events : [])].reverse().find((event) => event.idempotencyKey === idempotencyKey) || null;
+};
+const governedSend = createOutboundBoundary({ audit: outboundAudit, lookup: outboundLookup, deliver: async ({ mailbox, to, cc, bcc, subject, text, html, replyTo, attachments = [] }) => {
+  const result = await makeSmtp(mailbox).sendMail({ from: mailbox.email, to, cc, bcc, subject: String(subject || "").slice(0, 998), text, html, replyTo, attachments: Array.isArray(attachments) ? attachments : [] });
+  return { messageId: result.messageId, accepted: result.accepted, rejected: result.rejected };
+} });
+
+export async function sendMessage(id, { to, cc, bcc, subject, text, html, replyTo, attachments = [], idempotencyKey, correlationId, dealId, threadId, audience, rationale, evidenceState, escalation }) {
   const mailbox = getMailbox(id);
   if (!to) throw new Error("Recipient is required");
-  const businessMail = BUSINESS_ROLES.has(mailbox.role);
-  const safeText = businessMail && text ? insertDisclosureBeforeSignature(text) : text ? String(text) : undefined;
-  const safeHtml = businessMail && html ? insertHtmlDisclosureBeforeSignature(html) : html ? String(html) : undefined;
-  const result = await makeSmtp(mailbox).sendMail({
-    from: mailbox.email,
-    to,
-    cc,
-    bcc,
-    subject: String(subject || "").slice(0, 998),
-    text: safeText,
-    html: safeHtml,
-    replyTo,
-    attachments: Array.isArray(attachments) ? attachments : []
-  });
-  return { mailboxId: mailbox.id, from: mailbox.email, role: mailbox.role, to, subject: subject || "", messageId: result.messageId, accepted: result.accepted, rejected: result.rejected, humanEscalationDisclosureApplied: businessMail };
+  const result = await governedSend({ mailbox, to, cc, bcc, subject, text, html, replyTo, attachments, idempotencyKey, correlationId, dealId, threadId, audience, rationale, evidenceState, escalation });
+  return { mailboxId: mailbox.id, from: mailbox.email, role: mailbox.role, to, subject: subject || "", ...result.provider, deduplicated: result.deduplicated, idempotencyKey: result.idempotencyKey, humanEscalationDisclosureApplied: true };
 }
 
 export async function searchMessages(id, { query = "", limit = 25 } = {}) {
