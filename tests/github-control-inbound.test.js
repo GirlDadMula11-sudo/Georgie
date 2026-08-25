@@ -54,3 +54,13 @@ test("GitHub OIDC fallback admits into the governed connector with canonical ide
   assert.match(installer,/legacyInboundMount/);
   assert.match(installer,/server\.replace\(legacyInboundMount,inboundMount\)/);
 });
+
+test("GitHub OIDC fallback exposes authenticated governed command status receipts",()=>{
+  const source=fs.readFileSync(new URL("../src/github-control-inbound.js",import.meta.url),"utf8");
+  const workflow=fs.readFileSync(new URL("../.github/workflows/georgie-receipt-relay.yml",import.meta.url),"utf8");
+  assert.match(source,/router\.post\("\/status"/);
+  assert.match(source,/connector\.status\(userId,commandId\)/);
+  assert.match(workflow,/georgie-command-status:/);
+  assert.match(workflow,/publish_command_status/);
+  assert.match(workflow,/\$GEORGIE_INBOUND_URL\/status/);
+});
