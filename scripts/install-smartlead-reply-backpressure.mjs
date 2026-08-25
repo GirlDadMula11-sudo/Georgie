@@ -6,6 +6,7 @@ let changed = false;
 
 function replaceRequired(from, to, label) {
   if (source.includes(to)) return;
+  if (label === "worker version" && /const WORKER_VERSION = "georgie\.smartlead-reply-closer\.v2\.5(?:\.\d+)?";/.test(source)) return;
   if (!source.includes(from)) throw new Error(`Smartlead reply backpressure installer missing ${label} anchor`);
   source = source.replace(from, to);
   changed = true;
