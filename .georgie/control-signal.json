@@ -1,10 +1,10 @@
 {
   "version": 1,
   "issueNumber": 68,
-  "commentId": 5417138631,
+  "commentId": 5417482989,
   "objectiveId": "SIERRA-SEO-AUTOPILOT-20260824-001",
-  "commandId": "cmd_seo_phase2_primary_mac_activate_v2_20260825_1610",
-  "idempotencyKey": "seo-phase2-primary-mac-activate-20260825-v2",
-  "updatedAt": "2026-08-25T21:36:38.237Z",
-  "wakeSequence": 4
+  "commandId": "cmd_seo_phase2_primary_mac_dirty_inspect_v3_20260825_1812",
+  "idempotencyKey": "seo-phase2-primary-mac-dirty-inspect-v3-20260825-v1",
+  "updatedAt": "2026-08-25T22:12:00.000Z",
+  "wakeSequence": 5
 }
