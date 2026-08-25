@@ -147,11 +147,11 @@ test("developer typed capabilities are exact, allowlisted, and approval separate
 
 
 test("developer file receipts expose hashes and capability facts without source text", () => {
-  const text='const AGENT_VERSION = "2.2.33";\nagentVersion=${encodeURIComponent(AGENT_VERSION)}\nasync function enableWordpressApplicationPasswords() {}\n';
+  const text='const AGENT_VERSION = "2.2.34";\nagentVersion=${encodeURIComponent(AGENT_VERSION)}\nasync function enableWordpressApplicationPasswords() {}\n';
   const summary=summarizeGovernedMacJob({id:"job-source",status:"completed",action:"developer.file_read",result:{repo:"/Users/mac/Georgie",path:"mac-agent/agent.js",text,readOnly:true}});
   assert.equal(summary.sourceInspection.path,"mac-agent/agent.js");
   assert.match(summary.sourceInspection.gitBlobSha,/^[a-f0-9]{40}$/);
-  assert.equal(summary.sourceInspection.agentVersion,"2.2.33");
+  assert.equal(summary.sourceInspection.agentVersion,"2.2.34");
   assert.equal(summary.sourceInspection.versionAwarePolling,true);
   assert.equal(summary.sourceInspection.wordpressApplicationPasswordHandler,true);
   assert.equal("text" in summary.sourceInspection,false);
