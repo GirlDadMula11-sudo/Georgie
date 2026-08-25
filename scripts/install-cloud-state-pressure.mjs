@@ -29,8 +29,14 @@ replaceRequired(
 );
 
 replaceRequired(
+  'async function rpc(name,body,{attempts=FOREGROUND_ATTEMPTS}={}){if(Date.now()<providerUnavailableUntil){const error=new Error("cloud state provider circuit is open");error.name="ProviderCircuitOpen";throw error;}await acquire();try{let finalError;',
+  'async function rpc(name,body,{attempts=FOREGROUND_ATTEMPTS}={}){if(Date.now()<providerUnavailableUntil){const error=new Error("cloud state provider circuit is open");error.name="ProviderCircuitOpen";throw error;}await acquire();try{if(Date.now()<providerUnavailableUntil){const error=new Error("cloud state provider circuit is open");error.name="ProviderCircuitOpen";throw error;}let finalError;',
+  "post-acquire provider circuit fence"
+);
+
+replaceRequired(
   'export function cloudStateStatus(){return {enabled:ENABLED,healthy:ENABLED?!lastError:true,degraded:Boolean(ENABLED&&lastError),lastError,lastSuccessAt,timeoutMs:REQUEST_TIMEOUT_MS,foregroundAttempts:FOREGROUND_ATTEMPTS,recoveryAttempts:MAX_ATTEMPTS,maxConcurrency:MAX_CONCURRENCY,recoveryStorage:storageMode,pendingWrites,dirtyMirrorReadsBlockForeground:false,dirtyRecoveryCooldownMs:DIRTY_RECOVERY_COOLDOWN_MS,providerCircuitOpen:Date.now()<providerUnavailableUntil,providerCooldownMs:PROVIDER_COOLDOWN_MS};}',
-  'export function cloudStateStatus(){return {enabled:ENABLED,healthy:ENABLED?!lastError:true,degraded:Boolean(ENABLED&&lastError),lastError,lastSuccessAt,timeoutMs:REQUEST_TIMEOUT_MS,foregroundAttempts:FOREGROUND_ATTEMPTS,recoveryAttempts:MAX_ATTEMPTS,maxConcurrency:MAX_CONCURRENCY,recoveryStorage:storageMode,pendingWrites,dirtyMirrorReadsBlockForeground:false,dirtyRecoveryCooldownMs:DIRTY_RECOVERY_COOLDOWN_MS,providerCircuitOpen:Date.now()<providerUnavailableUntil,providerCooldownMs:PROVIDER_COOLDOWN_MS,readCacheTtlMs:READ_CACHE_TTL_MS,recentReadEntries:recentReads.size,identicalCleanWritesSuppressed:true};}',
+  'export function cloudStateStatus(){return {enabled:ENABLED,healthy:ENABLED?!lastError:true,degraded:Boolean(ENABLED&&lastError),lastError,lastSuccessAt,timeoutMs:REQUEST_TIMEOUT_MS,foregroundAttempts:FOREGROUND_ATTEMPTS,recoveryAttempts:MAX_ATTEMPTS,maxConcurrency:MAX_CONCURRENCY,recoveryStorage:storageMode,pendingWrites,dirtyMirrorReadsBlockForeground:false,dirtyRecoveryCooldownMs:DIRTY_RECOVERY_COOLDOWN_MS,providerCircuitOpen:Date.now()<providerUnavailableUntil,providerCooldownMs:PROVIDER_COOLDOWN_MS,readCacheTtlMs:READ_CACHE_TTL_MS,recentReadEntries:recentReads.size,identicalCleanWritesSuppressed:true,queuedRequestCircuitFence:true};}',
   "status contract"
 );
 
@@ -47,5 +53,5 @@ replaceRequired(
 );
 
 if (changed) fs.writeFileSync(path, source);
-if (!source.includes('READ_CACHE_TTL_MS') || !source.includes('identicalCleanWritesSuppressed:true') || !source.includes('sameState(existing.state,state)') || !source.includes('recentReads.delete(key);scheduleDirtyRecovery')) throw new Error("cloud-state pressure installation did not converge");
+if (!source.includes('READ_CACHE_TTL_MS') || !source.includes('identicalCleanWritesSuppressed:true') || !source.includes('queuedRequestCircuitFence:true') || !source.includes('sameState(existing.state,state)') || !source.includes('recentReads.delete(key);scheduleDirtyRecovery') || !source.includes('await acquire();try{if(Date.now()<providerUnavailableUntil)')) throw new Error("cloud-state pressure installation did not converge");
 console.log(`[Georgie] cloud-state pressure hardening installed: changed=${changed}`);
