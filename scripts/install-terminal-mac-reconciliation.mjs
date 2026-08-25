@@ -47,9 +47,16 @@ if (!source.includes('response.reconciliationScheduled=true')) {
   source = source.replace(statusAnchor, statusReplacement);
 }
 
+const resumeAnchor = 'async function resume(userId="primary"){const state=await read(userId),pending=state.commands.filter(row=>["accepted","running","recovering","failed"].includes(row.status)),scheduled=[];for(const command of pending){const lease=leaseFor(state,command.id);if(!activeLease(lease)||lease?.status==="queued"){schedule(userId,command);scheduled.push({commandId:command.id,objectiveId:command.objectiveId});}}return scheduled;}';
+const resumeReplacement = 'async function resume(userId="primary"){const state=await read(userId),jobs=await listMacJobs(userId,500),jobById=new Map(jobs.map(job=>[job.id,job])),nowMs=Date.now(),pending=state.commands.filter(row=>["accepted","running","recovering"].includes(row.status)).map(command=>{const child=jobById.get(clean(command.result?.job?.id||command.metadata?.existing_job_id||command.metadata?.existingJobId,200));const terminalChild=Boolean(child&&["completed","failed","dead_letter"].includes(child.status));const updatedMs=Date.parse(command.updatedAt||command.createdAt||0)||0;return{command,terminalChild,updatedMs};}).filter(item=>item.terminalChild||nowMs-item.updatedMs<600000).sort((a,b)=>Number(b.terminalChild)-Number(a.terminalChild)||b.updatedMs-a.updatedMs).slice(0,12),scheduled=[];for(const item of pending){const command=item.command,lease=leaseFor(state,command.id);if(!activeLease(lease)||lease?.status==="queued"){schedule(userId,command);scheduled.push({commandId:command.id,objectiveId:command.objectiveId,terminalChild:item.terminalChild});}}return scheduled;}';
+if (!source.includes('terminalChild:item.terminalChild')) {
+  if (!source.includes(resumeAnchor)) throw new Error("TERMINAL_RECONCILIATION_RESUME_ANCHOR_NOT_FOUND");
+  source = source.replace(resumeAnchor, resumeReplacement);
+}
+
 fs.writeFileSync(target, source);
 const finalSource = fs.readFileSync(target, "utf8");
-for (const marker of [manifestImport, "authoritativeJob", "server_live_capability_manifest", "inspectionResultReturned", "liveManifestVerified", "response.reconciliationScheduled=true", "const requeue=()=>{if(!schedule(userId,command)"]) {
+for (const marker of [manifestImport, "authoritativeJob", "server_live_capability_manifest", "inspectionResultReturned", "liveManifestVerified", "response.reconciliationScheduled=true", "const requeue=()=>{if(!schedule(userId,command)", "terminalChild:item.terminalChild"]) {
   if (!finalSource.includes(marker)) throw new Error(`TERMINAL_RECONCILIATION_VERIFICATION_FAILED:${marker}`);
 }
 
@@ -64,4 +71,4 @@ if (!portable.includes('connector startup resume failed')) {
 }
 if (!fs.readFileSync(portableTarget, "utf8").includes('connector.resume(userId)')) throw new Error("TERMINAL_RECONCILIATION_PORTABLE_RESUME_VERIFICATION_FAILED");
 
-console.log("[Georgie] authoritative terminal Mac reconciliation + singleflight-safe recovery + restart-safe resume + live manifest verification installed");
+console.log("[Georgie] authoritative terminal Mac reconciliation + prioritized bounded recovery + singleflight-safe retry + restart-safe resume + live manifest verification installed");
