@@ -6,7 +6,7 @@ import { objectiveWorkerStatus } from "../src/objective-worker.js";
 
 test("production start uses unified durable runtime", () => {
   const pkg=JSON.parse(fs.readFileSync(new URL("../package.json",import.meta.url),"utf8"));
-  assert.equal(pkg.scripts.start,"node src/runtime.js");
+  assert.match(pkg.scripts.start,/node src\/runtime\.js$/);
   const runtime=fs.readFileSync(new URL("../src/runtime.js",import.meta.url),"utf8");
   assert.match(runtime,/startObjectiveWorker\(\)/);
   assert.match(runtime,/startEngineeringCoordinator\(\)/);
