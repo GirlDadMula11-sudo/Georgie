@@ -71,3 +71,12 @@ test("GitHub status receipt normalizes singular and plural Mac jobs",()=>{
   assert.match(workflow,/if \.command\.macJob then \[\.command\.macJob\]/);
   assert.match(workflow,/Command error:/);
 });
+
+
+test("GitHub OIDC challenges use isolated durable keys across Render instances",()=>{
+  const source=fs.readFileSync(new URL("../src/github-control-inbound.js",import.meta.url),"utf8");
+  assert.match(source,/CHALLENGE_NS_PREFIX/);
+  assert.match(source,/challengeNamespace\(nonce\)/);
+  assert.match(source,/writeCloudState\(userId,challengeNamespace\(nonce\)/);
+  assert.doesNotMatch(source,/state\.challenges\.push/);
+});
