@@ -3,10 +3,13 @@ import fs from "node:fs";
 const path = "src/smartlead-reply-closer-worker.js";
 let source = fs.readFileSync(path, "utf8");
 let changed = false;
+const successorInstalled = /const WORKER_VERSION = "georgie\.smartlead-reply-closer\.v2\.5\.\d+";/.test(source)
+  && source.includes("nextReplyCloserSchedule")
+  && source.includes("adaptiveBackpressure: true");
 
 function replaceRequired(from, to, label) {
+  if (successorInstalled) return;
   if (source.includes(to)) return;
-  if (label === "worker version" && /const WORKER_VERSION = "georgie\.smartlead-reply-closer\.v2\.5(?:\.\d+)?";/.test(source)) return;
   if (!source.includes(from)) throw new Error(`Smartlead reply backpressure installer missing ${label} anchor`);
   source = source.replace(from, to);
   changed = true;
