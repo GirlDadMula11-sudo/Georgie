@@ -26,10 +26,32 @@ if (!connector.includes('"normalize_generated_agent_source"')) {
   connector = connector.replace(maintenanceOpsOld, maintenanceOpsNew);
 }
 
-if (!connector.includes('const generatedAgentSourcePatch = `diff --git a/mac-agent/agent.js')) {
+if (!connector.includes('const generatedAgentSourcePatch = "diff --git a/mac-agent/agent.js')) {
   const lockAnchor = '    const lockPatch = `diff --git a/package-lock.json b/package-lock.json';
   if (!connector.includes(lockAnchor)) throw new Error("Mac generated-source normalizer: lock patch anchor missing");
-  const patchBlock = `    const generatedAgentSourcePatch = \`diff --git a/mac-agent/agent.js b/mac-agent/agent.js\n--- a/mac-agent/agent.js\n+++ b/mac-agent/agent.js\n@@ -11,7 +11,7 @@ const execFileAsync = promisify(execFile);\n const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\\\\\/$/, "");\n const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";\n-const AGENT_VERSION = "2.2.33";\n+const AGENT_VERSION = "2.2.32";\n const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;\n const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));\n const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));\n@@ -649,7 +649,7 @@ async function cycle() {\n   try {\n     await api(\`/api/mac/\${encodeURIComponent(DEVICE_ID)}/heartbeat\`, { method: "POST", body: JSON.stringify({ hostname: os.hostname(), platform: os.platform(), arch: os.arch(), agentVersion: AGENT_VERSION }) });\n-    const payload = await api(\`/api/mac/\${encodeURIComponent(DEVICE_ID)}/jobs?limit=5\`);\n+    const payload = await api(\`/api/mac/\${encodeURIComponent(DEVICE_ID)}/jobs?limit=5&agentVersion=\${encodeURIComponent(AGENT_VERSION)}\`);\n     for (const job of payload.jobs || []) {\n       try {\n         const result = await execute(job);\n\`;\n`;
+  const generatedAgentSourcePatch = [
+    'diff --git a/mac-agent/agent.js b/mac-agent/agent.js',
+    '--- a/mac-agent/agent.js',
+    '+++ b/mac-agent/agent.js',
+    '@@ -11,7 +11,7 @@ const execFileAsync = promisify(execFile);',
+    ' const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\\/$/, "");',
+    ' const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";',
+    '-const AGENT_VERSION = "2.2.33";',
+    '+const AGENT_VERSION = "2.2.32";',
+    ' const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;',
+    ' const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));',
+    ' const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));',
+    '@@ -649,7 +649,7 @@ async function cycle() {',
+    '   try {',
+    '     await api(`/api/mac/${encodeURIComponent(DEVICE_ID)}/heartbeat`, { method: "POST", body: JSON.stringify({ hostname: os.hostname(), platform: os.platform(), arch: os.arch(), agentVersion: AGENT_VERSION }) });',
+    '-    const payload = await api(`/api/mac/${encodeURIComponent(DEVICE_ID)}/jobs?limit=5`);',
+    '+    const payload = await api(`/api/mac/${encodeURIComponent(DEVICE_ID)}/jobs?limit=5&agentVersion=${encodeURIComponent(AGENT_VERSION)}`);',
+    '     for (const job of payload.jobs || []) {',
+    '       try {',
+    '         const result = await execute(job);',
+    ''
+  ].join('\n');
+  const patchBlock = `    const generatedAgentSourcePatch = ${JSON.stringify(generatedAgentSourcePatch)};\n`;
   connector = connector.replace(lockAnchor, patchBlock + lockAnchor);
 }
 
