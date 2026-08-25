@@ -5,7 +5,7 @@ const SIERRA_KEY = String(process.env.GEORGIE_SUPABASE_SERVICE_ROLE_KEY || "");
 const SMARTLEAD_BASE = String(process.env.GEORGIE_SMARTLEAD_BASE_URL || "https://server.smartlead.ai/api/v1").replace(/\/$/, "");
 const SMARTLEAD_KEY = String(process.env.GEORGIE_SMARTLEAD_API_KEY || "").trim();
 const WORKER_ID = "georgie-smartlead-reply-closer-v1";
-const WORKER_VERSION = "georgie.smartlead-reply-closer.v2";
+const WORKER_VERSION = "georgie.smartlead-reply-closer.v2.1";
 const POLL_MS = Math.max(15_000, Number(process.env.GEORGIE_SMARTLEAD_REPLY_POLL_MS || 30_000));
 const AUTO_CLASSES = new Set(["partner_interest", "interested", "follow_up_later", "call_request"]);
 let timer = null;
@@ -84,7 +84,6 @@ async function smartleadRead(path) {
 }
 
 async function smartleadWrite(path, body) {
-  // Deliberately one attempt only. An ambiguous provider write is quarantined, never retried automatically.
   return smartleadRequest(path, { method: "POST", body, timeoutMs: 15_000 });
 }
 
@@ -95,11 +94,14 @@ function unwrapRows(payload) {
 }
 
 async function resolveLeadId(job) {
-  const result = await smartleadRead(`/leads/?email=${encodeURIComponent(job.lead_email)}`);
+  const immutable = clean(job.provider_lead_id || job.metadata?.provider_lead_id, 80);
+  if (immutable && /^\d+$/.test(immutable)) return immutable;
+  const providerEmail = clean(job.provider_lead_email || job.metadata?.provider_lead_email || job.lead_email, 500).toLowerCase();
+  const result = await smartleadRead(`/leads/?email=${encodeURIComponent(providerEmail)}`);
   const candidates = Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : result?.id ? [result] : [];
-  const direct = candidates.find(x => String(x?.email || "").toLowerCase() === String(job.lead_email || "").toLowerCase()) || candidates[0];
+  const direct = candidates.find(x => String(x?.email || "").toLowerCase() === providerEmail) || candidates[0];
   const leadId = direct?.id ?? direct?.lead_id;
-  if (!leadId) throw new Error("SMARTLEAD_LEAD_ID_UNRESOLVED");
+  if (!leadId) throw new Error(`SMARTLEAD_LEAD_ID_UNRESOLVED:${providerEmail}`);
   return String(leadId);
 }
 
@@ -153,7 +155,7 @@ async function reserve(job) {
       subject: job.subject,
       accepted: false,
       rejected: [],
-      metadata: { stage: "reserved", worker: WORKER_ID, worker_version: WORKER_VERSION, transport: "smartlead_thread", reply_class: job.reply_class, thread_preservation_required: true }
+      metadata: { stage: "reserved", worker: WORKER_ID, worker_version: WORKER_VERSION, transport: "smartlead_thread", reply_class: job.reply_class, thread_preservation_required: true, provider_lead_id: job.provider_lead_id || null, provider_lead_email: job.provider_lead_email || null }
     })
   });
   return { key, existing: Array.isArray(rows) ? rows[0] : null };
@@ -205,7 +207,7 @@ async function markProviderAccepted(job, key, providerResponse) {
   await db(`smartlead_reply_delivery_receipts?idempotency_key=eq.${encodeURIComponent(key)}`, {
     method: "PATCH",
     headers: { Prefer: "return=minimal" },
-    body: JSON.stringify({ metadata: { stage: "provider_accepted_waiting_message_id", worker: WORKER_ID, worker_version: WORKER_VERSION, transport: "smartlead_thread", provider_response: providerResponse, thread_preservation_required: true } })
+    body: JSON.stringify({ metadata: { stage: "provider_accepted_waiting_message_id", worker: WORKER_ID, worker_version: WORKER_VERSION, transport: "smartlead_thread", provider_response: providerResponse, thread_preservation_required: true, provider_lead_id: job.provider_lead_id || null, provider_lead_email: job.provider_lead_email || null } })
   });
   await db(`smartlead_reply_obligations?id=eq.${encodeURIComponent(job.obligation_id)}`, {
     method: "PATCH",
@@ -225,7 +227,7 @@ async function complete(job, key, receipt, providerResponse, receiptSource) {
     p_subject: job.subject,
     p_accepted: true,
     p_rejected: [],
-    p_metadata: { provider: "smartlead", provider_response: providerResponse, receipt_source: receiptSource, worker: WORKER_ID, worker_version: WORKER_VERSION, transport: "smartlead_thread", thread_preserved: true, sender_mailbox_expected: job.sender_mailbox, sender_exposed_by_provider: receipt.senderExposed ?? null, sender_verified_when_exposed: receipt.senderVerified ?? null, human_access_disclosure: true }
+    p_metadata: { provider: "smartlead", provider_response: providerResponse, receipt_source: receiptSource, worker: WORKER_ID, worker_version: WORKER_VERSION, transport: "smartlead_thread", thread_preserved: true, provider_lead_id: job.provider_lead_id || null, provider_lead_email: job.provider_lead_email || null, reply_sender_email: job.lead_email, sender_mailbox_expected: job.sender_mailbox, sender_exposed_by_provider: receipt.senderExposed ?? null, sender_verified_when_exposed: receipt.senderVerified ?? null, human_access_disclosure: true }
   });
 }
 
@@ -315,17 +317,17 @@ export async function runSmartleadReplyCloserOnce() {
         const senderEvidence = await verifySenderMailbox(job);
         const thread = await inspectThread(job, leadId);
         if (!thread.inboundFound) {
-          await quarantine(job, "ORIGINAL_INBOUND_MESSAGE_NOT_FOUND_IN_PROVIDER_THREAD", { sender_evidence: senderEvidence });
+          await quarantine(job, "ORIGINAL_INBOUND_MESSAGE_NOT_FOUND_IN_PROVIDER_THREAD", { sender_evidence: senderEvidence, provider_lead_id: leadId });
           cycle.jobs.push({ obligationId: job.obligation_id, status: "human_review_inbound_missing" });
           continue;
         }
         if (thread.newerInbound) {
-          await quarantine(job, "NEWER_INBOUND_CONTEXT_EXISTS", { newer_inbound_message_id: messageIdOf(thread.newerInbound), sender_evidence: senderEvidence });
+          await quarantine(job, "NEWER_INBOUND_CONTEXT_EXISTS", { newer_inbound_message_id: messageIdOf(thread.newerInbound), sender_evidence: senderEvidence, provider_lead_id: leadId });
           cycle.jobs.push({ obligationId: job.obligation_id, status: "human_review_newer_context" });
           continue;
         }
         if (thread.laterOutbound) {
-          await quarantine(job, "THREAD_ALREADY_HAS_LATER_OUTBOUND", { later_outbound_message_id: messageIdOf(thread.laterOutbound), sender_evidence: senderEvidence });
+          await quarantine(job, "THREAD_ALREADY_HAS_LATER_OUTBOUND", { later_outbound_message_id: messageIdOf(thread.laterOutbound), sender_evidence: senderEvidence, provider_lead_id: leadId });
           cycle.jobs.push({ obligationId: job.obligation_id, status: "human_review_already_answered" });
           continue;
         }
@@ -337,7 +339,7 @@ export async function runSmartleadReplyCloserOnce() {
             await complete({ ...job, worker_id: WORKER_ID }, reservation.key, receipt, { reconciled: true }, "message_history_existing_reservation");
             cycle.jobs.push({ obligationId: job.obligation_id, status: "reconciled", providerMessageId: receipt.providerMessageId });
           } else {
-            await quarantine(job, "AMBIGUOUS_EXISTING_SEND_RESERVATION_NO_RETRY", { sender_evidence: senderEvidence });
+            await quarantine(job, "AMBIGUOUS_EXISTING_SEND_RESERVATION_NO_RETRY", { sender_evidence: senderEvidence, provider_lead_id: leadId });
             cycle.jobs.push({ obligationId: job.obligation_id, status: "human_review_existing_reservation" });
           }
           continue;
@@ -402,6 +404,8 @@ export const smartleadReplyCloserWorkerContract = Object.freeze({
   workerId: WORKER_ID,
   transport: "smartlead_reply_email_thread",
   threadPreservationRequired: true,
+  immutableProviderLeadIdentityPreferred: true,
+  replySenderSeparatedFromProviderLead: true,
   originalSenderAssignmentRequired: true,
   providerThreadInboundIdentityRequired: true,
   suppressIfNewerInboundExists: true,
