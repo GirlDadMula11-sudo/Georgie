@@ -49,8 +49,8 @@ test("transport remains nonterminal until the durable semantic objective verifie
   const installer = fs.readFileSync(new URL("../scripts/install-seo-phase2-executor.mjs", import.meta.url), "utf8");
   const worker = fs.readFileSync(new URL("../src/objective-worker.js", import.meta.url), "utf8");
   assert.match(installer, /SEO_PHASE2_TRANSPORT_REOPEN/);
-  assert.match(installer, /current\.status===\\"verified\\"/);
-  assert.match(installer, /terminalState:\\"in_progress\\",completed:false/);
+  assert.match(installer, /current\.status==="verified"/);
+  assert.match(installer, /terminalState:"in_progress",completed:false/);
   assert.match(installer, /phase2Reopened=await reopenPhase2TransportIfNeeded/);
   assert.match(worker, /o\.stableKey === stableKey && o\.status !== "cancelled"/);
 });
