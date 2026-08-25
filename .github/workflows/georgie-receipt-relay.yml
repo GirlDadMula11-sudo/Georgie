@@ -101,10 +101,10 @@ jobs:
                 "$GEORGIE_INBOUND_URL/status")"
               jq -e '.ok == true and .command.id != null' <<<"$response" >/dev/null
 
-              mac_count="$(jq '[.command.macJobs[]?] | length' <<<"$response")"
-              completed_count="$(jq '[.command.macJobs[]? | select(.status == "completed")] | length' <<<"$response")"
-              failed_count="$(jq '[.command.macJobs[]? | select(.status == "failed" or .status == "dead_letter")] | length' <<<"$response")"
-              claimed_count="$(jq '[.command.macJobs[]? | select(.claimedAt != null or .status == "running" or .status == "completed")] | length' <<<"$response")"
+              mac_count="$(jq '([.command.macJobs[]?] + (if .command.macJob then [.command.macJob] else [] end)) | unique_by(.id) | length' <<<"$response")"
+              completed_count="$(jq '([.command.macJobs[]?] + (if .command.macJob then [.command.macJob] else [] end)) | unique_by(.id) | map(select(.status == "completed")) | length' <<<"$response")"
+              failed_count="$(jq '([.command.macJobs[]?] + (if .command.macJob then [.command.macJob] else [] end)) | unique_by(.id) | map(select(.status == "failed" or .status == "dead_letter")) | length' <<<"$response")"
+              claimed_count="$(jq '([.command.macJobs[]?] + (if .command.macJob then [.command.macJob] else [] end)) | unique_by(.id) | map(select(.claimedAt != null or .status == "running" or .status == "completed")) | length' <<<"$response")"
               effective="$(jq -r '.command.status // "unknown"' <<<"$response")"
               if (( failed_count > 0 )); then effective="failed"
               elif (( mac_count > 0 && completed_count == mac_count )); then effective="completed"
@@ -121,7 +121,8 @@ jobs:
               "Connector command: `" + $connector + "`\n" +
               "Effective status: **" + $effective + "**\n" +
               "Lease: `" + (.command.lease.status // "none") + "`\n" +
-              "Mac jobs: " + (([.command.macJobs[]? | {id,status,action,claimedAt,completedAt,error}] | tostring)) + "\n" +
+              "Command error: `" + (.command.error // "none") + "`\n" +
+              "Mac jobs: " + ((([.command.macJobs[]?] + (if .command.macJob then [.command.macJob] else [] end)) | unique_by(.id) | map({id,status,action,claimedAt,completedAt,error}) | tostring)) + "\n" +
               $marker
             ' <<<"$response")"
 
