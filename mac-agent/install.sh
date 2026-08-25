@@ -23,6 +23,8 @@ fi
 ENV_FILE="$ROOT/.env"
 PLIST="$HOME/Library/LaunchAgents/com.georgie.mac-agent.plist"
 LOG_DIR="$HOME/Library/Logs"
+HEALTH_FILE="$HOME/Library/Application Support/Georgie/mac-agent-health.json"
+EXPECTED_AGENT_VERSION="2.2.33"
 
 existing_value() {
   local key="$1"
@@ -61,6 +63,9 @@ if [[ -z "$POLL_MS" ]]; then
   POLL_MS="2000"
 fi
 
+say_step "Installing daemon-owned polling health instrumentation..."
+"$NODE" mac-agent/install-daemon-health.mjs
+
 say_step "Saving Mac-only configuration..."
 umask 077
 TMP_ENV="$(mktemp)"
@@ -80,7 +85,8 @@ chmod 600 "$ENV_FILE"
 say_step "Installing Georgie dependencies..."
 npm install --omit=dev
 
-mkdir -p "$HOME/Library/LaunchAgents" "$LOG_DIR"
+mkdir -p "$HOME/Library/LaunchAgents" "$LOG_DIR" "$(dirname "$HEALTH_FILE")"
+rm -f "$HEALTH_FILE"
 
 cat > "$PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -133,37 +139,45 @@ rm -f "$BOOTSTRAP_ERROR"
 launchctl enable "$SERVICE_TARGET"
 launchctl kickstart -k "$SERVICE_TARGET" >/dev/null 2>&1 || true
 
-say_step "Checking Georgie locally..."
-sleep 2
+say_step "Checking LaunchAgent registration..."
+sleep 1
 if ! launchctl print "$SERVICE_TARGET" >/dev/null 2>&1; then
   echo "The LaunchAgent is not registered after restart."
   exit 1
 fi
 
-say_step "Verifying authenticated server round-trip..."
-ROUNDTRIP_OK=0
-for _attempt in {1..15}; do
-  HTTP_CODE="$(curl -sS -o /tmp/georgie-mac-roundtrip.json -w '%{http_code}' \
-    -H "Authorization: Bearer $TOKEN" \
-    -H 'Content-Type: application/json' \
-    "$SERVER_URL/api/mac/$DEVICE_ID/jobs?limit=1" || true)"
-  if [[ "$HTTP_CODE" == "200" ]]; then
-    ROUNDTRIP_OK=1
-    break
+say_step "Waiting for daemon-owned heartbeat + poll receipt..."
+DAEMON_OK=0
+for _attempt in {1..20}; do
+  if [[ -f "$HEALTH_FILE" ]]; then
+    if "$NODE" -e '
+      const fs=require("fs");
+      const p=process.argv[1], expectedDevice=process.argv[2], expectedVersion=process.argv[3], expectedOrigin=new URL(process.argv[4]).origin;
+      const h=JSON.parse(fs.readFileSync(p,"utf8"));
+      const age=Date.now()-Date.parse(h.successfulCycleAt||0);
+      if(h.deviceId!==expectedDevice||h.agentVersion!==expectedVersion||h.serverOrigin!==expectedOrigin||h.lastPollOk!==true||!Number.isInteger(h.pid)||h.pid<=1||!Number.isFinite(age)||age<0||age>15000) process.exit(1);
+    ' "$HEALTH_FILE" "$DEVICE_ID" "$EXPECTED_AGENT_VERSION" "$SERVER_URL"; then
+      DAEMON_OK=1
+      break
+    fi
   fi
   sleep 1
- done
-rm -f /tmp/georgie-mac-roundtrip.json
+done
 
-if (( ROUNDTRIP_OK != 1 )); then
-  echo "Georgie LaunchAgent is registered, but authenticated polling did not reach the server."
-  echo "Inspect these logs before treating the Mac worker as healthy:"
-  echo "  $LOG_DIR/georgie-mac-agent.log"
-  echo "  $LOG_DIR/georgie-mac-agent-error.log"
+if (( DAEMON_OK != 1 )); then
+  echo "Georgie's LaunchAgent is registered, but the daemon did not prove a fresh authenticated heartbeat + poll cycle."
+  echo "LaunchAgent state:"
+  launchctl print "$SERVICE_TARGET" 2>&1 | tail -40 || true
+  echo "Recent stdout:"
+  tail -40 "$LOG_DIR/georgie-mac-agent.log" 2>/dev/null || true
+  echo "Recent stderr:"
+  tail -40 "$LOG_DIR/georgie-mac-agent-error.log" 2>/dev/null || true
   exit 1
 fi
 
-echo "Georgie Mac Agent is installed, registered, and its authenticated polling route is reachable."
+echo "Georgie Mac Agent is installed and the LaunchAgent itself proved a fresh authenticated heartbeat + job-poll cycle."
+echo "Daemon health receipt: $HEALTH_FILE"
+echo "Agent version: $EXPECTED_AGENT_VERSION"
 
 echo
 printf '%s\n' "NEXT: macOS must approve Georgie's local permissions." \
