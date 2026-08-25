@@ -18,6 +18,38 @@ const safeEqual = (left, right) => {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 };
 const pkce = verifier => crypto.createHash("sha256").update(String(verifier || "")).digest("base64url");
+const accessTtlSeconds = () => Math.max(300, Math.min(86400, Number(process.env.GEORGIE_OAUTH_ACCESS_TTL_SECONDS || 3600)));
+const refreshTtlSeconds = () => Math.max(86400, Math.min(31536000, Number(process.env.GEORGIE_OAUTH_REFRESH_TTL_SECONDS || 2592000)));
+
+function issueSignedToken({ clientId, scope, ttlSeconds, tokenUse }) {
+  const now = Math.floor(Date.now() / 1000);
+  const payload = b64(JSON.stringify({
+    iss: origin(), aud: `${origin()}/mcp`, sub: clean(clientId, 300),
+    scope: clean(scope, 500), token_use: tokenUse, iat: now,
+    exp: now + ttlSeconds, jti: crypto.randomUUID()
+  }));
+  return `${payload}.${sign(payload)}`;
+}
+
+function verifySignedToken(token, expectedUse) {
+  const [payload, signature] = clean(token, 5000).split(".");
+  if (!payload || !signature || !hmacSecret() || !safeEqual(signature, sign(payload))) return null;
+  try {
+    const claims = JSON.parse(unb64(payload));
+    const valid = claims.iss === origin() && claims.aud === `${origin()}/mcp` &&
+      Number(claims.exp) > Math.floor(Date.now() / 1000) &&
+      clean(claims.sub, 300) === configuredClient().id && claims.token_use === expectedUse;
+    return valid ? claims : null;
+  } catch { return null; }
+}
+
+function tokenResponse({ clientId, scope }) {
+  return {
+    access_token: issueSignedToken({ clientId, scope, ttlSeconds: accessTtlSeconds(), tokenUse: "access" }),
+    refresh_token: issueSignedToken({ clientId, scope, ttlSeconds: refreshTtlSeconds(), tokenUse: "refresh" }),
+    token_type: "Bearer", expires_in: accessTtlSeconds(), scope
+  };
+}
 
 export function connectorRegistrationStatus() {
   const base = origin();
@@ -45,19 +77,40 @@ export function connectorRegistrationStatus() {
 }
 
 export function issueConnectorAccessToken({ clientId, scope = "georgie:command georgie:status", ttlSeconds = 3600 } = {}) {
-  const now = Math.floor(Date.now() / 1000);
-  const payload = b64(JSON.stringify({ iss: origin(), aud: `${origin()}/mcp`, sub: clean(clientId, 300), scope: clean(scope, 500), iat: now, exp: now + ttlSeconds }));
-  return `${payload}.${sign(payload)}`;
+  return issueSignedToken({ clientId, scope, ttlSeconds, tokenUse: "access" });
 }
 
 export function verifyConnectorAccessToken(header) {
   const token = clean(String(header || "").replace(/^Bearer\s+/i, ""), 3000);
-  const [payload, signature] = token.split(".");
-  if (!payload || !signature || !hmacSecret() || !safeEqual(signature, sign(payload))) return false;
-  try {
-    const claims = JSON.parse(unb64(payload));
-    return claims.iss === origin() && claims.aud === `${origin()}/mcp` && Number(claims.exp) > Math.floor(Date.now() / 1000) && clean(claims.sub, 300) === configuredClient().id;
-  } catch { return false; }
+  return Boolean(verifySignedToken(token, "access"));
+}
+
+export function connectorHeartbeatSnapshot() {
+  const status = connectorRegistrationStatus();
+  return {
+    ...status,
+    authPersistence: status.ready ? "refresh_token_rotation" : "unavailable",
+    accessTtlSeconds: accessTtlSeconds(),
+    refreshTtlSeconds: refreshTtlSeconds(),
+    heartbeatIntervalSeconds: 30,
+    retryAfterSeconds: 5,
+    checkedAt: new Date().toISOString()
+  };
+}
+
+export function startConnectorHeartbeatMonitor({ intervalMs = 30000, logger = console } = {}) {
+  let prior = null;
+  const check = () => {
+    const snapshot = connectorHeartbeatSnapshot();
+    const state = snapshot.ready ? "ready" : `not_ready:${snapshot.missing.join(",")}`;
+    if (state !== prior) logger[snapshot.ready ? "info" : "error"]?.(`[Georgie] connector heartbeat ${state}`);
+    prior = state;
+    return snapshot;
+  };
+  check();
+  const timer = setInterval(check, Math.max(5000, intervalMs));
+  timer.unref?.();
+  return () => clearInterval(timer);
 }
 
 function clientSecret(req) {
@@ -71,7 +124,7 @@ function clientSecret(req) {
 export function createConnectorOAuthRouter() {
   const router = express.Router();
   router.get("/.well-known/georgie-connector-readiness", (_req, res) => {
-    const status = connectorRegistrationStatus();
+    const status = connectorHeartbeatSnapshot();
     res.set("Cache-Control", "no-store").status(status.ready ? 200 : 503).json(status);
   });
   router.get("/.well-known/oauth-protected-resource/mcp", (_req, res) => res.json({
@@ -84,7 +137,7 @@ export function createConnectorOAuthRouter() {
     authorization_endpoint: `${origin()}/oauth/authorize`,
     token_endpoint: `${origin()}/oauth/token`,
     response_types_supported: ["code"],
-    grant_types_supported: ["authorization_code"],
+    grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post"],
     scopes_supported: ["georgie:command", "georgie:status"]
@@ -100,11 +153,18 @@ export function createConnectorOAuthRouter() {
     res.redirect(302, target.toString());
   });
   router.post("/oauth/token", express.urlencoded({ extended: false }), (req, res) => {
-    const client = configuredClient(), code = clean(req.body?.code, 500), item = codes.get(code);
+    const client = configuredClient();
+    if (req.body?.grant_type === "refresh_token") {
+      if (!safeEqual(clientSecret(req), client.secret)) return res.status(401).json({ error: "invalid_client" });
+      const claims = verifySignedToken(clean(req.body?.refresh_token, 5000), "refresh");
+      if (!claims) return res.status(400).json({ error: "invalid_grant" });
+      return res.set("Cache-Control", "no-store").json(tokenResponse({ clientId: client.id, scope: clean(claims.scope, 500) }));
+    }
+    const code = clean(req.body?.code, 500), item = codes.get(code);
     codes.delete(code);
     const valid = req.body?.grant_type === "authorization_code" && item && item.expiresAt > Date.now() && clean(req.body?.client_id || client.id, 300) === client.id && safeEqual(clientSecret(req), client.secret) && clean(req.body?.redirect_uri, 1000) === item.redirectUri && safeEqual(pkce(req.body?.code_verifier), item.challenge);
     if (!valid) return res.status(400).json({ error: "invalid_grant" });
-    res.set("Cache-Control", "no-store").json({ access_token: issueConnectorAccessToken({ clientId: client.id, scope: item.scope }), token_type: "Bearer", expires_in: 3600, scope: item.scope });
+    res.set("Cache-Control", "no-store").json(tokenResponse({ clientId: client.id, scope: item.scope }));
   });
   return router;
 }

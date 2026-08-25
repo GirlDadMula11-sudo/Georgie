@@ -34,7 +34,7 @@ import { intelligenceControlMapStatus, refreshIntelligenceControlMap, startIntel
 import { startEngineeringCoordinator } from "./engineering-coordinator.js";
 import { createGovernedConnectorRouter } from "./governed-connector.js";
 import { createPortableMcpRouter } from "./portable-connector-mcp.js";
-import { createConnectorOAuthRouter } from "./connector-oauth.js";
+import { createConnectorOAuthRouter, startConnectorHeartbeatMonitor } from "./connector-oauth.js";
 
 const app=express();const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:20*1024*1024}});const __dirname=path.dirname(fileURLToPath(import.meta.url));const publicDir=path.resolve(__dirname,"../public");
 app.disable("x-powered-by");app.set("trust proxy",1);app.use(createConnectorOAuthRouter());app.use(helmet({contentSecurityPolicy:{directives:{defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'"],imgSrc:["'self'","data:","blob:"],mediaSrc:["'self'","blob:","data:"],connectSrc:["'self'"],workerSrc:["'self'","blob:"]}}}));app.use(express.json({limit:"10mb"}));app.use("/api",rateLimit({windowMs:60000,limit:Number(process.env.GEORGIE_RATE_LIMIT||90),standardHeaders:"draft-7",legacyHeaders:false}));app.post("/api/mobile/recovery/request",async(req,res)=>{try{const result=await requestOwnerRecovery({clientKey:req.ip||"unknown"});res.set("Cache-Control","no-store").status(202).json({ok:true,...result});}catch(error){const status=error?.code==="rate_limited"?429:503;res.set("Cache-Control","no-store").status(status).json({ok:false,error:error instanceof Error?error.message:"Recovery request failed"});}});app.use("/api/mobile",createMobileRouter());app.use(express.static(publicDir,{maxAge:process.env.NODE_ENV==="production"?"5m":0}));app.get("/",(_req,res)=>res.set("Cache-Control","no-cache").sendFile(path.join(publicDir,"index.html")));
@@ -84,6 +84,7 @@ startBackgroundOperatingLayer();
 startIntelligenceControlMap();
 startApprovalDispatchWorker();
 startEngineeringCoordinator();
+startConnectorHeartbeatMonitor();
 const PORT=Number(process.env.PORT||10000);
 const server=app.listen(PORT,()=>console.log(`Georgie listening on port ${PORT}`));
 attachRealtimeRelay(server);

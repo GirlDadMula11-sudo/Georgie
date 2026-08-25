@@ -18,6 +18,16 @@ services:
         sync: false
       - key: GEORGIE_CONNECTOR_TOKEN
         sync: false
+      - key: GEORGIE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GEORGIE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: GEORGIE_OAUTH_REDIRECT_URI
+        sync: false
+      - key: GEORGIE_OAUTH_ACCESS_TTL_SECONDS
+        value: "3600"
+      - key: GEORGIE_OAUTH_REFRESH_TTL_SECONDS
+        value: "2592000"
       - key: GEORGIE_SMARTLEAD_API_KEY
         sync: false
       - key: GEORGIE_VAPID_PUBLIC_KEY

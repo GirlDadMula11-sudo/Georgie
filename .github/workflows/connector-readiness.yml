@@ -11,7 +11,7 @@ on:
       - "scripts/check-connector-readiness.mjs"
       - ".github/workflows/connector-readiness.yml"
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/5 * * * *"
 
 permissions:
   contents: read
