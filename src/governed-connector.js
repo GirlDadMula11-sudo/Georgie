@@ -7,6 +7,7 @@ import { getMacDeviceStatus } from "./mac/router.js";
 import { listMailboxPacketManifests } from "./mailbox-evidence-bridge.js";
 import { listMessagesBefore, readMessage } from "./integrations/neo-mail.js";
 import { projectSierraMailboxEvidence } from "./integrations/sierra-workforce.js";
+import { crawlWebsite, pageSpeed, getApplicationFunnel, seoIntegrationStatus, websiteControlStatus } from "./integrations/seo-ops.js";
 
 const NS = "governed_external_connector";
 const SCHEMA = "georgie.governed-connector.v1";
@@ -16,6 +17,12 @@ const clean = (value, max = 6000) => String(value || "").trim().slice(0, max);
 const digest = (value) => crypto.createHash("sha256").update(String(value)).digest("hex");
 export function summarizeGovernedMacJob(job = {}) { return { id: job.id, status: job.status, action: job.action, deviceId: job.deviceId, authority: job.args?.authority || null, checkpoint: job.args?.checkpoint || null, attempts: job.attempts, claimedAt: job.claimedAt, completedAt: job.completedAt, error: job.error, dispatchReceipt: job.dispatchReceipt, cursor: job.result?.mailboxEvidenceBatch?.cursor || {}, packetCount: job.result?.mailboxEvidenceBatch?.packets?.length || 0, quarantineCount: job.result?.quarantine?.length || job.result?.mailboxEvidenceBatch?.quarantine?.length || 0, connections: job.result?.connection || null, staticContractInspection: job.result?.neoStaticContractInspection || null }; }
 const CAPABILITIES = Object.freeze({
+  "sierra.seo.workflow": Object.freeze({
+    targetDevice: "server",
+    authority: "read_only",
+    operations: new Set(["discovery_baseline"]),
+    prohibitedRoutes: new Set(["sierra.diagnostic_investigation", "sierra.continue_diagnostic_investigation", "sierra.deal", "sierra.reprocess_documents", "email.send", "lender.submit", "dns.write", "production.deploy"])
+  }),
   "neo_mail.imap.read_only": Object.freeze({
     targetDevice: "server",
     authority: "read_only",
@@ -105,6 +112,50 @@ export function validateCommandEnvelope(input = {}) {
 
 async function executeTypedCapability({ userId, command }) {
   const route = command.routing;
+  if (route.capability === "sierra.seo.workflow") {
+    const maxPages = Math.max(1, Math.min(Number(command.metadata?.max_pages || 150), 500));
+    const integration = seoIntegrationStatus();
+    const websiteControl = websiteControlStatus();
+    const crawl = await crawlWebsite({ startUrl: integration.websiteRoot, maxPages });
+    const representativeUrls = [...new Set([
+      integration.websiteRoot,
+      ...crawl.pages.filter((page) => page.status === 200).map((page) => page.finalUrl || page.url)
+    ])].slice(0, Math.max(1, Math.min(Number(command.metadata?.pagespeed_limit || 5), 10)));
+    const performanceSettled = await Promise.allSettled(representativeUrls.flatMap((url) => [
+      pageSpeed(url, { strategy: "mobile" }),
+      pageSpeed(url, { strategy: "desktop" })
+    ]));
+    const performance = performanceSettled.map((result, index) => result.status === "fulfilled"
+      ? { ok: true, ...result.value }
+      : { ok: false, url: representativeUrls[Math.floor(index / 2)], strategy: index % 2 === 0 ? "mobile" : "desktop", error: clean(result.reason instanceof Error ? result.reason.message : result.reason, 500) });
+    let applicationFunnel = null;
+    let applicationFunnelError = null;
+    try { applicationFunnel = await getApplicationFunnel({ days: Math.max(1, Math.min(Number(command.metadata?.funnel_days || 30), 365)) }); }
+    catch (error) { applicationFunnelError = clean(error instanceof Error ? error.message : error, 500); }
+    return {
+      terminalState: "completed",
+      completed: true,
+      route,
+      integration,
+      websiteControl,
+      crawl,
+      performance,
+      applicationFunnel,
+      applicationFunnelError,
+      defects: {
+        broken: crawl.pages.filter((page) => Number(page.status) >= 400),
+        redirectChains: crawl.pages.filter((page) => (page.redirectChain || []).length > 1),
+        missingTitles: crawl.pages.filter((page) => page.status === 200 && !page.title),
+        missingDescriptions: crawl.pages.filter((page) => page.status === 200 && !page.description),
+        missingCanonicals: crawl.pages.filter((page) => page.status === 200 && !page.canonical),
+        missingH1: crawl.pages.filter((page) => page.status === 200 && page.h1Count === 0),
+        multipleH1: crawl.pages.filter((page) => page.status === 200 && page.h1Count > 1),
+        missingStructuredData: crawl.pages.filter((page) => page.status === 200 && page.structuredDataBlocks === 0)
+      },
+      quarantinedRoutes: [...CAPABILITIES["sierra.seo.workflow"].prohibitedRoutes],
+      productionMutation: false
+    };
+  }
   if (route.capability === "sierra.mailbox_evidence.project") {
     const receiptIds = [...new Set((command.metadata?.receipt_ids || []).map(value => clean(value, 200)))];
     if (!receiptIds.length || receiptIds.length > 100) throw new Error("SIERRA_MAILBOX_PROJECTION_RECEIPTS_REQUIRED");
