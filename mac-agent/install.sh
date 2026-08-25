@@ -1,129 +1,29 @@
 #!/bin/zsh
 set -euo pipefail
-
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT"
-
-LOG_DIR="$HOME/Library/Logs"
-STATE_DIR="$HOME/Library/Application Support/Georgie"
-INSTALL_LOG="$LOG_DIR/georgie-mac-agent-install.log"
-INSTALL_RECEIPT="$STATE_DIR/mac-agent-install-receipt.json"
-mkdir -p "$LOG_DIR" "$STATE_DIR"
-exec > >(tee -a "$INSTALL_LOG") 2>&1
+if (( EUID == 0 )); then echo "Do not run this installer with sudo."; exit 1; fi
+ROOT="$(cd "$(dirname "$0")/.." && pwd)";cd "$ROOT"
+LOG_DIR="$HOME/Library/Logs";STATE_DIR="$HOME/Library/Application Support/Georgie";INSTALL_LOG="$LOG_DIR/georgie-mac-agent-install.log";INSTALL_RECEIPT="$STATE_DIR/mac-agent-install-receipt.json";mkdir -p "$LOG_DIR" "$STATE_DIR";exec > >(tee -a "$INSTALL_LOG") 2>&1
 INSTALL_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-write_receipt() {
-  local receipt_status="$1" receipt_code="$2"
-  /usr/bin/python3 - "$INSTALL_RECEIPT" "$receipt_status" "$receipt_code" "$INSTALL_STARTED_AT" <<'PY'
+write_receipt(){ local receipt_status="$1" receipt_code="$2";/usr/bin/python3 - "$INSTALL_RECEIPT" "$receipt_status" "$receipt_code" "$INSTALL_STARTED_AT" <<'PY'
 import json,sys,datetime,os,tempfile
-path,receipt_status,code,started=sys.argv[1:5]
-payload={"status":receipt_status,"code":code,"startedAt":started,"completedAt":datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),"pid":os.getpid()}
-fd,tmp=tempfile.mkstemp(prefix='.mac-agent-install-',dir=os.path.dirname(path)); os.close(fd)
-with open(tmp,'w') as f: json.dump(payload,f)
-os.replace(tmp,path)
+path,status,code,started=sys.argv[1:5];payload={"status":status,"code":code,"startedAt":started,"completedAt":datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),"pid":os.getpid()};fd,tmp=tempfile.mkstemp(prefix='.mac-agent-install-',dir=os.path.dirname(path));os.close(fd);open(tmp,'w').write(json.dumps(payload));os.replace(tmp,path)
 PY
 }
-trap 'rc=$?; if (( rc != 0 )); then write_receipt "failed" "INSTALLER_EXIT_${rc}"; fi' EXIT
-write_receipt "running" "INSTALLER_STARTED"
-
-say_step() { printf '\n[Georgie] %s\n' "$1"; }
-
-if ! command -v node >/dev/null 2>&1; then
-  echo "Node.js 20+ is required before installing the Georgie Mac Agent."
-  exit 1
-fi
-NODE="$(command -v node)"
-NODE_VERSION="$($NODE -p 'process.versions.node')"
-NODE_MAJOR="${NODE_VERSION%%.*}"
-if (( NODE_MAJOR < 20 )); then echo "Georgie requires Node.js 20 or newer. Current version: $NODE_VERSION"; exit 1; fi
-
-ENV_FILE="$ROOT/.env"
-PLIST="$HOME/Library/LaunchAgents/com.georgie.mac-agent.plist"
-HEALTH_FILE="$STATE_DIR/mac-agent-health.json"
-EXPECTED_AGENT_VERSION="2.2.34"
-RUNTIME_AGENT="$ROOT/mac-agent/agent.runtime.js"
-
-existing_value() { local key="$1"; [[ -f "$ENV_FILE" ]] || return 0; grep -E "^${key}=" "$ENV_FILE" | tail -1 | cut -d= -f2-; }
-SERVER_URL="${GEORGIE_SERVER_URL:-$(existing_value GEORGIE_SERVER_URL)}"
-TOKEN="${GEORGIE_MAC_AGENT_TOKEN:-$(existing_value GEORGIE_MAC_AGENT_TOKEN)}"
-DEVICE_ID="${GEORGIE_MAC_DEVICE_ID:-$(existing_value GEORGIE_MAC_DEVICE_ID)}"
-POLL_MS="${GEORGIE_MAC_POLL_MS:-$(existing_value GEORGIE_MAC_POLL_MS)}"
-if [[ -z "$SERVER_URL" || "$SERVER_URL" != https://* ]]; then echo "GEORGIE_SERVER_URL must use https://"; exit 1; fi
-if [[ -z "$TOKEN" ]] || (( ${#TOKEN} < 32 )); then echo "A valid Mac pairing token is required."; exit 1; fi
-[[ -n "$DEVICE_ID" ]] || DEVICE_ID="primary-mac"
-[[ -n "$POLL_MS" ]] || POLL_MS="2000"
-
-say_step "Validating daemon-owned polling health installer..."
-"$NODE" --check mac-agent/install-daemon-health.mjs
-say_step "Installing daemon-owned polling health instrumentation..."
-"$NODE" mac-agent/install-daemon-health.mjs
-say_step "Saving Mac-only configuration..."
-umask 077
-TMP_ENV="$(mktemp)"
-if [[ -f "$ENV_FILE" ]]; then grep -Ev '^(GEORGIE_SERVER_URL|GEORGIE_MAC_AGENT_TOKEN|GEORGIE_MAC_DEVICE_ID|GEORGIE_MAC_POLL_MS)=' "$ENV_FILE" > "$TMP_ENV" || true; fi
-{ cat "$TMP_ENV"; printf 'GEORGIE_SERVER_URL=%s\n' "$SERVER_URL"; printf 'GEORGIE_MAC_AGENT_TOKEN=%s\n' "$TOKEN"; printf 'GEORGIE_MAC_DEVICE_ID=%s\n' "$DEVICE_ID"; printf 'GEORGIE_MAC_POLL_MS=%s\n' "$POLL_MS"; } > "$ENV_FILE"
-rm -f "$TMP_ENV"; chmod 600 "$ENV_FILE"
-
-say_step "Installing Georgie dependencies..."
-npm install --omit=dev
-say_step "Building deterministic governed Mac runtime..."
-rm -f "$RUNTIME_AGENT"
-"$NODE" mac-agent/build-runtime.mjs "$EXPECTED_AGENT_VERSION"
-"$NODE" --check "$RUNTIME_AGENT"
-[[ -f "$RUNTIME_AGENT" ]] || { echo "Generated Mac runtime was not created."; exit 1; }
-grep -q 'browser.wordpress_enable_application_passwords' "$RUNTIME_AGENT" || { echo "Generated Mac runtime is missing the governed WordPress Application Password capability."; exit 1; }
-
-mkdir -p "$HOME/Library/LaunchAgents" "$LOG_DIR" "$(dirname "$HEALTH_FILE")"
-rm -f "$HEALTH_FILE"
-cat > "$PLIST" <<PLIST
+trap 'rc=$?; if (( rc != 0 )); then write_receipt "failed" "INSTALLER_EXIT_${rc}"; fi' EXIT;write_receipt "running" "INSTALLER_STARTED";say_step(){ printf '\n[Georgie] %s\n' "$1"; }
+command -v node >/dev/null 2>&1||{ echo "Node.js 20+ is required before installing the Georgie Mac Agent.";exit 1; };NODE="$(command -v node)";NODE_VERSION="$($NODE -p 'process.versions.node')";NODE_MAJOR="${NODE_VERSION%%.*}";(( NODE_MAJOR>=20 ))||{ echo "Georgie requires Node.js 20 or newer. Current version: $NODE_VERSION";exit 1; }
+ENV_FILE="$ROOT/.env";PLIST="$HOME/Library/LaunchAgents/com.georgie.mac-agent.plist";HEALTH_FILE="$STATE_DIR/mac-agent-health.json";EXPECTED_AGENT_VERSION="2.2.34";RUNTIME_AGENT="$ROOT/mac-agent/agent.runtime.js"
+existing_value(){ local key="$1";[[ -f "$ENV_FILE" ]]||return 0;grep -E "^${key}=" "$ENV_FILE"|tail -1|cut -d= -f2-; }
+SERVER_URL="${GEORGIE_SERVER_URL:-$(existing_value GEORGIE_SERVER_URL)}";TOKEN="${GEORGIE_MAC_AGENT_TOKEN:-$(existing_value GEORGIE_MAC_AGENT_TOKEN)}";DEVICE_ID="${GEORGIE_MAC_DEVICE_ID:-$(existing_value GEORGIE_MAC_DEVICE_ID)}";POLL_MS="${GEORGIE_MAC_POLL_MS:-$(existing_value GEORGIE_MAC_POLL_MS)}";[[ "$SERVER_URL" == https://* ]]||{ echo "GEORGIE_SERVER_URL must use https://";exit 1; };[[ -n "$TOKEN" ]]&&(( ${#TOKEN}>=32 ))||{ echo "A valid Mac pairing token is required.";exit 1; };[[ -n "$DEVICE_ID" ]]||DEVICE_ID="primary-mac";[[ -n "$POLL_MS" ]]||POLL_MS="2000"
+say_step "Validating daemon-owned polling health installer...";"$NODE" --check mac-agent/install-daemon-health.mjs;say_step "Installing daemon-owned polling health instrumentation...";"$NODE" mac-agent/install-daemon-health.mjs
+say_step "Saving Mac-only configuration...";umask 077;TMP_ENV="$(mktemp)";if [[ -f "$ENV_FILE" ]];then grep -Ev '^(GEORGIE_SERVER_URL|GEORGIE_MAC_AGENT_TOKEN|GEORGIE_MAC_DEVICE_ID|GEORGIE_MAC_POLL_MS)=' "$ENV_FILE">"$TMP_ENV"||true;fi;{ cat "$TMP_ENV";printf 'GEORGIE_SERVER_URL=%s\n' "$SERVER_URL";printf 'GEORGIE_MAC_AGENT_TOKEN=%s\n' "$TOKEN";printf 'GEORGIE_MAC_DEVICE_ID=%s\n' "$DEVICE_ID";printf 'GEORGIE_MAC_POLL_MS=%s\n' "$POLL_MS";}>"$ENV_FILE";rm -f "$TMP_ENV";chmod 600 "$ENV_FILE"
+say_step "Installing Georgie dependencies...";npm install --omit=dev;say_step "Building deterministic governed Mac runtime...";rm -f "$RUNTIME_AGENT";"$NODE" mac-agent/build-runtime.mjs "$EXPECTED_AGENT_VERSION";"$NODE" --check "$RUNTIME_AGENT";[[ -f "$RUNTIME_AGENT" ]]||{ echo "Generated Mac runtime was not created.";exit 1; };grep -q 'browser.wordpress_enable_application_passwords' "$RUNTIME_AGENT"||{ echo "Generated Mac runtime is missing the governed WordPress Application Password capability.";exit 1; }
+mkdir -p "$HOME/Library/LaunchAgents" "$LOG_DIR" "$(dirname "$HEALTH_FILE")";rm -f "$HEALTH_FILE";cat > "$PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>Label</key><string>com.georgie.mac-agent</string>
-<key>ProgramArguments</key><array><string>$NODE</string><string>$RUNTIME_AGENT</string></array>
-<key>WorkingDirectory</key><string>$ROOT</string>
-<key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>5</integer><key>ProcessType</key><string>Background</string>
-<key>StandardOutPath</key><string>$LOG_DIR/georgie-mac-agent.log</string><key>StandardErrorPath</key><string>$LOG_DIR/georgie-mac-agent-error.log</string>
-</dict></plist>
+<plist version="1.0"><dict><key>Label</key><string>com.georgie.mac-agent</string><key>ProgramArguments</key><array><string>$NODE</string><string>$RUNTIME_AGENT</string></array><key>WorkingDirectory</key><string>$ROOT</string><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>5</integer><key>ProcessType</key><string>Background</string><key>StandardOutPath</key><string>$LOG_DIR/georgie-mac-agent.log</string><key>StandardErrorPath</key><string>$LOG_DIR/georgie-mac-agent-error.log</string></dict></plist>
 PLIST
-plutil -lint "$PLIST"
-GUI_DOMAIN="gui/$(id -u)"; SERVICE_TARGET="$GUI_DOMAIN/com.georgie.mac-agent"
-say_step "Registering Georgie with the current Mac user session..."
-launchctl bootout "$SERVICE_TARGET" >/dev/null 2>&1 || true
-launchctl bootout "$GUI_DOMAIN" "$PLIST" >/dev/null 2>&1 || true
-for _attempt in {1..20}; do if ! launchctl print "$SERVICE_TARGET" >/dev/null 2>&1; then break; fi; sleep 0.1; done
-BOOTSTRAP_ERROR="$(mktemp)"
-if ! launchctl bootstrap "$GUI_DOMAIN" "$PLIST" 2>"$BOOTSTRAP_ERROR"; then
-  if ! launchctl print "$SERVICE_TARGET" >/dev/null 2>&1; then
-    echo "LaunchAgent bootstrap failed:"
-    cat "$BOOTSTRAP_ERROR"
-    echo "Do not run this installer with sudo."
-    rm -f "$BOOTSTRAP_ERROR"
-    exit 1
-  fi
-fi
-rm -f "$BOOTSTRAP_ERROR"
-launchctl enable "$SERVICE_TARGET"
-launchctl kickstart -k "$SERVICE_TARGET" >/dev/null 2>&1 || true
-sleep 1
-launchctl print "$SERVICE_TARGET" >/dev/null 2>&1 || { echo "The LaunchAgent is not registered after restart."; exit 1; }
-
-say_step "Waiting for daemon-owned heartbeat + poll receipt..."
-DAEMON_OK=0
-for _attempt in {1..25}; do
-  if [[ -f "$HEALTH_FILE" ]] && "$NODE" -e '
-    const fs=require("fs"); const p=process.argv[1], d=process.argv[2], v=process.argv[3], o=new URL(process.argv[4]).origin;
-    const h=JSON.parse(fs.readFileSync(p,"utf8")), age=Date.now()-Date.parse(h.successfulCycleAt||0);
-    if(h.deviceId!==d||h.agentVersion!==v||h.serverOrigin!==o||h.lastPollOk!==true||!Number.isInteger(h.pid)||h.pid<=1||!Number.isFinite(age)||age<0||age>15000) process.exit(1);
-  ' "$HEALTH_FILE" "$DEVICE_ID" "$EXPECTED_AGENT_VERSION" "$SERVER_URL"; then DAEMON_OK=1; break; fi
-  sleep 1
-done
-if (( DAEMON_OK != 1 )); then
-  echo "Daemon heartbeat proof failed."
-  launchctl print "$SERVICE_TARGET" 2>&1 | tail -40 || true
-  tail -40 "$LOG_DIR/georgie-mac-agent.log" 2>/dev/null || true
-  tail -40 "$LOG_DIR/georgie-mac-agent-error.log" 2>/dev/null || true
-  exit 1
-fi
-write_receipt "completed" "DAEMON_HEARTBEAT_PROVEN"
-trap - EXIT
-echo "Georgie Mac Agent installed; fresh authenticated daemon heartbeat and expected version proven."
+plutil -lint "$PLIST";GUI_DOMAIN="gui/$(id -u)";SERVICE_TARGET="$GUI_DOMAIN/com.georgie.mac-agent";say_step "Registering Georgie with the current Mac user session...";launchctl bootout "$SERVICE_TARGET">/dev/null 2>&1||true;launchctl bootout "$GUI_DOMAIN" "$PLIST">/dev/null 2>&1||true;for _attempt in {1..20};do if ! launchctl print "$SERVICE_TARGET">/dev/null 2>&1;then break;fi;sleep 0.1;done;BOOTSTRAP_ERROR="$(mktemp)";if ! launchctl bootstrap "$GUI_DOMAIN" "$PLIST" 2>"$BOOTSTRAP_ERROR";then if ! launchctl print "$SERVICE_TARGET">/dev/null 2>&1;then echo "LaunchAgent bootstrap failed:";cat "$BOOTSTRAP_ERROR";rm -f "$BOOTSTRAP_ERROR";exit 1;fi;fi;rm -f "$BOOTSTRAP_ERROR";launchctl enable "$SERVICE_TARGET";launchctl kickstart -k "$SERVICE_TARGET">/dev/null 2>&1||true;sleep 1;launchctl print "$SERVICE_TARGET">/dev/null 2>&1||{ echo "The LaunchAgent is not registered after restart.";exit 1; }
+say_step "Waiting for daemon-owned heartbeat + poll receipt...";DAEMON_OK=0;for _attempt in {1..25};do if [[ -f "$HEALTH_FILE" ]]&&"$NODE" -e 'const fs=require("fs"),h=JSON.parse(fs.readFileSync(process.argv[1],"utf8")),age=Date.now()-Date.parse(h.successfulCycleAt||0);if(h.deviceId!==process.argv[2]||h.agentVersion!==process.argv[3]||h.serverOrigin!==new URL(process.argv[4]).origin||h.lastPollOk!==true||!Number.isInteger(h.pid)||h.pid<=1||!Number.isFinite(age)||age<0||age>15000)process.exit(1)' "$HEALTH_FILE" "$DEVICE_ID" "$EXPECTED_AGENT_VERSION" "$SERVER_URL";then DAEMON_OK=1;break;fi;sleep 1;done
+if (( DAEMON_OK!=1 ));then echo "Daemon heartbeat proof failed.";launchctl print "$SERVICE_TARGET" 2>&1|tail -40||true;tail -40 "$LOG_DIR/georgie-mac-agent-error.log" 2>/dev/null||true;exit 1;fi
+say_step "Installing isolated governed lender-portal worker...";PORTAL_CODE="DAEMON_HEARTBEAT_PROVEN_PORTAL_PENDING";if /bin/zsh "$ROOT/mac-agent/install-portal-agent.sh";then PORTAL_CODE="DAEMON_AND_PORTAL_HEARTBEATS_PROVEN";else echo "Portal worker installed but has not yet proven its server claim route; it will keep retrying independently without degrading the primary Mac worker.";fi
+write_receipt "completed" "$PORTAL_CODE";trap - EXIT;echo "Georgie Mac Agent installed; primary daemon proven. Governed portal worker is isolated under its own LaunchAgent."
