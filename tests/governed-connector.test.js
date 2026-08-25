@@ -414,3 +414,13 @@ test("SEO repair uses the certified AppleScript Chrome tab path", () => {
   assert.match(handler,/WORDPRESS_JAVASCRIPT_RESULT_NOT_SERIALIZED/);
   assert.doesNotMatch(handler,/const chrome=Application\('Google Chrome'\)/);
 });
+
+
+test("developer repository inspection receipts preserve bounded read-only evidence", () => {
+  const summary=summarizeGovernedMacJob({
+    id:"job-inspect",status:"completed",action:"developer.repo_inspect",deviceId:"primary-mac",
+    result:{repo:"/Users/mac/Georgie",branch:"main",status:" M package-lock.json\n?? local.tmp\n",recentCommits:"abc repair",trackedFiles:["sensitive-long-list"],readOnly:true}
+  });
+  assert.deepEqual(summary.repositoryInspection,{repo:"/Users/mac/Georgie",branch:"main",status:" M package-lock.json\n?? local.tmp\n",recentCommits:"abc repair",readOnly:true});
+  assert.equal("trackedFiles" in summary.repositoryInspection,false);
+});
