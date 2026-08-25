@@ -319,7 +319,7 @@ async function executeTypedCapability({ userId, command }) {
     const specs = route.operation === "apply_seo_autopilot_agent_v2"
       ? [["developer.apply_patch", { repo, patch: seoAutopilotAgentV2Patch, patchHash: digest(seoAutopilotAgentV2Patch) }, "Open one controlled Sierra WordPress admin tab and install SEO agent 2.2.31"]]
       : route.operation === "apply_seo_autopilot_agent"
-      ? [["developer.apply_patch", { repo, patch: seoAutopilotAgentPatch, patchHash: digest(seoAutopilotAgentPatch) }, "Apply the exact durable SEO WordPress handler without touching other local changes"]]
+      ? [["developer.apply_patch", { repo, patch: seoAutopilotAgentV2Patch, patchHash: digest(seoAutopilotAgentV2Patch) }, "Upgrade the exact durable SEO WordPress handler to open one controlled admin tab without touching other local changes"]]
       : route.operation === "apply_governed_browser_agent"
       ? [["developer.apply_patch", { repo, patch: governedBrowserAgentPatch, patchHash: digest(governedBrowserAgentPatch) }, "Apply the exact governed browser handler patch without touching other local changes"]]
       : route.operation === "apply_neo_manifest_fix"
