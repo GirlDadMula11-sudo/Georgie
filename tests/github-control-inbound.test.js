@@ -75,6 +75,7 @@ test("GitHub status receipt normalizes singular and plural Mac jobs",()=>{
 
 test("GitHub OIDC challenges use isolated durable keys across Render instances",()=>{
   const source=fs.readFileSync(new URL("../src/github-control-inbound.js",import.meta.url),"utf8");
+  const workflow=fs.readFileSync(new URL("../.github/workflows/georgie-receipt-relay.yml",import.meta.url),"utf8");
   assert.match(source,/CHALLENGE_NS_PREFIX/);
   assert.match(source,/challengeNamespace\(nonce\)/);
   assert.match(source,/writeCloudState\(userId,challengeNamespace\(nonce\)/);
