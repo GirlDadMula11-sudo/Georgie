@@ -1,3 +1,4 @@
+import "../scripts/install-seo-phase2-executor.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -27,12 +28,8 @@ if (!runtime.includes(`const AGENT_VERSION = ${JSON.stringify(expectedVersion)};
 
 const legacyPoll = 'const payload = await api(`/api/mac/${encodeURIComponent(DEVICE_ID)}/jobs?limit=5`);';
 const versionedPoll = 'const payload = await api(`/api/mac/${encodeURIComponent(DEVICE_ID)}/jobs?limit=5&agentVersion=${encodeURIComponent(AGENT_VERSION)}`);';
-if (runtime.includes(legacyPoll)) {
-  runtime = runtime.replace(legacyPoll, versionedPoll);
-}
-if (!runtime.includes(versionedPoll)) {
-  throw new Error("Mac runtime version-aware polling replacement failed");
-}
+if (runtime.includes(legacyPoll)) runtime = runtime.replace(legacyPoll, versionedPoll);
+if (!runtime.includes(versionedPoll)) throw new Error("Mac runtime version-aware polling replacement failed");
 
 if (!runtime.includes("async function enableWordpressApplicationPasswords")) {
   const functionAnchor = "async function waitForAppProcess(app, timeoutMs = 8000) {";
@@ -43,10 +40,7 @@ if (!runtime.includes("async function enableWordpressApplicationPasswords")) {
 if (!runtime.includes('case "browser.wordpress_enable_application_passwords"')) {
   const switchAnchor = '    case "browser.wordpress_link_integrity_repair":\n      return repairWordpressLinkIntegrity(a);';
   if (!runtime.includes(switchAnchor)) throw new Error("WordPress handler switch anchor missing");
-  runtime = runtime.replace(
-    switchAnchor,
-    `${switchAnchor}\n    case "browser.wordpress_enable_application_passwords":\n      return enableWordpressApplicationPasswords(a);`
-  );
+  runtime = runtime.replace(switchAnchor, `${switchAnchor}\n    case "browser.wordpress_enable_application_passwords":\n      return enableWordpressApplicationPasswords(a);`);
 }
 
 for (const invariant of [
@@ -54,6 +48,8 @@ for (const invariant of [
   'case "browser.wordpress_enable_application_passwords"',
   "WORDPRESS_APP_PASSWORD_AUTHORIZATION_REJECTED",
   "WORDPRESS_APP_PASSWORD_CONTROL_AMBIGUOUS",
+  'case "browser.wordpress_phase2_batch"',
+  'case "browser.wordpress_phase2_rollback"',
   "agentVersion=${encodeURIComponent(AGENT_VERSION)}"
 ]) {
   if (!runtime.includes(invariant)) throw new Error(`Generated Mac runtime missing invariant: ${invariant}`);
@@ -61,4 +57,4 @@ for (const invariant of [
 
 fs.writeFileSync(runtimePath, runtime, { mode: 0o600 });
 execFileSync(process.execPath, ["--check", runtimePath], { stdio: "inherit" });
-console.log(JSON.stringify({ ok: true, runtimePath, expectedVersion, wordpressApplicationPasswordCapability: true, versionAwarePolling: true }));
+console.log(JSON.stringify({ ok: true, runtimePath, expectedVersion, wordpressApplicationPasswordCapability: true, seoPhase2Capability: true, versionAwarePolling: true }));
