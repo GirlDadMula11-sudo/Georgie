@@ -3,6 +3,7 @@ const readinessUrl = `${origin}/.well-known/georgie-connector-readiness`;
 const oauthUrl = `${origin}/.well-known/oauth-authorization-server`;
 const resourceUrl = `${origin}/.well-known/oauth-protected-resource/mcp`;
 const mcpUrl = `${origin}/mcp`;
+const expectedServer = { name: "georgie-governed-connector-r2", version: "2.4.1" };
 
 async function fetchJson(url, options = {}) {
   const controller = new AbortController();
@@ -30,6 +31,7 @@ const oauth = await fetchJson(oauthUrl);
 if (!oauth.response.ok || oauth.body?.issuer !== origin || oauth.body?.authorization_endpoint !== `${origin}/oauth/authorize` || oauth.body?.token_endpoint !== `${origin}/oauth/token`) {
   fail("oauth_metadata", { status: oauth.response.status, body: oauth.body });
 }
+if (!(oauth.body?.scopes_supported || []).includes("offline_access")) fail("oauth_offline_access", { status: oauth.response.status, body: oauth.body });
 
 const resource = await fetchJson(resourceUrl);
 if (!resource.response.ok || resource.body?.resource !== mcpUrl || !(resource.body?.authorization_servers || []).includes(origin)) {
@@ -37,16 +39,17 @@ if (!resource.response.ok || resource.body?.resource !== mcpUrl || !(resource.bo
 }
 
 const token = String(process.env.GEORGIE_CONNECTOR_TOKEN || "").trim();
-let deepMcp = { attempted: false, initialized: false, requiredToolsPresent: false, toolCount: null };
+let deepMcp = { attempted: false, initialized: false, requiredToolsPresent: false, toolCount: null, serverInfo: null };
 if (token) {
   deepMcp.attempted = true;
   const commonHeaders = { "content-type": "application/json", authorization: `Bearer ${token}` };
   const init = await fetchJson(mcpUrl, {
     method: "POST",
     headers: commonHeaders,
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "georgie-readiness-probe", version: "1.0.0" } } }),
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "georgie-readiness-probe", version: "2.4.1" } } }),
   });
-  if (!init.response.ok || init.body?.result?.serverInfo?.name !== "georgie-governed-connector") fail("mcp_initialize", { status: init.response.status, body: init.body });
+  deepMcp.serverInfo = init.body?.result?.serverInfo || null;
+  if (!init.response.ok || deepMcp.serverInfo?.name !== expectedServer.name || deepMcp.serverInfo?.version !== expectedServer.version) fail("mcp_initialize", { status: init.response.status, expectedServer, body: init.body });
   deepMcp.initialized = true;
 
   const tools = await fetchJson(mcpUrl, {
@@ -62,4 +65,4 @@ if (token) {
   deepMcp.toolCount = names.size;
 }
 
-console.log(JSON.stringify({ ok: true, origin, registrationReady: true, oauthMetadataValid: true, protectedResourceMetadataValid: true, deepMcp, checkedAt: new Date().toISOString() }));
+console.log(JSON.stringify({ ok: true, origin, registrationGeneration: "r2", expectedServer, registrationReady: true, oauthMetadataValid: true, offlineAccessAdvertised: true, protectedResourceMetadataValid: true, deepMcp, checkedAt: new Date().toISOString() }));
