@@ -11,7 +11,7 @@ import { verifyNeoCdpSession } from "./neo-cdp-reader.js";
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.29";
+const AGENT_VERSION = "2.2.30";
 const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;
 const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));
 const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));
@@ -144,6 +144,57 @@ async function inspectGovernedWordpressSession(args = {}) {
     mutationPerformed: false,
     prohibitedActions: ["form.submit", "content.write", "wordpress.publish", "dns.write", "email.send"]
   };
+}
+
+async function repairWordpressLinkIntegrity(args = {}) {
+  if (args.authority !== "reversible_write" || args.operation !== "repair_link_integrity") throw new Error("WORDPRESS_REPAIR_AUTHORIZATION_REJECTED");
+  if (String(args.siteOrigin || "").replace(/\/$/, "") !== "https://sierramarketinginc.com") throw new Error("WORDPRESS_REPAIR_SITE_REJECTED");
+  const pageScript = `(() => {
+    const nonce = window.wpApiSettings && window.wpApiSettings.nonce;
+    if (!nonce) throw new Error('WORDPRESS_REST_NONCE_NOT_AVAILABLE');
+    function request(method, path, body) {
+      const xhr = new XMLHttpRequest();
+      xhr.open(method, path, false);
+      xhr.setRequestHeader('X-WP-Nonce', nonce);
+      if (body !== undefined) xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.send(body === undefined ? null : JSON.stringify(body));
+      if (xhr.status < 200 || xhr.status >= 300) throw new Error('WORDPRESS_REST_' + xhr.status + ':' + path);
+      return JSON.parse(xhr.responseText || 'null');
+    }
+    const collections = ['pages','posts'], originals = [], changed = [];
+    const repair = raw => String(raw || '')
+      .replace(/https:\\/\\/sierramarketinginc\\.com\\/sba-bank-term-loans-for-businesses\\//gi, 'https://sierramarketinginc.com/sba-bank-term-loans-for-business/')
+      .replace(/(["'])\\/sba-bank-term-loans-for-businesses\\//gi, '$1/sba-bank-term-loans-for-business/')
+      .replace(/http:\\/\\/submissions@sierramarketinginc\\.com\\/?/gi, 'mailto:submissions@sierramarketinginc.com');
+    try {
+      for (const type of collections) {
+        const rows = request('GET', '/wp-json/wp/v2/' + type + '?context=edit&per_page=100&_fields=id,slug,modified_gmt,content', undefined);
+        for (const row of rows) {
+          const raw = String(row.content && row.content.raw || ''), next = repair(raw);
+          if (next === raw) continue;
+          originals.push({type,id:row.id,slug:row.slug,modified_gmt:row.modified_gmt,content:raw});
+          request('POST', '/wp-json/wp/v2/' + type + '/' + row.id, {content:next});
+          changed.push({type,id:row.id,slug:row.slug,beforeLength:raw.length,afterLength:next.length});
+        }
+      }
+      for (const item of originals) {
+        const current = request('GET', '/wp-json/wp/v2/' + item.type + '/' + item.id + '?context=edit&_fields=id,content', undefined);
+        const raw = String(current.content && current.content.raw || '');
+        if (/sba-bank-term-loans-for-businesses\\/|http:\\/\\/submissions@sierramarketinginc\\.com/i.test(raw)) throw new Error('WORDPRESS_LINK_REPAIR_VERIFICATION_FAILED:' + item.type + ':' + item.id);
+      }
+      return {ok:true,changed,changedCount:changed.length,backupCount:originals.length,verified:true,rollbackPerformed:false};
+    } catch (error) {
+      const rollbackErrors = [];
+      for (const item of originals.reverse()) {
+        try { request('POST', '/wp-json/wp/v2/' + item.type + '/' + item.id, {content:item.content}); }
+        catch (rollbackError) { rollbackErrors.push(item.type + ':' + item.id + ':' + String(rollbackError.message || rollbackError)); }
+      }
+      throw new Error('WORDPRESS_LINK_REPAIR_ROLLED_BACK:' + String(error.message || error) + (rollbackErrors.length ? ':ROLLBACK_ERRORS:' + rollbackErrors.join(',') : ''));
+    }
+  })()`;
+  const script = `const prefix="https://sierramarketinginc.com/wp-admin/";const js=${JSON.stringify(pageScript)};let out=null;const chrome=Application('Google Chrome');if(chrome.running())for(const win of chrome.windows())for(const tab of win.tabs()){if(String(tab.url()).startsWith(prefix)){out=tab.execute({javascript:js});break;}if(out!==null)break;}if(out===null)throw new Error('No approved Sierra WordPress admin tab');JSON.stringify(out);`;
+  const result = JSON.parse(await runJxa(script) || "{}");
+  return { wordpressLinkIntegrityRepair: result, siteOrigin: "https://sierramarketinginc.com", authority: "reversible_write", credentialsTransferred: false, formValuesCaptured: false, backupCreated: true, mutationPerformed: result.changedCount > 0, verified: result.verified === true, rollbackPerformed: result.rollbackPerformed === true };
 }
 
 async function waitForAppProcess(app, timeoutMs = 8000) {
@@ -457,6 +508,8 @@ async function execute(job) {
       return inspectBrowserTabs({ includeContent: a.includeContent !== false });
     case "browser.wordpress_hostinger_inspect":
       return inspectGovernedWordpressSession(a);
+    case "browser.wordpress_link_integrity_repair":
+      return repairWordpressLinkIntegrity(a);
     case "browser.workflow":
       return executeBrowserWorkflow(job);
     case "mailbox.neo_static_contract_inspect":

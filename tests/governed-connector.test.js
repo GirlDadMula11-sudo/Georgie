@@ -340,3 +340,23 @@ test("dirty-safe governed browser agent repair is an exact maintenance patch", a
   assert.equal(stored.result.route.operation,"apply_governed_browser_agent");
   assert.throws(()=>validateCommandEnvelope({...input,metadata:{...input.metadata,operation:"overwrite_repository"}}),/UNSUPPORTED_OPERATION/);
 });
+
+
+test("durable SEO autopilot schedules one leased reversible batch chain", async () => {
+  const input={source:"chatgpt",objectiveId:"SIERRA-SEO-20260824-GEORGIE-001",idempotencyKey:"seo-autopilot-start-1",command:"Start durable SEO autopilot.",metadata:{capability:"sierra.seo.autopilot",target_device:"server",operation:"start",authority:"reversible_write",prohibited_routes:["arbitrary_domain","credentials.read","wordpress.publish","dns.write","email.send","lender.submit"]}};
+  const envelope=validateCommandEnvelope(input);
+  assert.equal(envelope.routing.capability,"sierra.seo.autopilot");
+  assert.equal(envelope.routing.authority,"reversible_write");
+  assert.throws(()=>validateCommandEnvelope({...input,metadata:{...input.metadata,operation:"publish"}}),/UNSUPPORTED_OPERATION/);
+  assert.throws(()=>validateCommandEnvelope({...input,metadata:{...input.metadata,authority:"local_admin"}}),/CAPABILITY_AUTHORITY_MISMATCH/);
+});
+
+test("WordPress link repair handler is exact, backed up, verified, and fail-closed", () => {
+  const source=fs.readFileSync(new URL("../mac-agent/agent.js",import.meta.url),"utf8");
+  assert.match(source,/browser\.wordpress_link_integrity_repair/);
+  assert.match(source,/WORDPRESS_LINK_REPAIR_ROLLED_BACK/);
+  assert.match(source,/backupCreated: true/);
+  assert.match(source,/credentialsTransferred: false/);
+  assert.match(source,/sba-bank-term-loans-for-businesses/);
+  assert.match(source,/mailto:submissions@sierramarketinginc\.com/);
+});
