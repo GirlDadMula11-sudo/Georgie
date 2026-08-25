@@ -157,10 +157,19 @@ test("developer file receipts expose hashes and capability facts without source 
   assert.equal("text" in summary.sourceInspection,false);
 });
 
+test("developer file receipts expose only sanitized Mac installer diagnostic fields", () => {
+  const text=JSON.stringify({version:1,status:"failed",code:"INSTALLER_EXIT_1",stage:"Installing Georgie dependencies...",startedAt:"2026-08-25T18:53:27Z",observedAt:"2026-08-25T18:53:38Z",secret:"must-not-escape"});
+  const summary=summarizeGovernedMacJob({id:"job-install-diagnostic",status:"completed",action:"developer.file_read",result:{repo:"/Users/mac/Georgie",path:"mac-agent/.install-diagnostic.json",text,readOnly:true}});
+  assert.deepEqual(summary.sourceInspection.installDiagnostic,{version:1,status:"failed",code:"INSTALLER_EXIT_1",stage:"Installing Georgie dependencies...",startedAt:"2026-08-25T18:53:27Z",observedAt:"2026-08-25T18:53:38Z"});
+  assert.equal("text" in summary.sourceInspection,false);
+  assert.equal("secret" in summary.sourceInspection.installDiagnostic,false);
+});
+
 test("developer source read is exact and allowlisted", () => {
   const base={source:"openai",objectiveId:"obj-source-read",idempotencyKey:"dev-read-1",command:"Read allowlisted source",metadata:{capability:"developer.repository_inspection",target_device:"primary-mac",operation:"read_file",authority:"read_only",repo:"/Users/mac/Georgie",path:"mac-agent/agent.js",prohibited_routes:["email.send","production.deploy"]}};
   assert.equal(validateCommandEnvelope(base).routing.operation,"read_file");
   assert.equal(validateCommandEnvelope({...base,idempotencyKey:"dev-read-lock",metadata:{...base.metadata,path:"package-lock.json"}}).routing.operation,"read_file");
+  assert.equal(validateCommandEnvelope({...base,idempotencyKey:"dev-read-install-diagnostic",metadata:{...base.metadata,path:"mac-agent/.install-diagnostic.json"}}).routing.operation,"read_file");
   assert.throws(()=>validateCommandEnvelope({...base,metadata:{...base.metadata,operation:"write_file"}}),/UNSUPPORTED_OPERATION/);
 });
 
