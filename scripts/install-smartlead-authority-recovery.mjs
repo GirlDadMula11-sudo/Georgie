@@ -13,7 +13,7 @@ function replaceRequired(from, to, label) {
 
 replaceRequired(
   'const WORKER_VERSION = "georgie.smartlead-reply-closer.v2.5";',
-  'const WORKER_VERSION = "georgie.smartlead-reply-closer.v2.5.1";',
+  'const WORKER_VERSION = "georgie.smartlead-reply-closer.v2.5.2";',
   "worker version"
 );
 
@@ -52,7 +52,7 @@ replaceRequired(
     if (!authorityStale) schedule(next.delayMs);
     if (next.mode === "infra_backoff") console.warn("SMARTLEAD_REPLY_CLOSER_BACKPRESSURE", JSON.stringify({ mode: next.mode, delayMs: next.delayMs, failures: next.failures, version: WORKER_VERSION }));
   };
-  const retryDelays = [5_000, 10_000, 20_000, 30_000, 60_000];
+  const retryDelays = [120_000, 180_000, 240_000, 300_000];
   let retryAttempt = 0;
   const activate = async () => {
     authorityRetryTimer = null;
@@ -77,14 +77,14 @@ replaceRequired(
 
 replaceRequired(
   'historicalReplyAgeAwareCopy: true, idempotency: "one durable reservation per obligation", healthHeartbeat: true, adaptiveBackpressure: true, fixedIntervalPolling: false, idlePollRelaxation: true, transientInfraBackoff: true, maxBackoffMs: MAX_BACKOFF_MS, receiptReconcileReadBeforeAuthorityAssert: true });',
-  'historicalReplyAgeAwareCopy: true, idempotency: "one durable reservation per obligation", healthHeartbeat: true, adaptiveBackpressure: true, fixedIntervalPolling: false, idlePollRelaxation: true, transientInfraBackoff: true, maxBackoffMs: MAX_BACKOFF_MS, receiptReconcileReadBeforeAuthorityAssert: true, authorityActivationRetry: true, authorityActivationFailClosed: true });',
+  'historicalReplyAgeAwareCopy: true, idempotency: "one durable reservation per obligation", healthHeartbeat: true, adaptiveBackpressure: true, fixedIntervalPolling: false, idlePollRelaxation: true, transientInfraBackoff: true, maxBackoffMs: MAX_BACKOFF_MS, receiptReconcileReadBeforeAuthorityAssert: true, authorityActivationRetry: true, authorityActivationFailClosed: true, authorityActivationRetryMinMs: 120000, authorityActivationRetryMaxMs: 300000 });',
   "authority recovery contract"
 );
 
 if (changed) fs.writeFileSync(path, source);
 
-if (!source.includes('georgie.smartlead-reply-closer.v2.5.1') || !source.includes('authorityRetryTimer') || !source.includes('authorityActivationRetry: true')) {
+if (!source.includes('georgie.smartlead-reply-closer.v2.5.2') || !source.includes('authorityRetryTimer') || !source.includes('authorityActivationRetryMinMs: 120000') || !source.includes('retryDelays = [120_000, 180_000, 240_000, 300_000]')) {
   throw new Error("Smartlead authority recovery installation did not converge");
 }
 
-console.log(`[Georgie] Smartlead reply closer authority recovery installed: changed=${changed}`);
+console.log(`[Georgie] Smartlead reply closer authority outage backoff installed: changed=${changed}`);
