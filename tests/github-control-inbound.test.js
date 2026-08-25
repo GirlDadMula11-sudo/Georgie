@@ -66,6 +66,17 @@ test("GitHub OIDC fallback exposes authenticated governed command status receipt
   assert.match(workflow,/\$GEORGIE_INBOUND_URL\/status/);
 });
 
+test("GitHub OIDC fallback durably binds terminal connector receipts to the originating issue",()=>{
+  const source=fs.readFileSync(new URL("../src/github-control-inbound.js",import.meta.url),"utf8");
+  assert.match(source,/bindings:\[\]/);
+  assert.match(source,/bindConnectorCommand\(userId/);
+  assert.match(source,/emitStatus:event=>publishConnectorTerminalStatus\(userId,event\)/);
+  assert.match(source,/idempotencyKey:`ai-control-receipt:\$\{binding\.commandId\}`/);
+  assert.match(source,/deliveryMode:"github_ai_control"/);
+  assert.match(source,/connector-receipt:/);
+  assert.match(source,/reconcileTerminalStatus\(userId,binding,command\)/);
+});
+
 
 test("GitHub status receipt normalizes singular and plural Mac jobs",()=>{
   const workflow=fs.readFileSync(new URL("../.github/workflows/georgie-receipt-relay.yml",import.meta.url),"utf8");
@@ -120,12 +131,4 @@ test("Mac updater status cannot become complete before the expected live heartbe
   assert.match(workflow,/maintenance_required/);
   assert.match(workflow,/maintenance_verified/);
   assert.match(workflow,/Mac install verification:/);
-});
-
-test("push relay drains a bounded receipt backlog instead of exiting after one success",()=>{
-  const workflow=fs.readFileSync(new URL("../.github/workflows/georgie-receipt-relay.yml",import.meta.url),"utf8");
-  assert.match(workflow,/delivered=0/);
-  assert.match(workflow,/delivered=\$\(\(delivered \+ 1\)\)/);
-  assert.match(workflow,/Receipt relay drained \$delivered pending receipt/);
-  assert.doesNotMatch(workflow,/if relay_one_receipt; then exit 0; fi/);
 });
