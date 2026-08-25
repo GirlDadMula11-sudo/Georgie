@@ -32,8 +32,9 @@ const connectorFile=new URL("../src/governed-connector.js",import.meta.url);
 let connector=fs.readFileSync(connectorFile,"utf8");
 const unsafeActiveOwnerReturn='return{acquired:lease.owner===workerId,lease:leasePublic(lease)};';
 const fencedActiveOwnerReturn='return{acquired:false,duplicateExecutionPrevented:true,lease:leasePublic(lease)};';
+const activeLeaseFencedReturn='return{acquired:false,active:true,lease:leasePublic(lease)};';
 if(connector.includes(unsafeActiveOwnerReturn))connector=connector.replace(unsafeActiveOwnerReturn,fencedActiveOwnerReturn);
-else if(!connector.includes(fencedActiveOwnerReturn))throw new Error("github receipt relay installer: governed connector lease anchor missing");
+else if(!connector.includes(fencedActiveOwnerReturn)&&!connector.includes(activeLeaseFencedReturn))throw new Error("github receipt relay installer: governed connector lease anchor missing");
 fs.writeFileSync(connectorFile,connector);
 
 console.log("GitHub OIDC receipt relay and control inbound installed");
