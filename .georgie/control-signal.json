@@ -1,9 +1,9 @@
 {
   "version": 1,
   "issueNumber": 163,
-  "commentId": 5412636468,
+  "commentId": 5412668844,
   "objectiveId": "SIERRA-SEO-AUTOPILOT-20260824-001",
-  "commandId": "cmd_primary_mac_normalize_installer_drift_20260825_1121",
-  "idempotencyKey": "sierra-primary-mac-normalize-installer-drift-20260825-v1",
-  "updatedAt": "2026-08-25T15:21:00Z"
+  "commandId": "cmd_primary_mac_repo_inspect_post_cleanup_20260825_1123",
+  "idempotencyKey": "sierra-primary-mac-repo-inspect-post-cleanup-20260825-v1",
+  "updatedAt": "2026-08-25T15:23:00Z"
 }
