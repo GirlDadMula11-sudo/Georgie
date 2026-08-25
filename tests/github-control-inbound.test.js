@@ -64,3 +64,6 @@ test("GitHub OIDC fallback exposes authenticated governed command status receipt
   assert.match(workflow,/publish_command_status/);
   assert.match(workflow,/\$GEORGIE_INBOUND_URL\/status/);
 });
+
+
+test("GitHub status receipt normalizes singular and plural Mac jobs",()=>{\n  const workflow=fs.readFileSync(new URL("../.github/workflows/georgie-receipt-relay.yml",import.meta.url),"utf8");\n  assert.match(workflow,/if \.command\.macJob then \[\.command\.macJob\]/);\n  assert.match(workflow,/Command error:/);\n});\n
