@@ -58,7 +58,7 @@ export async function scheduleObjective(userId, input = {}) {
   const steps = (Array.isArray(input.steps) ? input.steps : []).map(normalizeStep);
   if (!steps.length) throw new Error("At least one objective step is required");
   const store = await readStore(userId);
-  let objective = store.objectives.find(o => o.stableKey === stableKey && !["cancelled", "verified"].includes(o.status));
+  let objective = store.objectives.find(o => o.stableKey === stableKey && o.status !== "cancelled");
   if (objective && objective.status === "blocked" && input.resumeBlocked === true) {
     objective.status = "queued";
     objective.attempts = 0;
