@@ -93,6 +93,7 @@ cat > "$PLIST" <<PLIST
   <key>WorkingDirectory</key><string>$ROOT</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>5</integer>
   <key>ProcessType</key><string>Background</string>
   <key>StandardOutPath</key><string>$LOG_DIR/georgie-mac-agent.log</string>
   <key>StandardErrorPath</key><string>$LOG_DIR/georgie-mac-agent-error.log</string>
@@ -105,9 +106,6 @@ GUI_DOMAIN="gui/$(id -u)"
 SERVICE_TARGET="$GUI_DOMAIN/com.georgie.mac-agent"
 
 say_step "Registering Georgie with the current Mac user session..."
-# A previous installer or interrupted launchctl operation can leave the label
-# registered after the process has stopped. Clear both label and plist forms,
-# then wait briefly for launchd to finish removing the old registration.
 launchctl bootout "$SERVICE_TARGET" >/dev/null 2>&1 || true
 launchctl bootout "$GUI_DOMAIN" "$PLIST" >/dev/null 2>&1 || true
 for _attempt in {1..20}; do
@@ -119,8 +117,6 @@ done
 
 BOOTSTRAP_ERROR="$(mktemp)"
 if ! launchctl bootstrap "$GUI_DOMAIN" "$PLIST" 2>"$BOOTSTRAP_ERROR"; then
-  # launchctl can report an error after accepting a registration. Trust a
-  # direct read-back of the exact service over the command's exit text.
   if launchctl print "$SERVICE_TARGET" >/dev/null 2>&1; then
     echo "Georgie's LaunchAgent was already registered; continuing with verified service state."
   else
@@ -137,13 +133,37 @@ rm -f "$BOOTSTRAP_ERROR"
 launchctl enable "$SERVICE_TARGET"
 launchctl kickstart -k "$SERVICE_TARGET" >/dev/null 2>&1 || true
 
-say_step "Checking Georgie..."
+say_step "Checking Georgie locally..."
 sleep 2
-if launchctl print "$SERVICE_TARGET" >/dev/null 2>&1; then
-  echo "Georgie Mac Agent is installed and running."
-else
-  echo "The LaunchAgent was installed but did not report as running yet."
+if ! launchctl print "$SERVICE_TARGET" >/dev/null 2>&1; then
+  echo "The LaunchAgent is not registered after restart."
+  exit 1
 fi
+
+say_step "Verifying authenticated server round-trip..."
+ROUNDTRIP_OK=0
+for _attempt in {1..15}; do
+  HTTP_CODE="$(curl -sS -o /tmp/georgie-mac-roundtrip.json -w '%{http_code}' \
+    -H "Authorization: Bearer $TOKEN" \
+    -H 'Content-Type: application/json' \
+    "$SERVER_URL/api/mac/$DEVICE_ID/jobs?limit=1" || true)"
+  if [[ "$HTTP_CODE" == "200" ]]; then
+    ROUNDTRIP_OK=1
+    break
+  fi
+  sleep 1
+ done
+rm -f /tmp/georgie-mac-roundtrip.json
+
+if (( ROUNDTRIP_OK != 1 )); then
+  echo "Georgie LaunchAgent is registered, but authenticated polling did not reach the server."
+  echo "Inspect these logs before treating the Mac worker as healthy:"
+  echo "  $LOG_DIR/georgie-mac-agent.log"
+  echo "  $LOG_DIR/georgie-mac-agent-error.log"
+  exit 1
+fi
+
+echo "Georgie Mac Agent is installed, registered, and its authenticated polling route is reachable."
 
 echo
 printf '%s\n' "NEXT: macOS must approve Georgie's local permissions." \
