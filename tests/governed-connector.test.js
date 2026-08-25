@@ -147,11 +147,11 @@ test("developer typed capabilities are exact, allowlisted, and approval separate
 
 
 test("developer file receipts expose hashes and capability facts without source text", () => {
-  const text='const AGENT_VERSION = "2.2.33";\nagentVersion=${encodeURIComponent(AGENT_VERSION)}\nasync function enableWordpressApplicationPasswords() {}\n';
+  const text='const AGENT_VERSION = "2.2.34";\nagentVersion=${encodeURIComponent(AGENT_VERSION)}\nasync function enableWordpressApplicationPasswords() {}\n';
   const summary=summarizeGovernedMacJob({id:"job-source",status:"completed",action:"developer.file_read",result:{repo:"/Users/mac/Georgie",path:"mac-agent/agent.js",text,readOnly:true}});
   assert.equal(summary.sourceInspection.path,"mac-agent/agent.js");
   assert.match(summary.sourceInspection.gitBlobSha,/^[a-f0-9]{40}$/);
-  assert.equal(summary.sourceInspection.agentVersion,"2.2.33");
+  assert.equal(summary.sourceInspection.agentVersion,"2.2.34");
   assert.equal(summary.sourceInspection.versionAwarePolling,true);
   assert.equal(summary.sourceInspection.wordpressApplicationPasswordHandler,true);
   assert.equal("text" in summary.sourceInspection,false);
@@ -418,7 +418,7 @@ test("SEO autopilot wake and status remain bound to the scheduling user namespac
 
 test("SEO repair opens only the allowlisted Sierra admin origin before mutation", () => {
   const source=fs.readFileSync(new URL("../mac-agent/agent.js",import.meta.url),"utf8");
-  assert.match(source,/AGENT_VERSION = "2\.2\.33"/);
+  assert.match(source,/AGENT_VERSION = "2\.2\.34"/);
   assert.match(source,/execFileAsync\("open", \["-a", "Google Chrome", "https:\/\/sierramarketinginc\.com\/wp-admin\/"\]/);
   assert.match(source,/WORDPRESS_REPAIR_SITE_REJECTED/);
 });

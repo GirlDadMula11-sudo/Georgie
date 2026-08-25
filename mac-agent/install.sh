@@ -39,7 +39,7 @@ if (( NODE_MAJOR < 20 )); then echo "Georgie requires Node.js 20 or newer. Curre
 ENV_FILE="$ROOT/.env"
 PLIST="$HOME/Library/LaunchAgents/com.georgie.mac-agent.plist"
 HEALTH_FILE="$STATE_DIR/mac-agent-health.json"
-EXPECTED_AGENT_VERSION="2.2.33"
+EXPECTED_AGENT_VERSION="2.2.34"
 RUNTIME_AGENT="$ROOT/mac-agent/agent.runtime.js"
 
 existing_value() { local key="$1"; [[ -f "$ENV_FILE" ]] || return 0; grep -E "^${key}=" "$ENV_FILE" | tail -1 | cut -d= -f2-; }
