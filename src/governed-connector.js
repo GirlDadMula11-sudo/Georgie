@@ -16,7 +16,28 @@ const locks = new Map();
 const now = () => new Date().toISOString();
 const clean = (value, max = 6000) => String(value || "").trim().slice(0, max);
 const digest = (value) => crypto.createHash("sha256").update(String(value)).digest("hex");
-export function summarizeGovernedMacJob(job = {}) { const repositoryInspection=job.action==="developer.repo_inspect"&&job.result?{repo:job.result.repo||null,branch:job.result.branch||null,status:job.result.status||"",recentCommits:job.result.recentCommits||"",readOnly:job.result.readOnly===true}:null; const sourceText=job.action==="developer.file_read"&&typeof job.result?.text==="string"?job.result.text:null; const sourceInspection=sourceText===null?null:{repo:job.result.repo||null,path:job.result.path||null,bytes:Buffer.byteLength(sourceText),gitBlobSha:crypto.createHash("sha1").update(`blob ${Buffer.byteLength(sourceText)}\0${sourceText}`).digest("hex"),agentVersion:sourceText.match(/const AGENT_VERSION = "([^"]+)"/)?.[1]||null,versionAwarePolling:sourceText.includes("agentVersion=${encodeURIComponent(AGENT_VERSION)}"),wordpressApplicationPasswordHandler:sourceText.includes("async function enableWordpressApplicationPasswords"),readOnly:job.result.readOnly===true}; return { id: job.id, status: job.status, action: job.action, deviceId: job.deviceId, authority: job.args?.authority || null, checkpoint: job.args?.checkpoint || null, attempts: job.attempts, claimedAt: job.claimedAt, completedAt: job.completedAt, error: job.error, dispatchReceipt: job.dispatchReceipt, cursor: job.result?.mailboxEvidenceBatch?.cursor || {}, packetCount: job.result?.mailboxEvidenceBatch?.packets?.length || 0, quarantineCount: job.result?.quarantine?.length || job.result?.mailboxEvidenceBatch?.quarantine?.length || 0, connections: job.result?.connection || null, staticContractInspection: job.result?.neoStaticContractInspection || null, browserInspection: job.result?.governedBrowserInspection || null, repositoryInspection, sourceInspection }; }
+export function summarizeGovernedMacJob(job = {}) {
+  const repositoryInspection=job.action==="developer.repo_inspect"&&job.result?{repo:job.result.repo||null,branch:job.result.branch||null,status:job.result.status||"",recentCommits:job.result.recentCommits||"",readOnly:job.result.readOnly===true}:null;
+  const sourceText=job.action==="developer.file_read"&&typeof job.result?.text==="string"?job.result.text:null;
+  let installDiagnostic=null;
+  if(sourceText!==null&&job.result?.path==="mac-agent/.install-diagnostic.json"){
+    try{
+      const parsed=JSON.parse(sourceText);
+      if(parsed&&parsed.version===1){
+        installDiagnostic={
+          version:1,
+          status:clean(parsed.status,32),
+          code:clean(parsed.code,80),
+          stage:clean(parsed.stage,180),
+          startedAt:clean(parsed.startedAt,40),
+          observedAt:clean(parsed.observedAt,40)
+        };
+      }
+    }catch{}
+  }
+  const sourceInspection=sourceText===null?null:{repo:job.result.repo||null,path:job.result.path||null,bytes:Buffer.byteLength(sourceText),gitBlobSha:crypto.createHash("sha1").update(`blob ${Buffer.byteLength(sourceText)}\0${sourceText}`).digest("hex"),agentVersion:sourceText.match(/const AGENT_VERSION = "([^"]+)"/)?.[1]||null,versionAwarePolling:sourceText.includes("agentVersion=${encodeURIComponent(AGENT_VERSION)}"),wordpressApplicationPasswordHandler:sourceText.includes("async function enableWordpressApplicationPasswords"),installDiagnostic,readOnly:job.result.readOnly===true};
+  return { id: job.id, status: job.status, action: job.action, deviceId: job.deviceId, authority: job.args?.authority || null, checkpoint: job.args?.checkpoint || null, attempts: job.attempts, claimedAt: job.claimedAt, completedAt: job.completedAt, error: job.error, dispatchReceipt: job.dispatchReceipt, cursor: job.result?.mailboxEvidenceBatch?.cursor || {}, packetCount: job.result?.mailboxEvidenceBatch?.packets?.length || 0, quarantineCount: job.result?.quarantine?.length || job.result?.mailboxEvidenceBatch?.quarantine?.length || 0, connections: job.result?.connection || null, staticContractInspection: job.result?.neoStaticContractInspection || null, browserInspection: job.result?.governedBrowserInspection || null, repositoryInspection, sourceInspection };
+}
 const CAPABILITIES = Object.freeze({
   "sierra.seo.autopilot": Object.freeze({
     targetDevice: "server",
@@ -263,7 +284,7 @@ async function executeTypedCapability({ userId, command }) {
     if (route.capability === "developer.repository_inspection") {
       if (route.operation === "read_file") {
         const filePath = clean(command.metadata?.path, 300);
-        if (!new Set(["mac-agent/agent.js","package-lock.json"]).has(filePath)) throw new Error("DEVELOPER_READ_PATH_NOT_ALLOWLISTED");
+        if (!new Set(["mac-agent/agent.js","mac-agent/.install-diagnostic.json","package-lock.json"]).has(filePath)) throw new Error("DEVELOPER_READ_PATH_NOT_ALLOWLISTED");
         action = "developer.file_read"; args = { repo, path: filePath }; risk = "read"; reason = "Governed allowlisted source read";
       } else {
         action = "developer.repo_inspect"; args = { repo }; risk = "read"; reason = "Governed repository inspection";
