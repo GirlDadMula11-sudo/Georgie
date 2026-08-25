@@ -40,4 +40,6 @@ const verification = fs.readFileSync(target, "utf8");
 for (const marker of ["orchestrateCapabilityRequest", "capabilityOrchestration", "capability_orchestration"]) {
   if (!verification.includes(marker)) throw new Error(`CAPABILITY_ORCHESTRATOR_VERIFICATION_FAILED: ${marker}`);
 }
+
+await import("./install-connector-offline-access.mjs");
 console.log("[Georgie] capability orchestration installed");
