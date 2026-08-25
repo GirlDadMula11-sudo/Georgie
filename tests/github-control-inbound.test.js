@@ -79,4 +79,7 @@ test("GitHub OIDC challenges use isolated durable keys across Render instances",
   assert.match(source,/challengeNamespace\(nonce\)/);
   assert.match(source,/writeCloudState\(userId,challengeNamespace\(nonce\)/);
   assert.doesNotMatch(source,/state\.challenges\.push/);
+  assert.match(workflow,/effective=\'recovering\'/);
+  assert.match(workflow,/if ! response="\$\(curl --fail/);
+  assert.match(workflow,/Mac devices:/);
 });
