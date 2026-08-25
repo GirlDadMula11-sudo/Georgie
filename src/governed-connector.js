@@ -148,7 +148,8 @@ async function executeTypedCapability({ userId, command }) {
     if (route.operation === "status") {
       const objectives = (await listScheduledObjectives(userId, { status: "all", limit: 100 })).filter(item => item.stableKey === route.objective_id);
       const objective = objectives.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0] || null;
-      return { terminalState: "completed", completed: true, route, objectiveStatus: objective ? { id: objective.id, stableKey: objective.stableKey, status: objective.status, stepIndex: objective.stepIndex, steps: objective.steps.map(step => step.id), attempts: objective.attempts, nextRunAt: objective.nextRunAt, lease: objective.lease, checkpoint: objective.checkpoint, evidence: objective.evidence.slice(-20) } : null, productionMutation: false };
+      const repairJobs = (await listMacJobs(userId, 100)).filter(job => job.action === "browser.wordpress_link_integrity_repair").slice(-20).map(summarizeGovernedMacJob);
+      return { terminalState: "completed", completed: true, route, objectiveStatus: objective ? { id: objective.id, stableKey: objective.stableKey, status: objective.status, stepIndex: objective.stepIndex, steps: objective.steps.map(step => step.id), attempts: objective.attempts, nextRunAt: objective.nextRunAt, lease: objective.lease, checkpoint: objective.checkpoint, evidence: objective.evidence.slice(-20), repairJobs } : null, productionMutation: false };
     }
     const scheduled = await scheduleObjective(userId, {
       stableKey: route.objective_id,
