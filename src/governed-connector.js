@@ -30,6 +30,12 @@ const CAPABILITIES = Object.freeze({
     operations: new Set(["inspect_session"]),
     prohibitedRoutes: new Set(["arbitrary_domain", "credentials.read", "form.submit", "content.write", "wordpress.publish", "dns.write", "email.send"])
   }),
+  "primary_mac.browser.wordpress_security_repair": Object.freeze({
+    targetDevice: "primary-mac",
+    authority: "reversible_write",
+    operations: new Set(["enable_application_passwords"]),
+    prohibitedRoutes: new Set(["arbitrary_domain", "credentials.read", "credentials.write", "content.write", "wordpress.publish", "dns.write", "email.send", "user.role_change", "plugin.install", "plugin.delete", "firewall.change"])
+  }),
   "sierra.seo.workflow": Object.freeze({
     targetDevice: "server",
     authority: "read_only",
@@ -184,6 +190,21 @@ async function executeTypedCapability({ userId, command }) {
       args: { objectiveId: route.objective_id, authority: route.authority, operation: route.operation, siteOrigin },
       risk: "read",
       reason: "Inspect the approved Sierra WordPress and Hostinger browser session without form values, credentials, or mutation",
+      idempotencyKey: `connector:${command.id}:${route.operation}`,
+      maxAttempts: 1
+    });
+    return { terminalState: "in_progress", completed: false, route, job: { id: job.id, status: job.status, deviceId: route.target_device, action: job.action, authority: route.authority, dispatchReceipt: job.dispatchReceipt } };
+  }
+  if (route.capability === "primary_mac.browser.wordpress_security_repair") {
+    const siteOrigin = clean(command.metadata?.site_origin || "https://sierramarketinginc.com", 300).replace(/\/$/, "");
+    if (siteOrigin !== "https://sierramarketinginc.com") throw new Error("WORDPRESS_SECURITY_SITE_NOT_ALLOWLISTED");
+    const job = await enqueueMacJob({
+      userId,
+      deviceId: route.target_device,
+      action: "browser.wordpress_enable_application_passwords",
+      args: { objectiveId: route.objective_id, authority: route.authority, operation: route.operation, siteOrigin },
+      risk: "low_risk_write",
+      reason: "Enable only the exact Sierra WordPress Application Passwords setting with before/after verification and rollback",
       idempotencyKey: `connector:${command.id}:${route.operation}`,
       maxAttempts: 1
     });
