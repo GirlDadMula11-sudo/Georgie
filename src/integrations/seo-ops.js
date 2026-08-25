@@ -20,7 +20,7 @@ const now = () => new Date().toISOString();
 const clean = (v, max=2000) => String(v ?? "").trim().slice(0,max);
 const sha = v => crypto.createHash("sha256").update(String(v)).digest("hex");
 const b64url = value => Buffer.from(value).toString("base64url");
-const sameHost = (a,b) => { try { return new URL(a).host === new URL(b).host; } catch { return false; } };
+export function sameWebsiteHost(a,b) { try { const normalize = value => new URL(value).hostname.toLowerCase().replace(/^www\\./, ""); return normalize(a) === normalize(b); } catch { return false; } }\nconst sameHost = sameWebsiteHost;
 
 async function sierraRpc(name, body={}) {
   if (!SIERRA_URL || !SIERRA_KEY) throw new Error("Sierra SEO RPC connection is not configured");
