@@ -14,20 +14,20 @@ if (!connector.includes(capabilityName)) {
 const routeMarker = '  if (route.capability === "sierra.seo.workflow") {';
 if (!connector.includes('route.capability === "primary_mac.browser.wordpress_security_repair"')) {
   if (!connector.includes(routeMarker)) throw new Error("wordpress security capability: connector route anchor missing");
-  const routeBlock = `  if (route.capability === "primary_mac.browser.wordpress_security_repair") {\n    const siteOrigin = clean(command.metadata?.site_origin || "https://sierramarketinginc.com", 300).replace(/\\/$/, "");\n    if (siteOrigin !== "https://sierramarketinginc.com") throw new Error("WORDPRESS_SECURITY_SITE_NOT_ALLOWLISTED");\n    const job = await enqueueMacJob({\n      userId,\n      deviceId: route.target_device,\n      action: "browser.wordpress_enable_application_passwords",\n      args: { objectiveId: route.objective_id, authority: route.authority, operation: route.operation, siteOrigin, requiredAgentVersion: "2.2.33" },\n      risk: "low_risk_write",\n      reason: "Enable only the exact Sierra WordPress Application Passwords setting with before/after verification and rollback",\n      idempotencyKey: \`connector:\${command.id}:\${route.operation}\`,\n      maxAttempts: 1\n    });\n    return { terminalState: "in_progress", completed: false, route, job: { id: job.id, status: job.status, deviceId: route.target_device, action: job.action, authority: route.authority, dispatchReceipt: job.dispatchReceipt } };\n  }\n`;
+  const routeBlock = `  if (route.capability === "primary_mac.browser.wordpress_security_repair") {\n    const siteOrigin = clean(command.metadata?.site_origin || "https://sierramarketinginc.com", 300).replace(/\\/$/, "");\n    if (siteOrigin !== "https://sierramarketinginc.com") throw new Error("WORDPRESS_SECURITY_SITE_NOT_ALLOWLISTED");\n    const job = await enqueueMacJob({\n      userId,\n      deviceId: route.target_device,\n      action: "browser.wordpress_enable_application_passwords",\n      args: { objectiveId: route.objective_id, authority: route.authority, operation: route.operation, siteOrigin, requiredAgentVersion: "2.2.35" },\n      risk: "low_risk_write",\n      reason: "Enable only the exact Sierra WordPress Application Passwords setting with before/after verification and rollback",\n      idempotencyKey: \`connector:\${command.id}:\${route.operation}\`,\n      maxAttempts: 1\n    });\n    return { terminalState: "in_progress", completed: false, route, job: { id: job.id, status: job.status, deviceId: route.target_device, action: job.action, authority: route.authority, dispatchReceipt: job.dispatchReceipt } };\n  }\n`;
   connector = connector.replace(routeMarker, routeBlock + routeMarker);
 }
 fs.writeFileSync(connectorFile, connector);
 
 const agentFile = new URL("../mac-agent/agent.js", import.meta.url);
 let agent = fs.readFileSync(agentFile, "utf8");
-if (!agent.includes("async function enableWordpressApplicationPasswords")) {
-  const anchor = "async function waitForAppProcess(app, timeoutMs = 8000) {";
-  if (!agent.includes(anchor)) throw new Error("wordpress security capability: agent function anchor missing");
-  const handler = fs.readFileSync(new URL("./templates/wordpress-app-password-handler.txt", import.meta.url), "utf8");
-  if (!handler.includes("async function enableWordpressApplicationPasswords")) throw new Error("wordpress security capability: handler template invalid");
-  agent = agent.replace(anchor, handler + anchor);
-}
+const anchor = "async function waitForAppProcess(app, timeoutMs = 8000) {";
+if (!agent.includes(anchor)) throw new Error("wordpress security capability: agent function anchor missing");
+const handler = fs.readFileSync(new URL("./templates/wordpress-app-password-handler.txt", import.meta.url), "utf8");
+if (!handler.includes("async function enableWordpressApplicationPasswords")) throw new Error("wordpress security capability: handler template invalid");
+const handlerStart = agent.indexOf("async function enableWordpressApplicationPasswords");
+if (handlerStart >= 0) agent = agent.slice(0, handlerStart) + handler + agent.slice(agent.indexOf(anchor, handlerStart));
+else agent = agent.replace(anchor, handler + anchor);
 const switchAnchor = '    case "browser.wordpress_link_integrity_repair":\n      return repairWordpressLinkIntegrity(a);';
 if (!agent.includes('case "browser.wordpress_enable_application_passwords"')) {
   if (!agent.includes(switchAnchor)) throw new Error("wordpress security capability: agent switch anchor missing");

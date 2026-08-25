@@ -202,7 +202,7 @@ async function executeTypedCapability({ userId, command }) {
       userId,
       deviceId: route.target_device,
       action: "browser.wordpress_enable_application_passwords",
-      args: { objectiveId: route.objective_id, authority: route.authority, operation: route.operation, siteOrigin, requiredAgentVersion: "2.2.34" },
+      args: { objectiveId: route.objective_id, authority: route.authority, operation: route.operation, siteOrigin, requiredAgentVersion: "2.2.35" },
       risk: "low_risk_write",
       reason: "Enable only the exact Sierra WordPress Application Passwords setting with before/after verification and rollback",
       idempotencyKey: `connector:${command.id}:${route.operation}`,
