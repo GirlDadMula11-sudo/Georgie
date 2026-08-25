@@ -36,7 +36,9 @@ export function summarizeGovernedMacJob(job = {}) {
     }catch{}
   }
   const sourceInspection=sourceText===null?null:{repo:job.result.repo||null,path:job.result.path||null,bytes:Buffer.byteLength(sourceText),gitBlobSha:crypto.createHash("sha1").update(`blob ${Buffer.byteLength(sourceText)}\0${sourceText}`).digest("hex"),agentVersion:sourceText.match(/const AGENT_VERSION = "([^"]+)"/)?.[1]||null,versionAwarePolling:sourceText.includes("agentVersion=${encodeURIComponent(AGENT_VERSION)}"),wordpressApplicationPasswordHandler:sourceText.includes("async function enableWordpressApplicationPasswords"),installDiagnostic,readOnly:job.result.readOnly===true};
-  return { id: job.id, status: job.status, action: job.action, deviceId: job.deviceId, authority: job.args?.authority || null, checkpoint: job.args?.checkpoint || null, attempts: job.attempts, claimedAt: job.claimedAt, completedAt: job.completedAt, error: job.error, dispatchReceipt: job.dispatchReceipt, cursor: job.result?.mailboxEvidenceBatch?.cursor || {}, packetCount: job.result?.mailboxEvidenceBatch?.packets?.length || 0, quarantineCount: job.result?.quarantine?.length || job.result?.mailboxEvidenceBatch?.quarantine?.length || 0, connections: job.result?.connection || null, staticContractInspection: job.result?.neoStaticContractInspection || null, browserInspection: job.result?.governedBrowserInspection || null, repositoryInspection, sourceInspection };
+  const wordpressProof=job.action==="browser.wordpress_enable_application_passwords"?job.result?.wordpressApplicationPasswords:null;
+  const wordpressSecurityInspection=wordpressProof?{changed:wordpressProof.changed===true,alreadyEnabled:wordpressProof.alreadyEnabled===true,beforeChecked:wordpressProof.beforeChecked===true,afterChecked:wordpressProof.afterChecked===true,verified:wordpressProof.verified===true,rollbackPerformed:wordpressProof.rollbackPerformed===true,provider:wordpressProof.provider==="hostinger-tools"?"hostinger-tools":null,setting:wordpressProof.setting==="disableAuthenticationPassword"?"disableAuthenticationPassword":null,credentialsTransferred:job.result?.credentialsTransferred===false,formValuesCaptured:job.result?.formValuesCaptured===false}:null;
+  return { id: job.id, status: job.status, action: job.action, deviceId: job.deviceId, authority: job.args?.authority || null, checkpoint: job.args?.checkpoint || null, attempts: job.attempts, claimedAt: job.claimedAt, completedAt: job.completedAt, error: job.error, dispatchReceipt: job.dispatchReceipt, cursor: job.result?.mailboxEvidenceBatch?.cursor || {}, packetCount: job.result?.mailboxEvidenceBatch?.packets?.length || 0, quarantineCount: job.result?.quarantine?.length || job.result?.mailboxEvidenceBatch?.quarantine?.length || 0, connections: job.result?.connection || null, staticContractInspection: job.result?.neoStaticContractInspection || null, browserInspection: job.result?.governedBrowserInspection || wordpressSecurityInspection || null, repositoryInspection, sourceInspection };
 }
 const CAPABILITIES = Object.freeze({
   "sierra.seo.autopilot": Object.freeze({
@@ -229,6 +231,25 @@ async function executeTypedCapability({ userId, command }) {
       idempotencyKey: `connector:${command.id}:${route.operation}`,
       maxAttempts: 1
     });
+    const proof = job.result?.wordpressApplicationPasswords;
+    const verifiedEvidence = proof ? {
+      changed: proof.changed === true,
+      alreadyEnabled: proof.alreadyEnabled === true,
+      beforeChecked: proof.beforeChecked === true,
+      afterChecked: proof.afterChecked === true,
+      verified: proof.verified === true,
+      rollbackPerformed: proof.rollbackPerformed === true,
+      provider: proof.provider === "hostinger-tools" ? "hostinger-tools" : null,
+      setting: proof.setting === "disableAuthenticationPassword" ? "disableAuthenticationPassword" : null,
+      credentialsTransferred: job.result?.credentialsTransferred === false,
+      formValuesCaptured: job.result?.formValuesCaptured === false
+    } : null;
+    if (job.status === "completed") {
+      const proven = verifiedEvidence?.verified === true && verifiedEvidence.provider === "hostinger-tools" && verifiedEvidence.setting === "disableAuthenticationPassword" && verifiedEvidence.credentialsTransferred === true && verifiedEvidence.formValuesCaptured === true;
+      if (!proven) return { terminalState: "blocked", completed: true, route, error: "WORDPRESS_APP_PASSWORD_TERMINAL_PROOF_MISSING", evidence: verifiedEvidence ? [verifiedEvidence] : [] };
+      return { terminalState: "completed", completed: true, route, evidence: [verifiedEvidence], productionMutation: verifiedEvidence.changed === true };
+    }
+    if (["failed", "dead_letter"].includes(job.status)) return { terminalState: "blocked", completed: true, route, error: clean(job.error || "WORDPRESS_APP_PASSWORD_JOB_FAILED", 1000), evidence: [] };
     return { terminalState: "in_progress", completed: false, route, job: { id: job.id, status: job.status, deviceId: route.target_device, action: job.action, authority: route.authority, dispatchReceipt: job.dispatchReceipt } };
   }
   if (route.capability === "sierra.seo.workflow") {

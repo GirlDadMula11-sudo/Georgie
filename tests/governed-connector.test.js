@@ -359,6 +359,12 @@ test("dedicated governed Mac browser capability is typed, allowlisted, and read-
   assert.throws(() => validateCommandEnvelope(governedMacBrowserEnvelope({ metadata: { ...governedMacBrowserEnvelope().metadata, prohibited_routes: ["arbitrary_domain", "mouse.unrestricted"] } })), /UNKNOWN_PROHIBITED_ROUTE/);
 });
 
+test("WordPress security receipts expose verified exact-control proof without browser data", () => {
+  const summary=summarizeGovernedMacJob({id:"job-wp-security",status:"completed",action:"browser.wordpress_enable_application_passwords",result:{wordpressApplicationPasswords:{changed:false,alreadyEnabled:true,beforeChecked:false,afterChecked:false,verified:true,rollbackPerformed:false,provider:"hostinger-tools",setting:"disableAuthenticationPassword",unexpected:"drop-me"},credentialsTransferred:false,formValuesCaptured:false}});
+  assert.deepEqual(summary.browserInspection,{changed:false,alreadyEnabled:true,beforeChecked:false,afterChecked:false,verified:true,rollbackPerformed:false,provider:"hostinger-tools",setting:"disableAuthenticationPassword",credentialsTransferred:true,formValuesCaptured:true});
+  assert.equal("unexpected" in summary.browserInspection,false);
+});
+
 test("Mac browser handler filters domains, redacts credentials, and cannot mutate", () => {
   const source = fs.readFileSync(new URL("../mac-agent/agent.js", import.meta.url), "utf8");
   assert.match(source, /GOVERNED_WORDPRESS_BROWSER_HOSTS.*sierramarketinginc\.com.*hostinger\.com/);
@@ -366,6 +372,10 @@ test("Mac browser handler filters domains, redacts credentials, and cannot mutat
   assert.match(source, /credentialsTransferred: false/);
   assert.match(source, /mutationPerformed: false/);
   assert.match(source, /GOVERNED_BROWSER_SITE_REJECTED/);
+  const connectorSource = fs.readFileSync(new URL("../src/governed-connector.js", import.meta.url), "utf8");
+  assert.match(connectorSource, /WORDPRESS_APP_PASSWORD_TERMINAL_PROOF_MISSING/);
+  assert.match(connectorSource, /job\.status === "completed"/);
+  assert.match(connectorSource, /credentialsTransferred === false/);
 });
 
 
