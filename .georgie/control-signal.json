@@ -1,9 +1,9 @@
 {
   "version": 1,
   "issueNumber": 163,
-  "commentId": 5415056527,
+  "commentId": 5415106899,
   "objectiveId": "SIERRA-SEO-AUTOPILOT-20260824-001",
-  "commandId": "cmd_primary_mac_hostinger_v7_update_retry_20260825_1442",
-  "idempotencyKey": "sierra-primary-mac-hostinger-v7-update-20260825-v3",
-  "updatedAt": "2026-08-25T18:44:30Z"
+  "commandId": "cmd_primary_mac_v235_postinstall_inspect_20260825_1446",
+  "idempotencyKey": "sierra-primary-mac-v235-postinstall-inspect-20260825-v1",
+  "updatedAt": "2026-08-25T18:46:30Z"
 }
