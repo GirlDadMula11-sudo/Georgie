@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "issueNumber": 68,
-  "commentId": 5415623329,
+  "issueNumber": 163,
+  "commentId": 5415596642,
   "objectiveId": "SIERRA-SEO-AUTOPILOT-20260824-001",
-  "commandId": "cmd_seo_phase2_primary_mac_dirty_inspect_20260825_1532",
-  "idempotencyKey": "seo-phase2-primary-mac-dirty-inspect-20260825-v1",
-  "updatedAt": "2026-08-25T19:30:32Z"
+  "commandId": "cmd_wp_hostinger_app_password_v7_certify_retry_20260825_1526",
+  "idempotencyKey": "sierra-wp-hostinger-app-password-v7-certify-20260825-v2",
+  "updatedAt": "2026-08-25T19:33:00Z"
 }
