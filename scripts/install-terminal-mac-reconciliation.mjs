@@ -27,8 +27,8 @@ if (!developerBlock.includes("authoritativeJob")) {
 }
 
 const recoveringAnchor = 'if(result?.completed===false||["in_progress","working","recovering","queued","running"].includes(terminalState)){const receipt=await record(userId,command,"recovering",{...evidence,error:clean(result?.error||result?.exactBlocker||terminalState,1000)},claim);await transition(userId,command.operatingNodeId,{status:"recovering",recovery:"Resume this same command and lease checkpoint; do not create a duplicate.",nextAction:"Continue from the durable lease checkpoint."}).catch(()=>{});return{commandId:command.id,objectiveId:command.objectiveId,status:"recovering",result,receipt,lease:await readLease(userId,command.id)};}';
-const recoveringReplacement = 'if(result?.completed===false||["in_progress","working","recovering","queued","running"].includes(terminalState)){const receipt=await record(userId,command,"recovering",{...evidence,error:clean(result?.error||result?.exactBlocker||terminalState,1000)},claim);await transition(userId,command.operatingNodeId,{status:"recovering",recovery:"Resume this same command and lease checkpoint; do not create a duplicate.",nextAction:"Continue from the durable lease checkpoint."}).catch(()=>{});if(command.routing&&(result?.job||result?.jobs)){const timer=setTimeout(()=>schedule(userId,command),1000);timer.unref?.();}return{commandId:command.id,objectiveId:command.objectiveId,status:"recovering",result,receipt,lease:await readLease(userId,command.id)};}';
-if (!source.includes('const timer=setTimeout(()=>schedule(userId,command),1000)')) {
+const recoveringReplacement = 'if(result?.completed===false||["in_progress","working","recovering","queued","running"].includes(terminalState)){const receipt=await record(userId,command,"recovering",{...evidence,error:clean(result?.error||result?.exactBlocker||terminalState,1000)},claim);await transition(userId,command.operatingNodeId,{status:"recovering",recovery:"Resume this same command and lease checkpoint; do not create a duplicate.",nextAction:"Continue from the durable lease checkpoint."}).catch(()=>{});if(command.routing&&(result?.job||result?.jobs)){const requeue=()=>{if(!schedule(userId,command)){const retry=setTimeout(requeue,500);retry.unref?.();}};const timer=setTimeout(requeue,1000);timer.unref?.();}return{commandId:command.id,objectiveId:command.objectiveId,status:"recovering",result,receipt,lease:await readLease(userId,command.id)};}';
+if (!source.includes('const requeue=()=>{if(!schedule(userId,command))')) {
   if (!source.includes(recoveringAnchor)) throw new Error("TERMINAL_RECONCILIATION_RECOVERY_ANCHOR_NOT_FOUND");
   source = source.replace(recoveringAnchor, recoveringReplacement);
 }
@@ -49,7 +49,7 @@ if (!source.includes('response.reconciliationScheduled=true')) {
 
 fs.writeFileSync(target, source);
 const finalSource = fs.readFileSync(target, "utf8");
-for (const marker of [manifestImport, "authoritativeJob", "server_live_capability_manifest", "inspectionResultReturned", "liveManifestVerified", "response.reconciliationScheduled=true", "const timer=setTimeout(()=>schedule(userId,command),1000)"]) {
+for (const marker of [manifestImport, "authoritativeJob", "server_live_capability_manifest", "inspectionResultReturned", "liveManifestVerified", "response.reconciliationScheduled=true", "const requeue=()=>{if(!schedule(userId,command)"]) {
   if (!finalSource.includes(marker)) throw new Error(`TERMINAL_RECONCILIATION_VERIFICATION_FAILED:${marker}`);
 }
 
@@ -64,4 +64,4 @@ if (!portable.includes('connector startup resume failed')) {
 }
 if (!fs.readFileSync(portableTarget, "utf8").includes('connector.resume(userId)')) throw new Error("TERMINAL_RECONCILIATION_PORTABLE_RESUME_VERIFICATION_FAILED");
 
-console.log("[Georgie] authoritative terminal Mac reconciliation + restart-safe resume + live manifest verification installed");
+console.log("[Georgie] authoritative terminal Mac reconciliation + singleflight-safe recovery + restart-safe resume + live manifest verification installed");
