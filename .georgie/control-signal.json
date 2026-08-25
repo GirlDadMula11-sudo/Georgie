@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "issueNumber": 163,
-  "commentId": 5415679560,
+  "issueNumber": 68,
+  "commentId": 5415609937,
   "objectiveId": "SIERRA-SEO-AUTOPILOT-20260824-001",
-  "commandId": "cmd_sierra_seo_phase2_homepage_positioning_repair_20260825_1327",
-  "idempotencyKey": "sierra-seo-phase2-homepage-positioning-20260825-v1",
-  "updatedAt": "2026-08-25T20:00:56.249Z"
+  "commandId": "cmd_seo_phase2_primary_mac_activate_20260825_1525",
+  "idempotencyKey": "seo-phase2-primary-mac-activate-20260825-v1",
+  "updatedAt": "2026-08-25T20:04:30.386Z"
 }
