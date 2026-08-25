@@ -52,4 +52,16 @@ const finalSource = fs.readFileSync(target, "utf8");
 for (const marker of [manifestImport, "authoritativeJob", "server_live_capability_manifest", "inspectionResultReturned", "liveManifestVerified", "response.reconciliationScheduled=true", "const timer=setTimeout(()=>schedule(userId,command),1000)"]) {
   if (!finalSource.includes(marker)) throw new Error(`TERMINAL_RECONCILIATION_VERIFICATION_FAILED:${marker}`);
 }
-console.log("[Georgie] authoritative terminal Mac reconciliation + live manifest verification installed");
+
+const portableTarget = path.join(root, "src", "portable-connector-mcp.js");
+let portable = fs.readFileSync(portableTarget, "utf8");
+const routerAnchor = '  const router = express.Router(); const connector = createGovernedConnector({ executeCommand }); const handle = createPortableMcpHandler({ connector, userId });';
+const routerReplacement = '  const router = express.Router(); const connector = createGovernedConnector({ executeCommand }); const handle = createPortableMcpHandler({ connector, userId }); setImmediate(() => connector.resume(userId).catch(error => console.error("[Georgie] connector startup resume failed:", error instanceof Error ? error.message : error)));';
+if (!portable.includes('connector startup resume failed')) {
+  if (!portable.includes(routerAnchor)) throw new Error("TERMINAL_RECONCILIATION_PORTABLE_RESUME_ANCHOR_NOT_FOUND");
+  portable = portable.replace(routerAnchor, routerReplacement);
+  fs.writeFileSync(portableTarget, portable);
+}
+if (!fs.readFileSync(portableTarget, "utf8").includes('connector.resume(userId)')) throw new Error("TERMINAL_RECONCILIATION_PORTABLE_RESUME_VERIFICATION_FAILED");
+
+console.log("[Georgie] authoritative terminal Mac reconciliation + restart-safe resume + live manifest verification installed");
