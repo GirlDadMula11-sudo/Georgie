@@ -2,6 +2,14 @@ name: Georgie Connector Readiness
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/portable-connector-mcp.js"
+      - "src/connector-oauth.js"
+      - "src/server.js"
+      - "scripts/check-connector-readiness.mjs"
+      - ".github/workflows/connector-readiness.yml"
   schedule:
     - cron: "*/15 * * * *"
 
