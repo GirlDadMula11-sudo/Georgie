@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { enforceHumanAccessHtml } from "./master-closer.js";
+import { evaluateSmartleadWebhookThreadFallback } from "./smartlead-reply-fallback-evidence.js";
 
 const SIERRA_URL = String(process.env.GEORGIE_SUPABASE_URL || "").replace(/\/$/, "");
 const SIERRA_KEY = String(process.env.GEORGIE_SUPABASE_SERVICE_ROLE_KEY || "");
 const SMARTLEAD_BASE = String(process.env.GEORGIE_SMARTLEAD_BASE_URL || "https://server.smartlead.ai/api/v1").replace(/\/$/, "");
 const SMARTLEAD_KEY = String(process.env.GEORGIE_SMARTLEAD_API_KEY || "").trim();
 const WORKER_ID = "georgie-smartlead-reply-closer-v1";
-const WORKER_VERSION = "georgie.smartlead-reply-closer.v2.2";
+const WORKER_VERSION = "georgie.smartlead-reply-closer.v2.3";
 const INSTANCE_ID = String(process.env.RENDER_INSTANCE_ID || process.env.HOSTNAME || randomUUID()).slice(0, 200);
 const POLL_MS = Math.max(15_000, Number(process.env.GEORGIE_SMARTLEAD_REPLY_POLL_MS || 30_000));
 const AUTO_CLASSES = new Set(["partner_interest", "interested", "follow_up_later", "call_request"]);
@@ -97,9 +98,9 @@ async function heartbeat(phase, { ok = true, error = null, result = {} } = {}) {
       p_error: error ? clean(error?.message || error, 1800) : null,
       p_result: result || {}
     }, 5000);
-  } catch (e) {
-    if (isStaleAuthorityError(e)) authorityStale = true;
-    console.error("SMARTLEAD_REPLY_CLOSER_HEARTBEAT_ERROR", clean(e?.message || e, 400));
+  } catch (error) {
+    if (isStaleAuthorityError(error)) authorityStale = true;
+    console.error("SMARTLEAD_REPLY_CLOSER_HEARTBEAT_ERROR", clean(error?.message || error, 400));
   }
 }
 
@@ -166,8 +167,8 @@ async function verifySenderMailbox(job) {
 
 function replyAgeHours(job) {
   const raw = job.metadata?.provider_occurred_at || job.created_at;
-  const time = Date.parse(raw || "");
-  return Number.isFinite(time) ? Math.max(0, (Date.now() - time) / 3600000) : 0;
+  const t = Date.parse(raw || "");
+  return Number.isFinite(t) ? Math.max(0, (Date.now() - t) / 3600000) : 0;
 }
 
 function replyHtml(job) {
@@ -204,7 +205,13 @@ async function reserve(job) {
       subject: job.subject,
       accepted: false,
       rejected: [],
-      metadata: { stage: "reserved", worker: WORKER_ID, worker_version: WORKER_VERSION, authority_generation: authorityGeneration, authority_instance_id: INSTANCE_ID, transport: "smartlead_thread", reply_class: job.reply_class, thread_preservation_required: true, provider_lead_id: job.provider_lead_id || null, provider_lead_email: job.provider_lead_email || null }
+      metadata: {
+        stage: "reserved", worker: WORKER_ID, worker_version: WORKER_VERSION,
+        authority_generation: authorityGeneration, authority_instance_id: INSTANCE_ID,
+        transport: "smartlead_thread", reply_class: job.reply_class,
+        thread_preservation_required: true, provider_lead_id: job.provider_lead_id || null,
+        provider_lead_email: job.provider_lead_email || null
+      }
     })
   });
   return { key, existing: Array.isArray(rows) ? rows[0] : null };
@@ -214,7 +221,6 @@ async function messageHistory(job, leadId) {
   const payload = await smartleadRead(`/campaigns/${job.provider_campaign_id}/leads/${leadId}/message-history?show_plain_text_response=true`);
   return unwrapRows(payload);
 }
-
 function messageIdOf(m) { return clean(m?.message_id ?? m?.id ?? m?.email_id, 500); }
 function messageTimeOf(m) { return m?.sent_at ?? m?.email_time ?? m?.created_at ?? m?.timestamp ?? m?.time ?? m?.date ?? null; }
 function typeOf(m) { return String(m?.type ?? m?.message_type ?? m?.email_type ?? m?.event_type ?? m?.direction ?? "").toUpperCase(); }
@@ -232,6 +238,16 @@ async function inspectThread(job, leadId) {
   return { messages, inboundFound: Boolean(inbound), inboundTime, laterOutbound, newerInbound };
 }
 
+async function localThreadEvidence(job) {
+  const campaignRows = await db(`outreach_campaigns?provider_campaign_id=eq.${encodeURIComponent(job.provider_campaign_id)}&select=id&limit=1`);
+  const campaignId = Array.isArray(campaignRows) ? campaignRows[0]?.id : null;
+  if (!campaignId) return { replyEvent: null, relatedEvents: [] };
+  const rows = await db(`outreach_events?campaign_id=eq.${encodeURIComponent(campaignId)}&select=id,event_type,provider_message_id,occurred_at,metadata&order=occurred_at.asc&limit=500`);
+  const relatedEvents = Array.isArray(rows) ? rows : [];
+  const replyEvent = relatedEvents.find(e => e.event_type === "email_reply" && String(e.provider_message_id || "") === String(job.provider_message_id || "")) || null;
+  return { replyEvent, relatedEvents };
+}
+
 function findSentReceiptFromMessages(job, messages, notBefore) {
   const cutoff = Date.parse(notBefore || 0) - 120_000;
   const expectedSender = String(job.sender_mailbox || "").trim().toLowerCase();
@@ -245,61 +261,60 @@ function findSentReceiptFromMessages(job, messages, notBefore) {
   }
   return null;
 }
-
 async function findSentReceipt(job, leadId, notBefore) {
-  const messages = await messageHistory(job, leadId);
-  return findSentReceiptFromMessages(job, messages, notBefore);
+  return findSentReceiptFromMessages(job, await messageHistory(job, leadId), notBefore);
 }
 
 async function markProviderAccepted(job, key, providerResponse) {
   const at = new Date().toISOString();
   await db(`smartlead_reply_delivery_receipts?idempotency_key=eq.${encodeURIComponent(key)}`, {
-    method: "PATCH",
-    headers: { Prefer: "return=minimal" },
-    body: JSON.stringify({ metadata: { stage: "provider_accepted_waiting_message_id", worker: WORKER_ID, worker_version: WORKER_VERSION, authority_generation: authorityGeneration, authority_instance_id: INSTANCE_ID, transport: "smartlead_thread", provider_response: providerResponse, thread_preservation_required: true, provider_lead_id: job.provider_lead_id || null, provider_lead_email: job.provider_lead_email || null } })
+    method: "PATCH", headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({ metadata: {
+      stage: "provider_accepted_waiting_message_id", worker: WORKER_ID, worker_version: WORKER_VERSION,
+      authority_generation: authorityGeneration, authority_instance_id: INSTANCE_ID,
+      transport: "smartlead_thread", provider_response: providerResponse,
+      thread_preservation_required: true, provider_lead_id: job.provider_lead_id || null,
+      provider_lead_email: job.provider_lead_email || null
+    } })
   });
   await db(`smartlead_reply_obligations?id=eq.${encodeURIComponent(job.obligation_id)}`, {
-    method: "PATCH",
-    headers: { Prefer: "return=minimal" },
-    body: JSON.stringify({ response_status: "queued", lease_expires_at: null, updated_at: at, metadata: { ...(job.metadata || {}), provider_send_accepted: true, provider_send_accepted_at: at, send_reservation: key, send_authority: "georgie_runtime", transport: "smartlead_thread", worker_version: WORKER_VERSION, authority_generation: authorityGeneration, authority_instance_id: INSTANCE_ID } })
+    method: "PATCH", headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({ response_status: "queued", lease_expires_at: null, updated_at: at,
+      metadata: { ...(job.metadata || {}), provider_send_accepted: true, provider_send_accepted_at: at,
+        send_reservation: key, send_authority: "georgie_runtime", transport: "smartlead_thread",
+        worker_version: WORKER_VERSION, authority_generation: authorityGeneration, authority_instance_id: INSTANCE_ID } })
   });
   return at;
 }
 
 async function complete(job, key, receipt, providerResponse, receiptSource) {
   return rpc("complete_smartlead_reply_closer_work", {
-    p_obligation_id: job.obligation_id,
-    p_worker_id: WORKER_ID,
-    p_idempotency_key: key,
-    p_provider_message_id: receipt.providerMessageId,
-    p_sender_mailbox: job.sender_mailbox,
-    p_subject: job.subject,
-    p_accepted: true,
-    p_rejected: [],
-    p_metadata: { provider: "smartlead", provider_response: providerResponse, receipt_source: receiptSource, worker: WORKER_ID, worker_version: WORKER_VERSION, authority_generation: authorityGeneration, authority_instance_id: INSTANCE_ID, transport: "smartlead_thread", thread_preserved: true, provider_lead_id: job.provider_lead_id || null, provider_lead_email: job.provider_lead_email || null, reply_sender_email: job.lead_email, sender_mailbox_expected: job.sender_mailbox, sender_exposed_by_provider: receipt.senderExposed ?? null, sender_verified_when_exposed: receipt.senderVerified ?? null, human_access_disclosure: true }
+    p_obligation_id: job.obligation_id, p_worker_id: WORKER_ID, p_idempotency_key: key,
+    p_provider_message_id: receipt.providerMessageId, p_sender_mailbox: job.sender_mailbox,
+    p_subject: job.subject, p_accepted: true, p_rejected: [],
+    p_metadata: { provider: "smartlead", provider_response: providerResponse, receipt_source: receiptSource,
+      worker: WORKER_ID, worker_version: WORKER_VERSION, authority_generation: authorityGeneration,
+      authority_instance_id: INSTANCE_ID, transport: "smartlead_thread", thread_preserved: true,
+      provider_lead_id: job.provider_lead_id || null, provider_lead_email: job.provider_lead_email || null,
+      reply_sender_email: job.lead_email, sender_mailbox_expected: job.sender_mailbox,
+      sender_exposed_by_provider: receipt.senderExposed ?? null, sender_verified_when_exposed: receipt.senderVerified ?? null,
+      human_access_disclosure: true }
   });
 }
-
 async function retryableFail(job, error) {
   try { return await rpc("fail_smartlead_reply_closer_work", { p_obligation_id: job.obligation_id, p_worker_id: WORKER_ID, p_error: clean(error?.message || error, 1000) }); }
   catch { return null; }
 }
-
 async function quarantine(job, reason, extra = {}) {
   const now = new Date().toISOString();
   await db(`smartlead_reply_obligations?id=eq.${encodeURIComponent(job.obligation_id)}`, {
-    method: "PATCH",
-    headers: { Prefer: "return=minimal" },
-    body: JSON.stringify({
-      response_status: "human_review",
-      lease_expires_at: null,
-      last_error: clean(reason, 1000),
-      updated_at: now,
-      metadata: { ...(job.metadata || {}), ...extra, quarantine_reason: clean(reason, 500), quarantined_at: now, auto_retry_blocked: true, send_authority: "georgie_runtime", worker_version: WORKER_VERSION, authority_generation: authorityGeneration, authority_instance_id: INSTANCE_ID }
-    })
+    method: "PATCH", headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({ response_status: "human_review", lease_expires_at: null, last_error: clean(reason, 1000), updated_at: now,
+      metadata: { ...(job.metadata || {}), ...extra, quarantine_reason: clean(reason, 500), quarantined_at: now,
+        auto_retry_blocked: true, send_authority: "georgie_runtime", worker_version: WORKER_VERSION,
+        authority_generation: authorityGeneration, authority_instance_id: INSTANCE_ID } })
   });
 }
-
 async function enrichJob(job) {
   const rows = await db(`smartlead_reply_obligations?id=eq.${encodeURIComponent(job.obligation_id)}&select=*,outreach_contacts(contact_name)`);
   const full = Array.isArray(rows) ? rows[0] : null;
@@ -339,29 +354,18 @@ export async function runSmartleadReplyCloserOnce() {
   try {
     try { cycle.receipts = await reconcileAccepted(5); }
     catch (error) {
-      if (isStaleAuthorityError(error)) {
-        authorityStale = true;
-        return { ok: true, skipped: true, reason: "stale_generation", ...cycle };
-      }
+      if (isStaleAuthorityError(error)) { authorityStale = true; return { ok: true, skipped: true, reason: "stale_generation", ...cycle }; }
       cycle.receipts = [{ status: "reconcile_batch_error", error: clean(error?.message || error, 300) }];
-      console.error("SMARTLEAD_REPLY_CLOSER_RECONCILE_BATCH_ERROR", clean(error?.message || error, 500));
     }
 
     let claim;
     try {
       claim = await rpc("claim_smartlead_reply_closer_work_v2", {
-        p_worker_id: WORKER_ID,
-        p_worker_version: WORKER_VERSION,
-        p_instance_id: INSTANCE_ID,
-        p_generation: authorityGeneration,
-        p_limit: 5,
-        p_lease_seconds: 300
+        p_worker_id: WORKER_ID, p_worker_version: WORKER_VERSION, p_instance_id: INSTANCE_ID,
+        p_generation: authorityGeneration, p_limit: 5, p_lease_seconds: 300
       });
     } catch (error) {
-      if (isStaleAuthorityError(error)) {
-        authorityStale = true;
-        return { ok: true, skipped: true, reason: "stale_generation", ...cycle };
-      }
+      if (isStaleAuthorityError(error)) { authorityStale = true; return { ok: true, skipped: true, reason: "stale_generation", ...cycle }; }
       await heartbeat("error", { ok: false, error, result: cycle });
       return { ok: false, worker: WORKER_ID, error: clean(error?.message || error, 500), ...cycle };
     }
@@ -386,10 +390,22 @@ export async function runSmartleadReplyCloserOnce() {
         const leadId = await resolveLeadId(job);
         const senderEvidence = await verifySenderMailbox(job);
         const thread = await inspectThread(job, leadId);
+        let fallback = null;
         if (!thread.inboundFound) {
-          await quarantine(job, "ORIGINAL_INBOUND_MESSAGE_NOT_FOUND_IN_PROVIDER_THREAD", { sender_evidence: senderEvidence, provider_lead_id: leadId });
-          cycle.jobs.push({ obligationId: job.obligation_id, status: "human_review_inbound_missing" });
-          continue;
+          const { replyEvent, relatedEvents } = await localThreadEvidence(job);
+          const existing = await db(`smartlead_reply_delivery_receipts?idempotency_key=eq.${encodeURIComponent(idem(job.obligation_id))}&select=id&limit=1`);
+          fallback = evaluateSmartleadWebhookThreadFallback({
+            job, leadId, replyEvent, relatedEvents, senderEvidence,
+            reservationExists: Array.isArray(existing) && existing.length > 0
+          });
+          if (!fallback.ok) {
+            await quarantine(job, "ORIGINAL_INBOUND_MESSAGE_NOT_FOUND_IN_PROVIDER_THREAD", {
+              sender_evidence: senderEvidence, provider_lead_id: leadId,
+              webhook_fallback_reason: fallback.reason
+            });
+            cycle.jobs.push({ obligationId: job.obligation_id, status: "human_review_inbound_missing", fallbackReason: fallback.reason });
+            continue;
+          }
         }
         if (thread.newerInbound) {
           await quarantine(job, "NEWER_INBOUND_CONTEXT_EXISTS", { newer_inbound_message_id: messageIdOf(thread.newerInbound), sender_evidence: senderEvidence, provider_lead_id: leadId });
@@ -417,25 +433,22 @@ export async function runSmartleadReplyCloserOnce() {
         }
 
         const html = replyHtml(job);
-        const replyTime = job.metadata?.provider_occurred_at || job.created_at || new Date().toISOString();
+        const replyTime = job.metadata?.provider_occurred_at || fallback?.evidence?.replyOccurredAt || job.created_at || new Date().toISOString();
         const sendStartedAt = new Date().toISOString();
         await assertAuthority();
         sendAttempted = true;
         const providerResponse = await smartleadWrite(`/campaigns/${job.provider_campaign_id}/reply-email-thread`, {
-          lead_id: Number(leadId),
-          email_body: html,
-          reply_message_id: job.provider_message_id,
-          reply_email_time: replyTime
+          lead_id: Number(leadId), email_body: html, reply_message_id: job.provider_message_id, reply_email_time: replyTime
         });
         const acceptedAt = await markProviderAccepted(job, reservation.key, providerResponse);
         await sleep(1200);
         const immediateId = clean(providerResponse?.message_id ?? providerResponse?.data?.message_id ?? providerResponse?.id, 500);
         const receipt = immediateId ? { providerMessageId: immediateId, senderExposed: false, senderVerified: null } : await findSentReceipt(job, leadId, sendStartedAt || acceptedAt);
         if (receipt?.providerMessageId) {
-          await complete({ ...job, worker_id: WORKER_ID }, reservation.key, receipt, providerResponse, immediateId ? "reply_api" : "message_history");
-          cycle.jobs.push({ obligationId: job.obligation_id, status: "sent", providerMessageId: receipt.providerMessageId });
+          await complete({ ...job, worker_id: WORKER_ID }, reservation.key, receipt, { ...providerResponse, webhook_fallback: fallback?.evidence || null }, immediateId ? "reply_api" : "message_history");
+          cycle.jobs.push({ obligationId: job.obligation_id, status: "sent", providerMessageId: receipt.providerMessageId, fallback: Boolean(fallback) });
         } else {
-          cycle.jobs.push({ obligationId: job.obligation_id, status: "provider_accepted_waiting_receipt" });
+          cycle.jobs.push({ obligationId: job.obligation_id, status: "provider_accepted_waiting_receipt", fallback: Boolean(fallback) });
         }
       } catch (error) {
         if (isStaleAuthorityError(error)) {
@@ -459,9 +472,7 @@ export async function runSmartleadReplyCloserOnce() {
   } catch (error) {
     if (!authorityStale) await heartbeat("error", { ok: false, error, result: cycle });
     throw error;
-  } finally {
-    running = false;
-  }
+  } finally { running = false; }
 }
 
 export function startSmartleadReplyCloserWorker() {
@@ -476,9 +487,7 @@ export function startSmartleadReplyCloserWorker() {
     timer = setInterval(tick, POLL_MS);
     timer.unref?.();
     console.log(`Georgie Smartlead threaded reply closer worker online (${POLL_MS}ms) ${WORKER_VERSION} generation=${generation} instance=${INSTANCE_ID}`);
-  }).catch(error => {
-    console.error("SMARTLEAD_REPLY_CLOSER_AUTHORITY_START_ERROR", clean(error?.stack || error, 1200));
-  });
+  }).catch(error => console.error("SMARTLEAD_REPLY_CLOSER_AUTHORITY_START_ERROR", clean(error?.stack || error, 1200)));
 }
 
 export const smartleadReplyCloserWorkerContract = Object.freeze({
@@ -493,6 +502,8 @@ export const smartleadReplyCloserWorkerContract = Object.freeze({
   legacyWorkerClaimsDisabled: true,
   originalSenderAssignmentRequired: true,
   providerThreadInboundIdentityRequired: true,
+  providerThreadWebhookFallback: "deterministic_local_event_evidence_only",
+  providerThreadWebhookFallbackRequiresNoReservation: true,
   suppressIfNewerInboundExists: true,
   suppressIfLaterOutboundExists: true,
   blindRetryAfterAmbiguousSend: false,
