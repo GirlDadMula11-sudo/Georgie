@@ -6,6 +6,7 @@ test("portable connector exposes six focused accurately annotated tools", () => 
   assert.deepEqual(GEORGIE_CONNECTOR_TOOLS.map((tool) => tool.name), ["georgie_dispatch_command", "georgie_forward_approval", "georgie_get_command", "georgie_capability_manifest", "georgie_mailbox_packet_manifests", "georgie_mailbox_evidence_packet"]);
   assert.equal(GEORGIE_CONNECTOR_TOOLS[0].annotations.idempotentHint, true);
   assert.equal(GEORGIE_CONNECTOR_TOOLS[2].annotations.readOnlyHint, true);
+  assert.equal(GEORGIE_CONNECTOR_TOOLS[3].annotations.readOnlyHint, true);
 });
 
 test("portable connector authentication fails closed", () => {
