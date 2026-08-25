@@ -21,6 +21,12 @@ test("production startup installs the reliability failover",()=>{
   assert.match(pkg.scripts.check,/paper-trading-lab\.js/);
 });
 
+test("Smartlead backpressure installer accepts the authority-hardened successor version",()=>{
+  const installer=fs.readFileSync(new URL("../scripts/install-smartlead-reply-backpressure.mjs",import.meta.url),"utf8");
+  assert.match(installer,/successorInstalled/);
+  assert.match(installer,/adaptiveBackpressure: true/);
+});
+
 test("paper trading lab cannot pretend a live feed is connected",()=>{
   const cap=marketDataCapability();
   assert.equal(cap.mode,"paper_only");

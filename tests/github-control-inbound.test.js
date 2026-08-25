@@ -84,3 +84,21 @@ test("GitHub OIDC challenges use isolated durable keys across Render instances",
   assert.match(workflow,/if ! response="\$\(curl --fail/);
   assert.match(workflow,/Mac devices:/);
 });
+
+test("GitHub OIDC acquisition retries the complete challenge cycle and rejects an unbound token locally",()=>{
+  const workflow=fs.readFileSync(new URL("../.github/workflows/georgie-receipt-relay.yml",import.meta.url),"utf8");
+  assert.match(workflow,/for attempt in \{1\.\.6\}/);
+  assert.match(workflow,/token_audience/);
+  assert.match(workflow,/audience mismatch; discarding token/);
+  assert.match(workflow,/Unable to acquire a challenge-bound GitHub OIDC token after bounded retries/);
+});
+
+test("Mac updater status cannot become complete before the expected live heartbeat is proven",()=>{
+  const workflow=fs.readFileSync(new URL("../.github/workflows/georgie-receipt-relay.yml",import.meta.url),"utf8");
+  const connector=fs.readFileSync(new URL("../src/governed-connector.js",import.meta.url),"utf8");
+  assert.match(connector,/macInstallVerification/);
+  assert.match(connector,/primaryDevice\.agentVersion===expectedAgentVersion/);
+  assert.match(workflow,/maintenance_required/);
+  assert.match(workflow,/maintenance_verified/);
+  assert.match(workflow,/Mac install verification:/);
+});

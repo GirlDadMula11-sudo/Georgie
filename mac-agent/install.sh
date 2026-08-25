@@ -1,4 +1,5 @@
 #!/bin/zsh
+if [ -z "${ZSH_VERSION:-}" ]; then exec /bin/zsh "$0" "$@"; fi
 set -euo pipefail
 if (( EUID == 0 )); then echo "Do not run this installer with sudo."; exit 1; fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)";cd "$ROOT"
