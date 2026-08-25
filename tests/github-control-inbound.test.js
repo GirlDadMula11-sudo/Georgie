@@ -1,7 +1,8 @@
 import fs from "node:fs";
+import crypto from "node:crypto";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validateGithubControlOidcClaims } from "../src/github-control-inbound.js";
+import { validateGithubControlOidcClaims, validateSignedGithubControlChallenge } from "../src/github-control-inbound.js";
 
 const now=Math.floor(Date.now()/1000);
 const audience="georgie-github-control-inbound:test";
@@ -73,16 +74,34 @@ test("GitHub status receipt normalizes singular and plural Mac jobs",()=>{
 });
 
 
-test("GitHub OIDC challenges use isolated durable keys across Render instances",()=>{
+test("GitHub OIDC challenges are short-lived, signed, and independent of provider availability",()=>{
   const source=fs.readFileSync(new URL("../src/github-control-inbound.js",import.meta.url),"utf8");
   const workflow=fs.readFileSync(new URL("../.github/workflows/georgie-receipt-relay.yml",import.meta.url),"utf8");
-  assert.match(source,/CHALLENGE_NS_PREFIX/);
-  assert.match(source,/challengeNamespace\(nonce\)/);
-  assert.match(source,/writeCloudState\(userId,challengeNamespace\(nonce\)/);
-  assert.doesNotMatch(source,/state\.challenges\.push/);
+  assert.match(source,/stateless-hmac-v3/);
+  assert.match(source,/createHmac\("sha256",challengeKey\(\)\)/);
+  assert.match(source,/timingSafeEqual/);
+  assert.match(source,/expiresAt-issuedAt!==CHALLENGE_TTL_MS/);
+  assert.doesNotMatch(source,/OIDC_CHALLENGE_STORE_UNAVAILABLE/);
   assert.match(workflow,/effective=\'recovering\'/);
   assert.match(workflow,/if ! response="\$\(curl --fail/);
   assert.match(workflow,/Mac devices:/);
+});
+
+test("signed GitHub control challenges reject tampering and expiry",()=>{
+  const prior=process.env.GEORGIE_GITHUB_CONTROL_CHALLENGE_SECRET;
+  process.env.GEORGIE_GITHUB_CONTROL_CHALLENGE_SECRET="test-only-challenge-secret-with-at-least-thirty-two-bytes";
+  try {
+    const iat=Date.now(),exp=iat+120000;
+    const payload=Buffer.from(JSON.stringify({v:3,iat,exp,r:"unit-test"})).toString("base64url");
+    const key=crypto.createHash("sha256").update("georgie-github-control-challenge-v3\0").update(process.env.GEORGIE_GITHUB_CONTROL_CHALLENGE_SECRET).digest();
+    const signature=crypto.createHmac("sha256",key).update(payload).digest("base64url");
+    assert.equal(validateSignedGithubControlChallenge(`${payload}.${signature}`,{nowMs:iat}).v,3);
+    assert.throws(()=>validateSignedGithubControlChallenge(`${payload}.${signature.slice(0,-1)}x`,{nowMs:iat}),/OIDC_CHALLENGE_REJECTED/);
+    assert.throws(()=>validateSignedGithubControlChallenge(`${payload}.${signature}`,{nowMs:exp}),/OIDC_CHALLENGE_REJECTED/);
+  } finally {
+    if(prior===undefined)delete process.env.GEORGIE_GITHUB_CONTROL_CHALLENGE_SECRET;
+    else process.env.GEORGIE_GITHUB_CONTROL_CHALLENGE_SECRET=prior;
+  }
 });
 
 test("GitHub OIDC acquisition retries the complete challenge cycle and rejects an unbound token locally",()=>{
