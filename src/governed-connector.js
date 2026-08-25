@@ -157,6 +157,7 @@ async function executeTypedCapability({ userId, command }) {
       domain: "seo",
       priority: "high",
       maxAttempts: 12,
+      resumeBlocked: true,
       steps: [
         { id: "baseline-before-write", tool: "seo.discovery_baseline", policy: "read", args: { maxPages: 150 } },
         {

@@ -368,6 +368,10 @@ test("durable SEO autopilot schedules one leased reversible batch chain", async 
   assert.equal(envelope.routing.authority,"reversible_write");
   assert.throws(()=>validateCommandEnvelope({...input,metadata:{...input.metadata,operation:"publish"}}),/UNSUPPORTED_OPERATION/);
   assert.throws(()=>validateCommandEnvelope({...input,metadata:{...input.metadata,authority:"local_admin"}}),/CAPABILITY_AUTHORITY_MISMATCH/);
+  const connectorSource=fs.readFileSync(new URL("../src/governed-connector.js",import.meta.url),"utf8");
+  const workerSource=fs.readFileSync(new URL("../src/objective-worker.js",import.meta.url),"utf8");
+  assert.match(connectorSource,/resumeBlocked: true/);
+  assert.match(workerSource,/objective\.status === "blocked" && input\.resumeBlocked === true/);
 });
 
 test("WordPress link repair handler is exact, backed up, verified, and fail-closed", () => {
