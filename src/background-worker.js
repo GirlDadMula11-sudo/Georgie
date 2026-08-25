@@ -6,6 +6,7 @@ import { startMaintenanceSentinel } from "./maintenance-sentinel.js";
 import { startReconciliationWorkers } from "./reconciliation-workers.js";
 import { startBackgroundOperatingLayer } from "./background-operating-layer.js";
 import { startSelfEvolution } from "./self-evolution.js";
+import { startSmartleadReplyCloserWorker } from "./smartlead-reply-closer-worker.js";
 
 startCloudStateRecovery();
 startApprovalDispatchWorker();
@@ -14,6 +15,7 @@ startReconciliationWorkers();
 startSelfEvolution();
 startBackgroundOperatingLayer();
 startEngineeringCoordinator();
+startSmartleadReplyCloserWorker();
 console.log("Georgie background engineering worker online");
 setInterval(()=>{},60_000);
 let shuttingDown=false;
