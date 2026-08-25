@@ -360,3 +360,14 @@ test("WordPress link repair handler is exact, backed up, verified, and fail-clos
   assert.match(source,/sba-bank-term-loans-for-businesses/);
   assert.match(source,/mailto:submissions@sierramarketinginc\.com/);
 });
+
+
+test("SEO autopilot wake and status remain bound to the scheduling user namespace", () => {
+  const source=fs.readFileSync(new URL("../src/governed-connector.js",import.meta.url),"utf8");
+  assert.match(source,/listScheduledObjectives, runObjectiveWorkerCycle/);
+  assert.match(source,/operations: new Set\(\["start", "status"\]\)/);
+  assert.match(source,/runObjectiveWorkerCycle\(userId\)/);
+  assert.match(source,/listScheduledObjectives\(userId/);
+  assert.match(source,/scheduledObjective:result\?\.scheduledObjective/);
+  assert.match(source,/objectiveStatus:result\?\.objectiveStatus/);
+});
