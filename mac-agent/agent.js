@@ -11,7 +11,7 @@ import { verifyNeoCdpSession } from "./neo-cdp-reader.js";
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.28";
+const AGENT_VERSION = "2.2.29";
 const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;
 const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));
 const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));
@@ -108,6 +108,42 @@ JSON.stringify(result);
 `;
   const parsed = JSON.parse(await runJxa(script) || "{}");
   return { ...parsed, approvedDomains: domains, credentialRedactionApplied: true, formValuesCaptured: false };
+}
+
+const GOVERNED_WORDPRESS_BROWSER_HOSTS = Object.freeze(["sierramarketinginc.com", "hostinger.com"]);
+function governedWordpressHost(rawUrl) {
+  try {
+    const host = new URL(String(rawUrl || "")).hostname.toLowerCase();
+    return GOVERNED_WORDPRESS_BROWSER_HOSTS.some(allowed => host === allowed || host.endsWith(`.${allowed}`)) ? host : null;
+  } catch { return null; }
+}
+async function inspectGovernedWordpressSession(args = {}) {
+  if (args.authority !== "read_only" || args.operation !== "inspect_session") throw new Error("GOVERNED_BROWSER_AUTHORIZATION_REJECTED");
+  if (String(args.siteOrigin || "").replace(/\/$/, "") !== "https://sierramarketinginc.com") throw new Error("GOVERNED_BROWSER_SITE_REJECTED");
+  const observed = await inspectBrowserTabs({ includeContent: true });
+  const tabs = (observed.tabs || []).filter(tab => governedWordpressHost(tab.url)).map(tab => ({
+    browser: tab.browser, window: tab.window, tab: tab.tab, active: tab.active,
+    title: tab.title, url: tab.url, contentApproved: tab.contentApproved,
+    content: tab.content, contentError: tab.contentError
+  }));
+  if (!tabs.length) throw new Error("GOVERNED_BROWSER_APPROVED_TAB_NOT_FOUND");
+  return {
+    governedBrowserInspection: {
+      observedAt: observed.observedAt,
+      approvedHosts: [...GOVERNED_WORDPRESS_BROWSER_HOSTS],
+      tabs,
+      tabCount: tabs.length,
+      contentInspectedCount: tabs.filter(tab => tab.content !== null).length,
+      browserErrors: observed.browserErrors || []
+    },
+    authority: "read_only",
+    siteOrigin: "https://sierramarketinginc.com",
+    credentialRedactionApplied: true,
+    formValuesCaptured: false,
+    credentialsTransferred: false,
+    mutationPerformed: false,
+    prohibitedActions: ["form.submit", "content.write", "wordpress.publish", "dns.write", "email.send"]
+  };
 }
 
 async function waitForAppProcess(app, timeoutMs = 8000) {
@@ -419,6 +455,8 @@ async function execute(job) {
     }
     case "browser.inspect_tabs":
       return inspectBrowserTabs({ includeContent: a.includeContent !== false });
+    case "browser.wordpress_hostinger_inspect":
+      return inspectGovernedWordpressSession(a);
     case "browser.workflow":
       return executeBrowserWorkflow(job);
     case "mailbox.neo_static_contract_inspect":
