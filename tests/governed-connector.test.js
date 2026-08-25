@@ -237,3 +237,40 @@ test("completed NEO static contract diagnostics survive the governed return chan
   assert.equal(summary.packetCount,0);
   assert.equal(summary.authority,"read_only");
 });
+
+
+const seoEnvelope = (overrides = {}) => ({
+  source: "chatgpt",
+  objectiveId: "SIERRA-SEO-20260824-GEORGIE-001",
+  idempotencyKey: "seo-discovery-baseline-1",
+  command: "Execute the bounded Sierra SEO discovery baseline.",
+  metadata: {
+    capability: "sierra.seo.workflow",
+    target_device: "server",
+    operation: "discovery_baseline",
+    authority: "read_only",
+    prohibited_routes: ["sierra.diagnostic_investigation", "sierra.continue_diagnostic_investigation", "sierra.deal", "sierra.reprocess_documents", "email.send", "lender.submit", "dns.write", "production.deploy"],
+    max_pages: 150,
+    pagespeed_limit: 5
+  },
+  ...overrides
+});
+
+test("typed SEO workflow resolves only to the server-side SEO contract", () => {
+  const envelope = validateCommandEnvelope(seoEnvelope());
+  assert.deepEqual(envelope.routing, {
+    objective_id: "SIERRA-SEO-20260824-GEORGIE-001",
+    capability: "sierra.seo.workflow",
+    target_device: "server",
+    operation: "discovery_baseline",
+    authority: "read_only",
+    idempotency_key: "seo-discovery-baseline-1",
+    prohibited_routes: ["sierra.diagnostic_investigation", "sierra.continue_diagnostic_investigation", "sierra.deal", "sierra.reprocess_documents", "email.send", "lender.submit", "dns.write", "production.deploy"]
+  });
+});
+
+test("SEO workflow fails closed instead of falling into deal diagnostics", () => {
+  assert.throws(() => validateCommandEnvelope(seoEnvelope({ metadata: { ...seoEnvelope().metadata, operation: "resume_unblock_and_execute" } })), /UNSUPPORTED_OPERATION/);
+  assert.throws(() => validateCommandEnvelope(seoEnvelope({ metadata: { ...seoEnvelope().metadata, target_device: "primary-mac" } })), /CAPABILITY_TARGET_MISMATCH/);
+  assert.throws(() => validateCommandEnvelope(seoEnvelope({ metadata: { ...seoEnvelope().metadata, authority: "evidence_write" } })), /CAPABILITY_AUTHORITY_MISMATCH/);
+});
