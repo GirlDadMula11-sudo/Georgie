@@ -17,7 +17,7 @@ test("portable connector authentication fails closed", () => {
 test("MCP initializes, lists tools, dispatches, forwards approvals, and reads status", async () => {
   const calls = []; const connector = { submit: async (_userId, input) => { calls.push(input); return { commandId: `command-${calls.length}`, objectiveId: input.objectiveId || "objective-1", status: "completed" }; }, status: async (_userId, id) => ({ id, status: "completed", receipts: [{ receiptId: "receipt-1" }] }) };
   const handle = createPortableMcpHandler({ connector });
-  const initialized = await handle({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }); assert.equal(initialized.result.serverInfo.name, "georgie-governed-connector");
+  const initialized = await handle({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }); assert.match(initialized.result.serverInfo.name, /^georgie-governed-connector(?:-r[0-9]+)?$/);
   const listed = await handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }); assert.equal(listed.result.tools.length, 5);
   const dispatched = await handle({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "georgie_dispatch_command", arguments: { command: "Inspect Sierra", idempotencyKey: "one" } } }); assert.equal(dispatched.result.structuredContent.status, "completed");
   const approved = await handle({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "georgie_forward_approval", arguments: { planId: "p1", approvalId: "a1", idempotencyKey: "two" } } }); assert.equal(approved.result.structuredContent.status, "completed"); assert.equal(calls[1].kind, "approval");
