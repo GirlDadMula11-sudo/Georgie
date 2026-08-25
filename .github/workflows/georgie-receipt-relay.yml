@@ -93,16 +93,25 @@ jobs:
             command="$(jq -er '.commandId | strings' <<<"$signal")"
             connector_id="$(jq -er '.' connector-command-id.json)"
             response='{}'
+            effective='recovering'
 
             for _ in {1..12}; do
               token="$(oidc_token "$GEORGIE_INBOUND_URL")"
-              response="$(curl --fail --silent --show-error \
+              if ! response="$(curl --fail --silent --show-error \
                 -X POST \
                 -H "Authorization: Bearer $token" \
                 -H "Content-Type: application/json" \
                 --data-binary "$(jq -nc --arg commandId "$connector_id" '{commandId:$commandId}')" \
-                "$GEORGIE_INBOUND_URL/status")"
-              jq -e '.ok == true and .command.id != null' <<<"$response" >/dev/null
+                "$GEORGIE_INBOUND_URL/status")"; then
+                response='{}'
+                sleep 5
+                continue
+              fi
+              if ! jq -e '.ok == true and .command.id != null' <<<"$response" >/dev/null; then
+                response='{}'
+                sleep 5
+                continue
+              fi
 
               mac_count="$(jq '([.command.macJobs[]?] + (if .command.macJob then [.command.macJob] else [] end)) | unique_by(.id) | length' <<<"$response")"
               completed_count="$(jq '([.command.macJobs[]?] + (if .command.macJob then [.command.macJob] else [] end)) | unique_by(.id) | map(select(.status == "completed")) | length' <<<"$response")"
