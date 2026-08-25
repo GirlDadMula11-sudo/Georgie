@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { validateGithubControlOidcClaims } from "../src/github-control-inbound.js";
@@ -29,4 +30,14 @@ test("inbound OIDC accepts registered receipt relay on isolated push branch and 
 test("inbound OIDC rejects stale tokens",()=>{
   assert.throws(()=>validateGithubControlOidcClaims({...pushClaims,iat:now-600,exp:now+30},audience));
   assert.throws(()=>validateGithubControlOidcClaims({...pushClaims,exp:now-60},audience));
+});
+
+
+test("GitHub control fallback is signal-bound and not hardcoded to one legacy objective",()=>{
+  const workflow=fs.readFileSync(new URL("../.github/workflows/georgie-receipt-relay.yml",import.meta.url),"utf8");
+  assert.doesNotMatch(workflow,/Control signal must target issue #117/);
+  assert.doesNotMatch(workflow,/cmd_master_closer_fallback_probe_20260823/);
+  assert.match(workflow,/Control comment objective does not match signal/);
+  assert.match(workflow,/Control comment command does not match signal/);
+  assert.match(workflow,/Control comment idempotency does not match signal/);
 });

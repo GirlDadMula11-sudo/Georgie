@@ -52,19 +52,22 @@ jobs:
             command="$(jq -er '.commandId | strings' <<<"$signal")"
             idempotency="$(jq -er '.idempotencyKey | strings' <<<"$signal")"
 
-            [[ "$issue" == "117" ]] || { echo "Control signal must target issue #117." >&2; return 1; }
-            [[ "$objective" == "georgie-master-closer-v1" ]] || { echo "Unexpected objective identity." >&2; return 1; }
-            [[ "$command" == "cmd_master_closer_fallback_probe_20260823" ]] || { echo "Unexpected command identity." >&2; return 1; }
-            [[ "$idempotency" == "master-closer-controlplane-fallback-probe-20260823-v1" ]] || { echo "Unexpected idempotency identity." >&2; return 1; }
+            [[ "$issue" =~ ^[1-9][0-9]*$ ]] || { echo "Control signal issue number is invalid." >&2; return 1; }
+            [[ "$objective" =~ ^[A-Za-z0-9_.:-]{6,220}$ ]] || { echo "Control signal objective identity is invalid." >&2; return 1; }
+            [[ "$command" =~ ^[A-Za-z0-9_.:-]{6,220}$ ]] || { echo "Control signal command identity is invalid." >&2; return 1; }
+            [[ "$idempotency" =~ ^[A-Za-z0-9_.:-]{6,220}$ ]] || { echo "Control signal idempotency identity is invalid." >&2; return 1; }
 
             comment="$(gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}")"
             author="$(jq -r '.user.login // empty' <<<"$comment")"
             body="$(jq -r '.body // empty' <<<"$comment")"
             [[ "$author" == "GirlDadMula11-sudo" ]] || { echo "Control comment author rejected." >&2; return 1; }
             [[ "$body" == *"ai-control:v1"* ]] || { echo "Control comment marker missing." >&2; return 1; }
+            [[ "$body" == *"\"objectiveId\":\"$objective\""* ]] || { echo "Control comment objective does not match signal." >&2; return 1; }
+            [[ "$body" == *"\"commandId\":\"$command\""* ]] || { echo "Control comment command does not match signal." >&2; return 1; }
+            [[ "$body" == *"\"idempotencyKey\":\"$idempotency\""* ]] || { echo "Control comment idempotency does not match signal." >&2; return 1; }
 
             label_ok="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" --jq '[.labels[].name] | index("georgie-handoff") != null')"
-            [[ "$label_ok" == "true" ]] || { echo "Issue #117 is missing georgie-handoff label." >&2; return 1; }
+            [[ "$label_ok" == "true" ]] || { echo "Control issue is missing georgie-handoff label." >&2; return 1; }
 
             payload="$(jq -c --arg repository "$GITHUB_REPOSITORY" --argjson issue "$issue" '{repository:$repository, issueNumber:$issue, commentId:.id, author:.user.login, body:.body}' <<<"$comment")"
             token="$(oidc_token "$GEORGIE_INBOUND_URL")"
@@ -75,7 +78,7 @@ jobs:
               --data-binary "$payload" \
               "$GEORGIE_INBOUND_URL/ingest")"
             jq -e '.ok == true and (.accepted | length) >= 1' <<<"$response" >/dev/null
-            echo "Certified #117 control accepted by Georgie."
+            echo "Certified control issue #$issue accepted by Georgie."
           }
 
           relay_one_receipt() {
