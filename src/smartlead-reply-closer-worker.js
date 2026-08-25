@@ -6,7 +6,7 @@ const SIERRA_KEY = String(process.env.GEORGIE_SUPABASE_SERVICE_ROLE_KEY || "");
 const SMARTLEAD_BASE = String(process.env.GEORGIE_SMARTLEAD_BASE_URL || "https://server.smartlead.ai/api/v1").replace(/\/$/, "");
 const SMARTLEAD_KEY = String(process.env.GEORGIE_SMARTLEAD_API_KEY || "").trim();
 const WORKER_ID = "georgie-smartlead-reply-closer-v1";
-const WORKER_VERSION = "georgie.smartlead-reply-closer.v2.2";
+const WORKER_VERSION = "georgie.smartlead-reply-closer.v2.3";
 const INSTANCE_ID = String(process.env.RENDER_INSTANCE_ID || process.env.HOSTNAME || randomUUID()).slice(0, 200);
 const POLL_MS = Math.max(15_000, Number(process.env.GEORGIE_SMARTLEAD_REPLY_POLL_MS || 30_000));
 const AUTO_CLASSES = new Set(["partner_interest", "interested", "follow_up_later", "call_request"]);
@@ -137,7 +137,7 @@ async function smartleadWrite(path, body) {
 
 function unwrapRows(payload) {
   if (Array.isArray(payload)) return payload;
-  for (const key of ["data", "messages", "results", "leads"]) if (Array.isArray(payload?.[key])) return payload[key];
+  for (const key of ["data", "messages", "results", "leads", "history", "email_history"]) if (Array.isArray(payload?.[key])) return payload[key];
   return [];
 }
 
@@ -204,32 +204,56 @@ async function reserve(job) {
       subject: job.subject,
       accepted: false,
       rejected: [],
-      metadata: { stage: "reserved", worker: WORKER_ID, worker_version: WORKER_VERSION, authority_generation: authorityGeneration, authority_instance_id: INSTANCE_ID, transport: "smartlead_thread", reply_class: job.reply_class, thread_preservation_required: true, provider_lead_id: job.provider_lead_id || null, provider_lead_email: job.provider_lead_email || null }
+      metadata: { stage: "reserved", worker: WORKER_ID, worker_version: WORKER_VERSION, authority_generation: authorityGeneration, authority_instance_id: INSTANCE_ID, transport: "smartlead_thread", reply_class: job.reply_class, thread_preservation_required: true, provider_lead_id: job.provider_lead_id || null, provider_lead_email: job.provider_lead_email || null, provider_stats_id: job.provider_stats_id || job.metadata?.provider_stats_id || null }
     })
   });
   return { key, existing: Array.isArray(rows) ? rows[0] : null };
-}
-
-async function messageHistory(job, leadId) {
-  const payload = await smartleadRead(`/campaigns/${job.provider_campaign_id}/leads/${leadId}/message-history?show_plain_text_response=true`);
-  return unwrapRows(payload);
 }
 
 function messageIdOf(m) { return clean(m?.message_id ?? m?.id ?? m?.email_id, 500); }
 function messageTimeOf(m) { return m?.sent_at ?? m?.email_time ?? m?.created_at ?? m?.timestamp ?? m?.time ?? m?.date ?? null; }
 function typeOf(m) { return String(m?.type ?? m?.message_type ?? m?.email_type ?? m?.event_type ?? m?.direction ?? "").toUpperCase(); }
 function senderOf(m) { return String(m?.from_email ?? m?.from ?? m?.sender_email ?? m?.sender ?? "").trim().toLowerCase(); }
+function statsIdOf(m) { return clean(m?.stats_id ?? m?.email_stats_id ?? m?.emailStatsId ?? m?.email_stats?.id, 160); }
 function isOutbound(m) { return /SENT|OUTBOUND/.test(typeOf(m)); }
 function isInbound(m) { return /REPLY|INBOUND/.test(typeOf(m)); }
 
+function mergeHistory(...groups) {
+  const seen = new Set();
+  const merged = [];
+  for (const rows of groups) for (const item of rows || []) {
+    const key = `${messageIdOf(item)}|${messageTimeOf(item) || ""}|${typeOf(item)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(item);
+  }
+  return merged.sort((a,b) => Date.parse(messageTimeOf(a) || 0) - Date.parse(messageTimeOf(b) || 0));
+}
+
+async function messageHistory(job, leadId) {
+  const base = `/campaigns/${job.provider_campaign_id}/leads/${leadId}/message-history`;
+  const [plain, canonical] = await Promise.allSettled([
+    smartleadRead(`${base}?show_plain_text_response=true`),
+    smartleadRead(base)
+  ]);
+  const plainRows = plain.status === "fulfilled" ? unwrapRows(plain.value) : [];
+  const canonicalRows = canonical.status === "fulfilled" ? unwrapRows(canonical.value) : [];
+  const merged = mergeHistory(plainRows, canonicalRows);
+  if (!merged.length && plain.status === "rejected" && canonical.status === "rejected") {
+    throw new Error(`SMARTLEAD_THREAD_HISTORY_UNAVAILABLE:${clean(plain.reason?.message || plain.reason,200)}|${clean(canonical.reason?.message || canonical.reason,200)}`);
+  }
+  return { messages: merged, plainCount: plainRows.length, canonicalCount: canonicalRows.length, dualRead: plain.status === "fulfilled" && canonical.status === "fulfilled" };
+}
+
 async function inspectThread(job, leadId) {
-  const messages = await messageHistory(job, leadId);
+  const history = await messageHistory(job, leadId);
+  const messages = history.messages;
   const inboundId = String(job.provider_message_id || "");
   const inbound = messages.find(m => messageIdOf(m) === inboundId) || null;
   const inboundTime = Date.parse(messageTimeOf(inbound) || job.metadata?.provider_occurred_at || job.created_at || 0);
   const laterOutbound = messages.filter(m => isOutbound(m) && messageTimeOf(m) && Date.parse(messageTimeOf(m)) > inboundTime + 1000).sort((a,b) => Date.parse(messageTimeOf(b)) - Date.parse(messageTimeOf(a)))[0] || null;
   const newerInbound = messages.filter(m => isInbound(m) && messageTimeOf(m) && Date.parse(messageTimeOf(m)) > inboundTime + 1000 && messageIdOf(m) !== inboundId).sort((a,b) => Date.parse(messageTimeOf(b)) - Date.parse(messageTimeOf(a)))[0] || null;
-  return { messages, inboundFound: Boolean(inbound), inboundTime, laterOutbound, newerInbound };
+  return { messages, inbound, inboundFound: Boolean(inbound), inboundTime, laterOutbound, newerInbound, plainCount: history.plainCount, canonicalCount: history.canonicalCount, dualRead: history.dualRead };
 }
 
 function findSentReceiptFromMessages(job, messages, notBefore) {
@@ -247,21 +271,21 @@ function findSentReceiptFromMessages(job, messages, notBefore) {
 }
 
 async function findSentReceipt(job, leadId, notBefore) {
-  const messages = await messageHistory(job, leadId);
-  return findSentReceiptFromMessages(job, messages, notBefore);
+  const history = await messageHistory(job, leadId);
+  return findSentReceiptFromMessages(job, history.messages, notBefore);
 }
 
-async function markProviderAccepted(job, key, providerResponse) {
+async function markProviderAccepted(job, key, providerResponse, statsId) {
   const at = new Date().toISOString();
   await db(`smartlead_reply_delivery_receipts?idempotency_key=eq.${encodeURIComponent(key)}`, {
     method: "PATCH",
     headers: { Prefer: "return=minimal" },
-    body: JSON.stringify({ metadata: { stage: "provider_accepted_waiting_message_id", worker: WORKER_ID, worker_version: WORKER_VERSION, authority_generation: authorityGeneration, authority_instance_id: INSTANCE_ID, transport: "smartlead_thread", provider_response: providerResponse, thread_preservation_required: true, provider_lead_id: job.provider_lead_id || null, provider_lead_email: job.provider_lead_email || null } })
+    body: JSON.stringify({ metadata: { stage: "provider_accepted_waiting_message_id", worker: WORKER_ID, worker_version: WORKER_VERSION, authority_generation: authorityGeneration, authority_instance_id: INSTANCE_ID, transport: "smartlead_thread", provider_response: providerResponse, thread_preservation_required: true, provider_lead_id: job.provider_lead_id || null, provider_lead_email: job.provider_lead_email || null, provider_stats_id: statsId } })
   });
   await db(`smartlead_reply_obligations?id=eq.${encodeURIComponent(job.obligation_id)}`, {
     method: "PATCH",
     headers: { Prefer: "return=minimal" },
-    body: JSON.stringify({ response_status: "queued", lease_expires_at: null, updated_at: at, metadata: { ...(job.metadata || {}), provider_send_accepted: true, provider_send_accepted_at: at, send_reservation: key, send_authority: "georgie_runtime", transport: "smartlead_thread", worker_version: WORKER_VERSION, authority_generation: authorityGeneration, authority_instance_id: INSTANCE_ID } })
+    body: JSON.stringify({ response_status: "queued", lease_expires_at: null, updated_at: at, provider_stats_id: statsId, metadata: { ...(job.metadata || {}), provider_send_accepted: true, provider_send_accepted_at: at, send_reservation: key, send_authority: "georgie_runtime", transport: "smartlead_thread", worker_version: WORKER_VERSION, authority_generation: authorityGeneration, authority_instance_id: INSTANCE_ID, provider_stats_id: statsId } })
   });
   return at;
 }
@@ -276,7 +300,7 @@ async function complete(job, key, receipt, providerResponse, receiptSource) {
     p_subject: job.subject,
     p_accepted: true,
     p_rejected: [],
-    p_metadata: { provider: "smartlead", provider_response: providerResponse, receipt_source: receiptSource, worker: WORKER_ID, worker_version: WORKER_VERSION, authority_generation: authorityGeneration, authority_instance_id: INSTANCE_ID, transport: "smartlead_thread", thread_preserved: true, provider_lead_id: job.provider_lead_id || null, provider_lead_email: job.provider_lead_email || null, reply_sender_email: job.lead_email, sender_mailbox_expected: job.sender_mailbox, sender_exposed_by_provider: receipt.senderExposed ?? null, sender_verified_when_exposed: receipt.senderVerified ?? null, human_access_disclosure: true }
+    p_metadata: { provider: "smartlead", provider_response: providerResponse, receipt_source: receiptSource, worker: WORKER_ID, worker_version: WORKER_VERSION, authority_generation: authorityGeneration, authority_instance_id: INSTANCE_ID, transport: "smartlead_thread", thread_preserved: true, provider_lead_id: job.provider_lead_id || null, provider_lead_email: job.provider_lead_email || null, provider_stats_id: job.provider_stats_id || job.metadata?.provider_stats_id || null, reply_sender_email: job.lead_email, sender_mailbox_expected: job.sender_mailbox, sender_exposed_by_provider: receipt.senderExposed ?? null, sender_verified_when_exposed: receipt.senderVerified ?? null, human_access_disclosure: true }
   });
 }
 
@@ -317,7 +341,7 @@ async function reconcileAccepted(limit = 5) {
       const leadId = await resolveLeadId(job);
       const receipt = await findSentReceipt(job, leadId, row.metadata?.provider_send_accepted_at || row.updated_at);
       if (!receipt?.providerMessageId) { results.push({ id: row.id, status: "waiting_receipt" }); continue; }
-      await complete({ ...job, worker_id: WORKER_ID }, row.metadata?.send_reservation || idem(row.id), receipt, { reconciled: true }, "message_history");
+      await complete({ ...job, worker_id: WORKER_ID }, row.metadata?.send_reservation || idem(row.id), receipt, { reconciled: true }, "dual_message_history");
       console.log("SMARTLEAD_REPLY_CLOSER_RECEIPT", JSON.stringify({ obligationId: row.id, providerMessageId: receipt.providerMessageId, generation: authorityGeneration }));
       results.push({ id: row.id, status: "reconciled", providerMessageId: receipt.providerMessageId });
     } catch (error) {
@@ -387,7 +411,7 @@ export async function runSmartleadReplyCloserOnce() {
         const senderEvidence = await verifySenderMailbox(job);
         const thread = await inspectThread(job, leadId);
         if (!thread.inboundFound) {
-          await quarantine(job, "ORIGINAL_INBOUND_MESSAGE_NOT_FOUND_IN_PROVIDER_THREAD", { sender_evidence: senderEvidence, provider_lead_id: leadId });
+          await quarantine(job, "ORIGINAL_INBOUND_MESSAGE_NOT_FOUND_IN_PROVIDER_THREAD", { sender_evidence: senderEvidence, provider_lead_id: leadId, canonical_history_count: thread.canonicalCount, plain_history_count: thread.plainCount, dual_history_read: thread.dualRead });
           cycle.jobs.push({ obligationId: job.obligation_id, status: "human_review_inbound_missing" });
           continue;
         }
@@ -402,37 +426,52 @@ export async function runSmartleadReplyCloserOnce() {
           continue;
         }
 
+        const statsId = clean(job.provider_stats_id || job.metadata?.provider_stats_id || statsIdOf(thread.inbound), 160);
+        if (!statsId) {
+          await quarantine(job, "PROVIDER_STATS_ID_MISSING", { sender_evidence: senderEvidence, provider_lead_id: leadId });
+          cycle.jobs.push({ obligationId: job.obligation_id, status: "human_review_stats_missing" });
+          continue;
+        }
+        if (job.provider_stats_id && statsIdOf(thread.inbound) && String(job.provider_stats_id) !== statsIdOf(thread.inbound)) {
+          await quarantine(job, "PROVIDER_STATS_ID_MISMATCH", { persisted_stats_id: job.provider_stats_id, inbound_stats_id: statsIdOf(thread.inbound), provider_lead_id: leadId });
+          cycle.jobs.push({ obligationId: job.obligation_id, status: "human_review_stats_mismatch" });
+          continue;
+        }
+
         await assertAuthority();
-        const reservation = await reserve(job);
+        const reservation = await reserve({ ...job, provider_stats_id: statsId });
         if (reservation.existing) {
           const receipt = findSentReceiptFromMessages(job, thread.messages, job.metadata?.provider_send_accepted_at || job.updated_at || job.created_at);
           if (receipt?.providerMessageId) {
-            await complete({ ...job, worker_id: WORKER_ID }, reservation.key, receipt, { reconciled: true }, "message_history_existing_reservation");
+            await complete({ ...job, provider_stats_id: statsId, worker_id: WORKER_ID }, reservation.key, receipt, { reconciled: true }, "dual_message_history_existing_reservation");
             cycle.jobs.push({ obligationId: job.obligation_id, status: "reconciled", providerMessageId: receipt.providerMessageId });
           } else {
-            await quarantine(job, "AMBIGUOUS_EXISTING_SEND_RESERVATION_NO_RETRY", { sender_evidence: senderEvidence, provider_lead_id: leadId });
+            await quarantine(job, "AMBIGUOUS_EXISTING_SEND_RESERVATION_NO_RETRY", { sender_evidence: senderEvidence, provider_lead_id: leadId, provider_stats_id: statsId });
             cycle.jobs.push({ obligationId: job.obligation_id, status: "human_review_existing_reservation" });
           }
           continue;
         }
 
         const html = replyHtml(job);
-        const replyTime = job.metadata?.provider_occurred_at || job.created_at || new Date().toISOString();
+        const replyTime = messageTimeOf(thread.inbound) || job.metadata?.provider_occurred_at || job.created_at || new Date().toISOString();
         const sendStartedAt = new Date().toISOString();
         await assertAuthority();
         sendAttempted = true;
         const providerResponse = await smartleadWrite(`/campaigns/${job.provider_campaign_id}/reply-email-thread`, {
-          lead_id: Number(leadId),
+          email_stats_id: statsId,
           email_body: html,
+          to_email: job.lead_email,
           reply_message_id: job.provider_message_id,
-          reply_email_time: replyTime
+          reply_email_body: job.reply_text,
+          reply_email_time: replyTime,
+          add_signature: false
         });
-        const acceptedAt = await markProviderAccepted(job, reservation.key, providerResponse);
+        const acceptedAt = await markProviderAccepted({ ...job, provider_stats_id: statsId }, reservation.key, providerResponse, statsId);
         await sleep(1200);
         const immediateId = clean(providerResponse?.message_id ?? providerResponse?.data?.message_id ?? providerResponse?.id, 500);
         const receipt = immediateId ? { providerMessageId: immediateId, senderExposed: false, senderVerified: null } : await findSentReceipt(job, leadId, sendStartedAt || acceptedAt);
         if (receipt?.providerMessageId) {
-          await complete({ ...job, worker_id: WORKER_ID }, reservation.key, receipt, providerResponse, immediateId ? "reply_api" : "message_history");
+          await complete({ ...job, provider_stats_id: statsId, worker_id: WORKER_ID }, reservation.key, receipt, providerResponse, immediateId ? "reply_api" : "dual_message_history");
           cycle.jobs.push({ obligationId: job.obligation_id, status: "sent", providerMessageId: receipt.providerMessageId });
         } else {
           cycle.jobs.push({ obligationId: job.obligation_id, status: "provider_accepted_waiting_receipt" });
@@ -487,6 +526,9 @@ export const smartleadReplyCloserWorkerContract = Object.freeze({
   transport: "smartlead_reply_email_thread",
   threadPreservationRequired: true,
   immutableProviderLeadIdentityPreferred: true,
+  immutableProviderStatsIdentityRequired: true,
+  dualProviderThreadReadRequired: true,
+  provenProviderReplyPayload: "email_stats_id+to_email+reply_message_id+reply_email_body+reply_email_time",
   replySenderSeparatedFromProviderLead: true,
   rollingDeployGenerationFence: true,
   preSendAuthorityReassertion: true,
