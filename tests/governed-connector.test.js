@@ -274,3 +274,9 @@ test("SEO workflow fails closed instead of falling into deal diagnostics", () =>
   assert.throws(() => validateCommandEnvelope(seoEnvelope({ metadata: { ...seoEnvelope().metadata, target_device: "primary-mac" } })), /CAPABILITY_TARGET_MISMATCH/);
   assert.throws(() => validateCommandEnvelope(seoEnvelope({ metadata: { ...seoEnvelope().metadata, authority: "evidence_write" } })), /CAPABILITY_AUTHORITY_MISMATCH/);
 });
+
+
+test("typed SEO evidence survives the durable connector return channel", () => {
+  const source = fs.readFileSync(new URL("../src/governed-connector.js", import.meta.url), "utf8");
+  for (const field of ["integration:result?.integration", "websiteControl:result?.websiteControl", "crawl:result?.crawl", "performance:Array.isArray", "applicationFunnel:result?.applicationFunnel", "defects:result?.defects"]) assert.match(source, new RegExp(field.replaceAll("?", "\\?").replaceAll(".", "\\.")));
+});
