@@ -3,6 +3,7 @@ import express from "express";
 import { createGovernedConnector } from "./governed-connector.js";
 import { verifyConnectorAccessToken } from "./connector-oauth.js";
 import { getMailboxEvidencePacket, listMailboxPacketManifests } from "./mailbox-evidence-bridge.js";
+import { getCapabilityManifest } from "./capability-manifest.js";
 
 const SERVER = { name: "georgie-governed-connector-r2", version: "2.4.1" };
 const PROTOCOL = "2025-03-26";
@@ -28,6 +29,13 @@ export const GEORGIE_CONNECTOR_TOOLS = Object.freeze([
     title: "Get Georgie command status",
     description: "Use this when the user wants the current status, events, or evidence receipts for a previously dispatched Georgie command.",
     inputSchema: { type: "object", additionalProperties: false, required: ["commandId"], properties: { commandId: { type: "string", minLength: 1, maxLength: 160 } } },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false, idempotentHint: true },
+  },
+  {
+    name: "georgie_capability_manifest",
+    title: "Read Georgie's live capability manifest",
+    description: "Return Georgie's current read-only capability manifest so runtime identity and connected capability state can be verified directly.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {} },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false, idempotentHint: true },
   },
   {
@@ -77,6 +85,10 @@ export function createPortableMcpHandler({ connector, userId = "primary" } = {})
         const command = await connector.status(userId, clean(args.commandId, 160));
         if (!command) return { jsonrpc: "2.0", id, result: textResult({ found: false, commandId: clean(args.commandId, 160) }, "That Georgie command was not found.", true) };
         return { jsonrpc: "2.0", id, result: textResult({ found: true, command }, `Georgie command ${command.id} is ${command.status}.`) };
+      }
+      if (name === "georgie_capability_manifest") {
+        const manifest = getCapabilityManifest();
+        return { jsonrpc: "2.0", id, result: textResult({ manifest }, `Georgie live runtime is ${manifest?.sessionRuntime?.unifiedOperatingRuntime || "unknown"}.`) };
       }
       if (name === "georgie_mailbox_packet_manifests") {
         const manifests = await listMailboxPacketManifests(userId, args);
