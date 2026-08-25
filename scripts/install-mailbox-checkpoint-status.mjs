@@ -7,7 +7,13 @@ const file = path.resolve(__dirname, "../src/governed-connector.js");
 let source = fs.readFileSync(file, "utf8");
 
 const marker = "SIERRA_MAILBOX_CHECKPOINT_STATUS_V1";
-if (source.includes(marker)) {
+const checkpointAlreadyInstalled = source.includes(marker) || (
+  source.includes('"sierra.mailbox_evidence.project"') &&
+  source.includes('"checkpoint_status"') &&
+  source.includes('route.operation === "checkpoint_status"') &&
+  (source.includes("authorityByOperation") || source.includes("operationAuthorities"))
+);
+if (checkpointAlreadyInstalled) {
   console.log("[Georgie] Sierra mailbox checkpoint/status capability already installed.");
   process.exit(0);
 }
