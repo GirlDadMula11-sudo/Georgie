@@ -355,6 +355,9 @@ test("dirty-safe SEO JSON boundary repair is an exact maintenance patch", async 
   const stored=await waitFor(connector,"primary-seo-json-repair",result.commandId,["recovering"]);
   assert.deepEqual(stored.result.jobs.map(job=>job.action),["developer.apply_patch"]);
   assert.equal(stored.result.route.operation,"apply_seo_json_boundary");
+  const source=fs.readFileSync(new URL("../src/governed-connector.js",import.meta.url),"utf8");
+  assert.match(source,/baseRunAppleScriptForWordpress/);
+  assert.match(source,/WORDPRESS_JAVASCRIPT_RESULT_NOT_SERIALIZED/);
 });
 
 
