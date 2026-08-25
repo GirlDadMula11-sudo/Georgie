@@ -24,11 +24,33 @@ const refreshTtlSeconds = () => Math.max(86400, Math.min(31536000, Number(proces
 function issueSignedToken({ clientId, scope, ttlSeconds, tokenUse }) {
   const now = Math.floor(Date.now() / 1000);
   const payload = b64(JSON.stringify({
-    iss: origin(), aud: `${origin()}/mcp`, sub: clean(clientId, 300),
+    iss: origin(), aud: `${origin()}/mcp`, sub: clean(clientId, 5000),
     scope: clean(scope, 500), token_use: tokenUse, iat: now,
     exp: now + ttlSeconds, jti: crypto.randomUUID()
   }));
   return `${payload}.${sign(payload)}`;
+}
+
+function issueDynamicClient({ redirectUris = [], clientName = "ChatGPT" } = {}) {
+  const body = b64(JSON.stringify({ redirect_uris: redirectUris, client_name: clean(clientName, 200), token_endpoint_auth_method: "none", iat: Math.floor(Date.now() / 1000) }));
+  return `dcr_${body}.${sign(`dcr_${body}`)}`;
+}
+
+function dynamicClient(clientId) {
+  const value = clean(clientId, 5000);
+  const [head, signature] = value.split(".");
+  if (!head?.startsWith("dcr_") || !signature || !safeEqual(signature, sign(head))) return null;
+  try {
+    const data = JSON.parse(unb64(head.slice(4)));
+    if (!Array.isArray(data.redirect_uris) || !data.redirect_uris.length) return null;
+    return { ...data, id: value, public: true };
+  } catch { return null; }
+}
+
+function registeredClient(clientId) {
+  const fixed = configuredClient();
+  if (clientId && clientId === fixed.id) return { ...fixed, public: false };
+  return dynamicClient(clientId);
 }
 
 function verifySignedToken(token, expectedUse) {
@@ -38,7 +60,7 @@ function verifySignedToken(token, expectedUse) {
     const claims = JSON.parse(unb64(payload));
     const valid = claims.iss === origin() && claims.aud === `${origin()}/mcp` &&
       Number(claims.exp) > Math.floor(Date.now() / 1000) &&
-      clean(claims.sub, 300) === configuredClient().id && claims.token_use === expectedUse;
+      Boolean(registeredClient(clean(claims.sub, 5000))) && claims.token_use === expectedUse;
     return valid ? claims : null;
   } catch { return null; }
 }
@@ -132,39 +154,52 @@ export function createConnectorOAuthRouter() {
     authorization_servers: [origin()],
     scopes_supported: ["georgie:command", "georgie:status"]
   }));
+  router.get("/.well-known/oauth-protected-resource", (_req, res) => res.json({
+    resource: `${origin()}/mcp`, authorization_servers: [origin()], scopes_supported: ["georgie:command", "georgie:status"]
+  }));
   router.get("/.well-known/oauth-authorization-server", (_req, res) => res.json({
     issuer: origin(),
     authorization_endpoint: `${origin()}/oauth/authorize`,
     token_endpoint: `${origin()}/oauth/token`,
+    registration_endpoint: `${origin()}/oauth/register`,
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: ["S256"],
-    token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post"],
+    token_endpoint_auth_methods_supported: ["none", "client_secret_basic", "client_secret_post"],
     scopes_supported: ["georgie:command", "georgie:status"]
   }));
+  router.post("/oauth/register", express.json({ limit: "64kb" }), (req, res) => {
+    const redirectUris = Array.isArray(req.body?.redirect_uris) ? req.body.redirect_uris.map(value => clean(value, 1200)).filter(value => /^https:\/\//i.test(value)).slice(0, 10) : [];
+    if (!redirectUris.length || req.body?.token_endpoint_auth_method && req.body.token_endpoint_auth_method !== "none") return res.status(400).json({ error: "invalid_client_metadata" });
+    const clientId = issueDynamicClient({ redirectUris, clientName: req.body?.client_name });
+    res.status(201).set("Cache-Control", "no-store").json({ client_id: clientId, client_id_issued_at: Math.floor(Date.now() / 1000), redirect_uris: redirectUris, token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"], response_types: ["code"] });
+  });
   router.get("/oauth/authorize", (req, res) => {
-    const client = configuredClient();
-    const clientId = clean(req.query.client_id, 300), redirectUri = clean(req.query.redirect_uri, 1000);
+    const clientId = clean(req.query.client_id, 5000), client = registeredClient(clientId);
+    const redirectUri = clean(req.query.redirect_uri, 1200);
     const challenge = clean(req.query.code_challenge, 500), method = clean(req.query.code_challenge_method, 20);
-    if (req.query.response_type !== "code" || !client.id || clientId !== client.id || !client.redirectUri || redirectUri !== client.redirectUri || !challenge || method !== "S256") return res.status(400).send("Invalid private connector authorization request");
+    const allowedRedirect = client?.public ? client.redirect_uris.includes(redirectUri) : client?.redirectUri === redirectUri;
+    if (req.query.response_type !== "code" || !client || !allowedRedirect || !challenge || method !== "S256" || clean(req.query.resource, 1000) && clean(req.query.resource, 1000) !== `${origin()}/mcp`) return res.status(400).send("Invalid connector authorization request");
     const code = crypto.randomBytes(32).toString("base64url");
-    codes.set(code, { clientId, redirectUri, challenge, scope: clean(req.query.scope || "georgie:command georgie:status", 500), expiresAt: Date.now() + 120000 });
-    const target = new URL(redirectUri); target.searchParams.set("code", code); if (req.query.state) target.searchParams.set("state", clean(req.query.state, 1000));
+    codes.set(code, { clientId, redirectUri, challenge, resource: `${origin()}/mcp`, scope: clean(req.query.scope || "georgie:command georgie:status", 500), expiresAt: Date.now() + 120000 });
+    const target = new URL(redirectUri); target.searchParams.set("code", code); target.searchParams.set("iss", origin()); if (req.query.state) target.searchParams.set("state", clean(req.query.state, 1000));
     res.redirect(302, target.toString());
   });
   router.post("/oauth/token", express.urlencoded({ extended: false }), (req, res) => {
-    const client = configuredClient();
+    const clientId = clean(req.body?.client_id || configuredClient().id, 5000), client = registeredClient(clientId);
+    if (!client) return res.status(401).json({ error: "invalid_client" });
+    const authenticated = client.public ? !clientSecret(req) : safeEqual(clientSecret(req), client.secret);
     if (req.body?.grant_type === "refresh_token") {
-      if (!safeEqual(clientSecret(req), client.secret)) return res.status(401).json({ error: "invalid_client" });
+      if (!authenticated) return res.status(401).json({ error: "invalid_client" });
       const claims = verifySignedToken(clean(req.body?.refresh_token, 5000), "refresh");
-      if (!claims) return res.status(400).json({ error: "invalid_grant" });
-      return res.set("Cache-Control", "no-store").json(tokenResponse({ clientId: client.id, scope: clean(claims.scope, 500) }));
+      if (!claims || claims.sub !== clientId) return res.status(400).json({ error: "invalid_grant" });
+      return res.set("Cache-Control", "no-store").json(tokenResponse({ clientId, scope: clean(claims.scope, 500) }));
     }
     const code = clean(req.body?.code, 500), item = codes.get(code);
     codes.delete(code);
-    const valid = req.body?.grant_type === "authorization_code" && item && item.expiresAt > Date.now() && clean(req.body?.client_id || client.id, 300) === client.id && safeEqual(clientSecret(req), client.secret) && clean(req.body?.redirect_uri, 1000) === item.redirectUri && safeEqual(pkce(req.body?.code_verifier), item.challenge);
+    const valid = req.body?.grant_type === "authorization_code" && authenticated && item && item.expiresAt > Date.now() && item.clientId === clientId && clean(req.body?.redirect_uri, 1200) === item.redirectUri && (!req.body?.resource || clean(req.body.resource, 1000) === item.resource) && safeEqual(pkce(req.body?.code_verifier), item.challenge);
     if (!valid) return res.status(400).json({ error: "invalid_grant" });
-    res.set("Cache-Control", "no-store").json(tokenResponse({ clientId: client.id, scope: item.scope }));
+    res.set("Cache-Control", "no-store").json(tokenResponse({ clientId, scope: item.scope }));
   });
   return router;
 }
