@@ -144,6 +144,12 @@ test("developer typed capabilities are exact, allowlisted, and approval separate
   assert.equal(validateCommandEnvelope(apply).routing.capability,"developer.patch_application");
 });
 
+test("developer source read is exact and allowlisted", () => {
+  const base={source:"openai",objectiveId:"obj-source-read",idempotencyKey:"dev-read-1",command:"Read allowlisted source",metadata:{capability:"developer.repository_inspection",target_device:"primary-mac",operation:"read_file",authority:"read_only",repo:"/Users/mac/Georgie",path:"mac-agent/agent.js",prohibited_routes:["email.send","production.deploy"]}};
+  assert.equal(validateCommandEnvelope(base).routing.operation,"read_file");
+  assert.throws(()=>validateCommandEnvelope({...base,metadata:{...base.metadata,operation:"write_file"}}),/UNSUPPORTED_OPERATION/);
+});
+
 test("Sierra mailbox projection is a separate typed evidence-write capability", () => {
   const input={source:"chatgpt",objectiveId:"SIERRA-LI-MBX-20260823-001",idempotencyKey:"project-mailbox-evidence-1",command:"Project immutable receipts.",metadata:{capability:"sierra.mailbox_evidence.project",target_device:"server",operation:"project_immutable_receipts",authority:"evidence_write",prohibited_routes:["email.send","smtp","mailbox.write","external.notification","lender.submit"],receipt_ids:["rcpt_one"]}};
   const envelope=validateCommandEnvelope(input);
