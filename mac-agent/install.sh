@@ -12,11 +12,11 @@ mkdir -p "$LOG_DIR" "$STATE_DIR"
 exec > >(tee -a "$INSTALL_LOG") 2>&1
 INSTALL_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 write_receipt() {
-  local status="$1" code="$2"
-  /usr/bin/python3 - "$INSTALL_RECEIPT" "$status" "$code" "$INSTALL_STARTED_AT" <<'PY'
+  local receipt_status="$1" receipt_code="$2"
+  /usr/bin/python3 - "$INSTALL_RECEIPT" "$receipt_status" "$receipt_code" "$INSTALL_STARTED_AT" <<'PY'
 import json,sys,datetime,os,tempfile
-path,status,code,started=sys.argv[1:5]
-payload={"status":status,"code":code,"startedAt":started,"completedAt":datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),"pid":os.getpid()}
+path,receipt_status,code,started=sys.argv[1:5]
+payload={"status":receipt_status,"code":code,"startedAt":started,"completedAt":datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),"pid":os.getpid()}
 fd,tmp=tempfile.mkstemp(prefix='.mac-agent-install-',dir=os.path.dirname(path)); os.close(fd)
 with open(tmp,'w') as f: json.dump(payload,f)
 os.replace(tmp,path)
