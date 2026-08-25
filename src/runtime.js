@@ -9,6 +9,7 @@ import { startBackgroundOperatingLayer } from "./background-operating-layer.js";
 import { startSelfEvolution } from "./self-evolution.js";
 import { startObjectiveWorker } from "./objective-worker.js";
 import { startSeoMonitorScheduler } from "./seo-monitor.js";
+import { startSmartleadReplyCloserWorker } from "./smartlead-reply-closer-worker.js";
 
 startCloudStateRecovery();
 startApprovalDispatchWorker();
@@ -19,5 +20,6 @@ startBackgroundOperatingLayer();
 startEngineeringCoordinator();
 startObjectiveWorker();
 startSeoMonitorScheduler();
+startSmartleadReplyCloserWorker();
 
 console.log("Georgie unified server + durable background runtime online");
