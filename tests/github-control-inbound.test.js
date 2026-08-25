@@ -121,3 +121,11 @@ test("Mac updater status cannot become complete before the expected live heartbe
   assert.match(workflow,/maintenance_verified/);
   assert.match(workflow,/Mac install verification:/);
 });
+
+test("push relay drains a bounded receipt backlog instead of exiting after one success",()=>{
+  const workflow=fs.readFileSync(new URL("../.github/workflows/georgie-receipt-relay.yml",import.meta.url),"utf8");
+  assert.match(workflow,/delivered=0/);
+  assert.match(workflow,/delivered=\$\(\(delivered \+ 1\)\)/);
+  assert.match(workflow,/Receipt relay drained \$delivered pending receipt/);
+  assert.doesNotMatch(workflow,/if relay_one_receipt; then exit 0; fi/);
+});
