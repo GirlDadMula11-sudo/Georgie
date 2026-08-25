@@ -7,6 +7,7 @@ import { getMacDeviceStatus } from "./mac/router.js";
 import { listMailboxPacketManifests } from "./mailbox-evidence-bridge.js";
 import { listMessagesBefore, readMessage } from "./integrations/neo-mail.js";
 import { projectSierraMailboxEvidence } from "./integrations/sierra-workforce.js";
+import { scheduleObjective } from "./objective-worker.js";
 import { crawlWebsite, pageSpeed, getApplicationFunnel, seoIntegrationStatus, websiteControlStatus } from "./integrations/seo-ops.js";
 
 const NS = "governed_external_connector";
@@ -17,6 +18,12 @@ const clean = (value, max = 6000) => String(value || "").trim().slice(0, max);
 const digest = (value) => crypto.createHash("sha256").update(String(value)).digest("hex");
 export function summarizeGovernedMacJob(job = {}) { return { id: job.id, status: job.status, action: job.action, deviceId: job.deviceId, authority: job.args?.authority || null, checkpoint: job.args?.checkpoint || null, attempts: job.attempts, claimedAt: job.claimedAt, completedAt: job.completedAt, error: job.error, dispatchReceipt: job.dispatchReceipt, cursor: job.result?.mailboxEvidenceBatch?.cursor || {}, packetCount: job.result?.mailboxEvidenceBatch?.packets?.length || 0, quarantineCount: job.result?.quarantine?.length || job.result?.mailboxEvidenceBatch?.quarantine?.length || 0, connections: job.result?.connection || null, staticContractInspection: job.result?.neoStaticContractInspection || null, browserInspection: job.result?.governedBrowserInspection || null }; }
 const CAPABILITIES = Object.freeze({
+  "sierra.seo.autopilot": Object.freeze({
+    targetDevice: "server",
+    authority: "reversible_write",
+    operations: new Set(["start"]),
+    prohibitedRoutes: new Set(["arbitrary_domain", "credentials.read", "wordpress.publish", "dns.write", "email.send", "lender.submit"])
+  }),
   "primary_mac.browser.wordpress_read_only": Object.freeze({
     targetDevice: "primary-mac",
     authority: "read_only",
@@ -137,6 +144,28 @@ export function validateCommandEnvelope(input = {}) {
 
 async function executeTypedCapability({ userId, command }) {
   const route = command.routing;
+  if (route.capability === "sierra.seo.autopilot") {
+    const scheduled = await scheduleObjective(userId, {
+      stableKey: route.objective_id,
+      title: "Sierra durable SEO repair workflow",
+      domain: "seo",
+      priority: "high",
+      maxAttempts: 12,
+      steps: [
+        { id: "baseline-before-write", tool: "seo.discovery_baseline", policy: "read", args: { maxPages: 150 } },
+        {
+          id: "repair-link-integrity",
+          tool: "seo.wordpress_link_integrity_repair",
+          policy: "low_risk_write",
+          args: { deviceId: "primary-mac", siteOrigin: "https://sierramarketinginc.com", authority: "reversible_write" },
+          verification: { tool: "seo.wordpress_link_integrity_verify", args: { maxPages: 150 }, expect: { verified: true } },
+          delayMsAfter: 1000
+        },
+        { id: "baseline-after-link-repair", tool: "seo.discovery_baseline", policy: "read", args: { maxPages: 150 } }
+      ]
+    });
+    return { terminalState: "completed", completed: true, route, scheduledObjective: { id: scheduled.objective.id, stableKey: scheduled.objective.stableKey, status: scheduled.objective.status, stepIndex: scheduled.objective.stepIndex, steps: scheduled.objective.steps.map(step => step.id) }, productionMutation: false };
+  }
   if (route.capability === "primary_mac.browser.wordpress_read_only") {
     const siteOrigin = clean(command.metadata?.site_origin || "https://sierramarketinginc.com", 300).replace(/\/$/, "");
     if (siteOrigin !== "https://sierramarketinginc.com") throw new Error("PRIMARY_MAC_BROWSER_SITE_NOT_ALLOWLISTED");
