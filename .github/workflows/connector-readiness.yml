@@ -1,0 +1,27 @@
+name: Georgie Connector Readiness
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: georgie-connector-readiness
+  cancel-in-progress: true
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Verify live connector registration and OAuth metadata
+        env:
+          GEORGIE_PUBLIC_ORIGIN: https://georgie.onrender.com
+        run: node scripts/check-connector-readiness.mjs
