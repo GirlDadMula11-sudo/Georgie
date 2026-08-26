@@ -37,20 +37,19 @@ test("exact supported capability remains unchanged", () => {
   assert.equal(result.route.capability, "developer.repository_inspection");
 });
 
-test("unsupported generic engineering capability safely reformulates to read-only inspection", () => {
+test("unsupported engineering capability never falls back to read-only inspection", () => {
   const result = orchestrateCapabilityRequest({ capability: "developer.control_plane", targetDevice: "georgie-runtime", operation: "upgrade_core_operator", authority: "low-risk-reversible-engineering", prohibitedRoutes: [], command: "Upgrade and strengthen Georgie core reliability and orchestration" }, contracts);
-  assert.equal(result.status, "reformulated");
-  assert.equal(result.route.capability, "developer.repository_inspection");
-  assert.equal(result.route.operation, "inspect");
-  assert.equal(result.route.authority, "read_only");
-  assert.equal(result.route.targetDevice, "primary-mac");
+  assert.equal(result.status, "unsupported");
+  assert.equal(result.route.capability, "developer.control_plane");
+  assert.equal(result.route.operation, "upgrade_core_operator");
+  assert.match(result.audit.missingPrerequisite, /registered executor for developer\.control_plane\/upgrade_core_operator/);
   assert.equal(result.audit.authorityEscalated, false);
 });
 
-test("orchestration finds a unique equivalent exact operation route", () => {
+test("orchestration does not substitute a different capability with the same operation", () => {
   const result = orchestrateCapabilityRequest({ capability: "mailbox.reader", targetDevice: "server", operation: "connection_verify_and_backfill", authority: "read_only", prohibitedRoutes: ["email.send"], command: "Resume mailbox backfill" }, contracts);
-  assert.equal(result.status, "reformulated");
-  assert.equal(result.route.capability, "neo_mail.imap.read_only");
+  assert.equal(result.status, "unsupported");
+  assert.equal(result.route.capability, "mailbox.reader");
 });
 
 test("orchestrator never escalates write authority to make an unsupported request succeed", () => {
