@@ -13,21 +13,7 @@ test("each preserved command compiles to its own durable objective instead of li
     assert.deepEqual(objective.steps.map(step => step.id), ["capture-before-state", "execute-bounded-batch", "capture-after-state"]);
     assert.equal(objective.steps[1].verification.expect.verified, true);
     assert.equal(objective.steps[1].verification.expect.planHash, objective.phase2.planHash);
-    assert.match(objective.stableKey, new RegExp(`${objective.phase2.planHash.slice(0, 16)}import test from "node:test";
-import assert from "node:assert/strict";
-import { buildSeoPhase2Objective, assertSeoPhase2ExecutionReceipt, phase2PlanFingerprint } from "../src/seo-phase2-executor.js";
-import { compilePreservedSeoPhase2Command, SEO_PHASE2_COMMAND_SEQUENCE } from "../src/seo-phase2-batches.js";
-
-const completedBefore = index => SEO_PHASE2_COMMAND_SEQUENCE.slice(0, index).map(item => item.commandId);
-
-test("each preserved command compiles to its own durable objective instead of link-integrity collapse", () => {
-  const objectives = SEO_PHASE2_COMMAND_SEQUENCE.map((item, index) => buildSeoPhase2Objective({ commandId: item.commandId, completedCommandIds: completedBefore(index) }));
-  assert.equal(new Set(objectives.map(item => item.stableKey)).size, 6);
-  assert.deepEqual(objectives.map(item => item.phase2.batch), SEO_PHASE2_COMMAND_SEQUENCE.map(item => item.batch));
-  for (const objective of objectives) {
-    assert.deepEqual(objective.steps.map(step => step.id), ["capture-before-state", "execute-bounded-batch", "capture-after-state"]);
-    assert.equal(objective.steps[1].verification.expect.verified, true);
-));
+    assert.match(objective.stableKey, new RegExp(objective.phase2.planHash.slice(0, 16) + "$"));
     assert.notEqual(objective.steps[1].tool, "seo.wordpress_link_integrity_repair");
   }
 });
