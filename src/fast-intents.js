@@ -60,12 +60,12 @@ export function deterministicToolPlan(input = "") {
   if (!text) return [];
   if (lower.includes("developer.snapshot_reconcile_restart_from_main")) {
     const preservePaths = ["mac-agent/agent.js", "src/governed-connector.js", "src/tools.js"];
-    const escapePattern = value => value.replace(/[.*+?^$\{\}()|[\]\\]/g, "\\  if (!text) return [];
-");
-    const expectedBlobs = Object.fromEntries(preservePaths.map(file => {
-      const match = text.match(new RegExp(`${escapePattern(file)}\\s*[:=]\\s*([0-9a-f]{40})`, "i"));
-      return [file, match?.[1]?.toLowerCase() || ""];
-    }));
+    const patterns = {
+      "mac-agent/agent.js": /mac-agent\/agent\.js\s*[:=]\s*([0-9a-f]{40})/i,
+      "src/governed-connector.js": /src\/governed-connector\.js\s*[:=]\s*([0-9a-f]{40})/i,
+      "src/tools.js": /src\/tools\.js\s*[:=]\s*([0-9a-f]{40})/i
+    };
+    const expectedBlobs = Object.fromEntries(preservePaths.map(file => [file, text.match(patterns[file])?.[1]?.toLowerCase() || ""]));
     return [{tool:"developer.snapshot_reconcile_restart_from_main",args:{repo:"/Users/mac/Georgie",preservePaths,expectedBlobs}}];
   }
   if(/\b(?:create|prepare|replace)\b/.test(lower)&&/\b(?:governed\s+)?supabase plan\b/.test(lower)&&/\bleaked[- ]password protection\b/.test(lower)&&/\b(?:connection allocation|fixed 10|percentage)\b/.test(lower))return[{tool:"approvals.prepare_plan",args:supabaseAuthHardeningPlan()}];
