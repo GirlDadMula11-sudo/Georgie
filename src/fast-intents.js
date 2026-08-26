@@ -54,10 +54,51 @@ function parseExplicitEmailSend(text = "") {
   return {tool:"email.send",args:{mailboxId,to:email,subject:subject||"",text:body}};
 }
 
+
+function snapshotReconcileApprovalPlan(text = "") {
+  const preservePaths = ["mac-agent/agent.js", "src/governed-connector.js", "src/tools.js"];
+  const patterns = {
+    "mac-agent/agent.js": /mac-agent\/agent\.js\s*[:=]\s*([0-9a-f]{40})/i,
+    "src/governed-connector.js": /src\/governed-connector\.js\s*[:=]\s*([0-9a-f]{40})/i,
+    "src/tools.js": /src\/tools\.js\s*[:=]\s*([0-9a-f]{40})/i
+  };
+  const expectedBlobs = Object.fromEntries(preservePaths.map(file => [file, String(text).match(patterns[file])?.[1]?.toLowerCase() || ""]));
+  if (Object.values(expectedBlobs).some(hash => !/^[0-9a-f]{40}$/.test(hash))) return null;
+  return {
+    title: "Activate governed SEO Phase 2 Mac worker",
+    summary: "Create a verified recovery snapshot, preserve only the three hash-bound bootstrap files, fast-forward /Users/mac/Georgie from origin/main, restore the preserved files, reject every unexpected dirty path or hash mismatch, restart primary-mac, and prove the governed WordPress Phase 2 batch and rollback capabilities are live.",
+    steps: [
+      "Verify primary-mac agent version 2.2.36 and exact working-tree scope.",
+      "Reject any extra dirty, untracked, renamed, copied, or hash-different path without changing files.",
+      "Create and verify a recovery snapshot and manifest.",
+      "Reconcile from origin/main using fast-forward-only semantics, restore the three approved files, and restart primary-mac.",
+      "Require a durable terminal receipt and semantic capability proof before any WordPress mutation."
+    ],
+    domain: "technical",
+    risk: "high",
+    reversible: true,
+    verificationMethod: "Read back the verified snapshot manifest, fast-forward reconciliation result, restarted agent version, and semantic registration of browser.wordpress_phase2_batch plus browser.wordpress_phase2_rollback.",
+    rollbackPlan: "Restore the verified recovery snapshot under the governed rollback path if reconciliation or capability verification fails.",
+    execution: {
+      tool: "developer.snapshot_reconcile_restart_from_main",
+      args: {repo: "/Users/mac/Georgie", preservePaths, expectedBlobs},
+      verification: []
+    }
+  };
+}
+
 export function deterministicToolPlan(input = "") {
   const text = String(input || "").trim();
   const lower = text.toLowerCase();
   if (!text) return [];
+  const snapshotPlanRequest = /\b(?:prepare|create|register)\b/.test(lower)
+    && /\b(?:immutable\s+)?approval\s+plan\b/.test(lower)
+    && /\b(?:snapshot|reconcile|primary[- ]mac|seo phase 2)\b/.test(lower)
+    && lower.includes("developer.snapshot_reconcile_restart_from_main");
+  if (snapshotPlanRequest) {
+    const plan = snapshotReconcileApprovalPlan(text);
+    return plan ? [{tool:"approvals.prepare_plan",args:plan}] : [];
+  }
   if (lower.includes("developer.snapshot_reconcile_restart_from_main")) {
     const preservePaths = ["mac-agent/agent.js", "src/governed-connector.js", "src/tools.js"];
     const patterns = {
