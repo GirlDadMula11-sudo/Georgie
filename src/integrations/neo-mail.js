@@ -72,6 +72,7 @@ function parseMailboxes() {
 }
 
 function publicMailbox(mailbox) {
+  if (!mailbox) return null;
   return { id: mailbox.id, email: mailbox.email, label: mailbox.label, role: mailbox.role };
 }
 

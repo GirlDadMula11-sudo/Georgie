@@ -11,6 +11,7 @@ import { startObjectiveWorker } from "./objective-worker.js";
 import { startSeoMonitorScheduler } from "./seo-monitor.js";
 import { startSmartleadReplyCloserWorker } from "./smartlead-reply-closer-worker.js";
 import { startLenderDeliveryWorker } from "./lender-delivery-worker.js";
+import { startSierraClosingOutreachWorker } from "./sierra-closing-outreach-worker.js";
 
 startCloudStateRecovery();
 startApprovalDispatchWorker();
@@ -23,5 +24,6 @@ startObjectiveWorker();
 startSeoMonitorScheduler();
 startSmartleadReplyCloserWorker();
 startLenderDeliveryWorker();
+startSierraClosingOutreachWorker();
 
 console.log("Georgie unified server + durable background runtime online");
