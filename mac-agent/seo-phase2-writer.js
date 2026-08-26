@@ -31,7 +31,7 @@ const COMMANDS = Object.freeze({
     batch: "sitewide_positioning_and_topic_architecture",
     sequenceIndex: 1,
     predecessorCommandId: "cmd_sierra_seo_phase2_homepage_positioning_repair_20260825_1327",
-    pages: ["/", "/about-us/", "/sba-loans-for-small-businesses/", "/business-line-of-credit/", "/sba-bank-term-loans-for-business/"],
+    pages: ["/", "/about-sierra-marketing-inc/", "/sba-loans-for-small-businesses/", "/business-line-of-credit/", "/sba-bank-term-loans-for-business/"],
     changeClasses: ["title", "meta_description", "heading_hierarchy", "positioning_copy", "internal_link_anchor", "breadcrumb_copy", "placeholder_cleanup"],
     verification: ["public_html", "heading_hierarchy", "internal_links", "protected_surface_invariants"],
     netNewPageCreation: true
@@ -49,7 +49,7 @@ const COMMANDS = Object.freeze({
     batch: "trust_conversion_semantics",
     sequenceIndex: 3,
     predecessorCommandId: "cmd_sierra_seo_phase2_money_page_fact_integrity_20260825_1354",
-    pages: ["/", "/about-us/", "/contact-us/", "/sba-loans-for-small-businesses/", "/business-line-of-credit/"],
+    pages: ["/", "/about-sierra-marketing-inc/", "/contact-us/", "/sba-loans-for-small-businesses/", "/business-line-of-credit/"],
     changeClasses: ["trust_copy", "advisor_role_copy", "form_label_copy", "accessibility_copy", "schema", "internal_link_anchor", "breadcrumb_copy"],
     verification: ["public_html", "structured_data", "form_labels", "protected_surface_invariants"],
     netNewPageCreation: true
@@ -58,7 +58,7 @@ const COMMANDS = Object.freeze({
     batch: "qualified_conversion_architecture",
     sequenceIndex: 4,
     predecessorCommandId: "cmd_sierra_seo_phase2_trust_conversion_semantics_20260825_1349",
-    pages: ["/", "/about-us/", "/contact-us/", "/sba-loans-for-small-businesses/", "/business-line-of-credit/"],
+    pages: ["/", "/about-sierra-marketing-inc/", "/contact-us/", "/sba-loans-for-small-businesses/", "/business-line-of-credit/"],
     changeClasses: ["cta_label", "cta_href", "visible_form_label", "navigation_href", "accessibility_copy"],
     verification: ["public_html", "cta_targets", "attribution_preservation", "protected_form_backend_invariants"],
     netNewPageCreation: true
@@ -125,7 +125,7 @@ function replacementsFor(commandId) {
     case "cmd_sierra_seo_phase2_sitewide_architecture_attack_20260825_1338":
       return [
         { path: "/", replacements: [["How To Qualify for SBA Loan Faster", "How to Improve SBA Loan Readiness"]] },
-        { path: "/about-us/", replacements: [["fast funding", "well-structured financing"], ["quick funding", "appropriate financing"], ["access capital quickly", "evaluate capital options efficiently"]] },
+        { path: "/about-sierra-marketing-inc/", replacements: [["fast funding", "well-structured financing"], ["quick funding", "appropriate financing"], ["access capital quickly", "evaluate capital options efficiently"]] },
         { path: "/sba-loans-for-small-businesses/", demoteH1: ["SBA Loans"], replacements: [["Fast Revenue Based Business Funding", "Long-Term Business Financing Guidance"], ["Banks Move Slow. Opportunities Do Not NEED TO CHANGE", "Structured financing starts with fit, documentation, and lender alignment."], ["Banks Move Slow. Opportunities Do Not", "Structured financing starts with fit, documentation, and lender alignment."], ["NEED TO CHANGE", ""]] },
         { path: "/business-line-of-credit/", demoteH1: ["Business Line of Credit"], replacements: [["Banks move slow.", "Traditional credit review can take time."], ["Get fast business funding designed to stabilize cash flow and keep growth on track.", "Use revolving working capital to manage timing gaps while keeping the financing structure aligned with cash flow."]] },
         { path: "/sba-bank-term-loans-for-business/", demoteH1: ["SBA & Bank Term Loans for Businesses"], replacements: [["Supporting Subheading", "Financing Options Built Around Business Needs"], ["Banks Move Slow. Opportunities Do Not", "Structured financing starts with fit, documentation, and lender alignment."]] }
