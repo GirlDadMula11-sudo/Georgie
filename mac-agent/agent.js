@@ -13,7 +13,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.35";
+const AGENT_VERSION = "2.2.36";
 const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;
 const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));
 const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));
@@ -535,6 +535,65 @@ async function execute(job) {
       if (!["check", "test", "benchmark"].includes(script)) throw new Error("Developer check script is not allowlisted");
       const result = await runDeveloper("npm", ["run", script, "--if-present"], { cwd: repo, timeout: 120000 });
       return { repo, script, ...result, verified: true };
+    }
+    case "developer.snapshot_reconcile_restart_from_main": {
+      const repo = assertDeveloperRoot(a.repo);
+      if (repo !== "/Users/mac/Georgie") throw new Error("PRIMARY_MAC_REPO_NOT_ALLOWLISTED");
+      const preservePaths = ["mac-agent/agent.js", "src/governed-connector.js", "src/tools.js"];
+      const requestedPaths = Array.isArray(a.preservePaths) ? a.preservePaths.map(value => String(value)) : preservePaths;
+      if (JSON.stringify(requestedPaths) !== JSON.stringify(preservePaths)) throw new Error("PRIMARY_MAC_SNAPSHOT_SCOPE_REJECTED");
+      const expectedBlobs = a.expectedBlobs && typeof a.expectedBlobs === "object" ? a.expectedBlobs : {};
+      if (preservePaths.some(file => !/^[0-9a-f]{40}$/.test(String(expectedBlobs[file] || "")))) throw new Error("PRIMARY_MAC_EXPECTED_BLOBS_REQUIRED");
+      const gitBlobSha = bytes => crypto.createHash("sha1").update(Buffer.concat([Buffer.from(`blob ${bytes.length}\0`), bytes])).digest("hex");
+      const before = (await runDeveloper("git", ["-C", repo, "rev-parse", "HEAD"])).stdout.trim();
+      await runDeveloper("git", ["-C", repo, "fetch", "origin", "main"], { timeout: 120000 });
+      const status = await runDeveloper("git", ["-C", repo, "status", "--porcelain=v1", "--untracked-files=all"]);
+      const dirtyLines = status.stdout.split("\n").filter(Boolean);
+      const dirtyPaths = dirtyLines.map(line => line.slice(3));
+      if (dirtyLines.some(line => line.slice(0, 2).includes("R") || line.slice(0, 2).includes("C") || line.slice(0, 2).includes("?"))) throw new Error("PRIMARY_MAC_UNSUPPORTED_DIRTY_STATE");
+      if (dirtyPaths.length !== preservePaths.length || preservePaths.some(file => !dirtyPaths.includes(file))) throw new Error("PRIMARY_MAC_UNRELATED_WORK_PRESENT");
+      const observedBlobs = {};
+      const mainBlobs = {};
+      const sourceBytes = {};
+      for (const file of preservePaths) {
+        const bytes = await fs.readFile(path.join(repo, file));
+        sourceBytes[file] = bytes;
+        observedBlobs[file] = gitBlobSha(bytes);
+        if (observedBlobs[file] !== expectedBlobs[file]) throw new Error(`PRIMARY_MAC_WORKING_BLOB_MISMATCH:${file}`);
+        mainBlobs[file] = (await runDeveloper("git", ["-C", repo, "rev-parse", `origin/main:${file}`])).stdout.trim();
+      }
+      if (observedBlobs["src/tools.js"] !== mainBlobs["src/tools.js"]) throw new Error("PRIMARY_MAC_TOOLS_NOT_REMOTE_IDENTICAL");
+      const snapshotId = `seo-phase2-${Date.now()}-${crypto.randomUUID()}`;
+      const snapshotDir = path.join(HEALTH_DIR, "recovery-snapshots", snapshotId);
+      await fs.mkdir(snapshotDir, { recursive: true, mode: 0o700 });
+      const filesDir = path.join(snapshotDir, "files");
+      await fs.mkdir(filesDir, { recursive: true, mode: 0o700 });
+      const recoveryFiles = {};
+      for (const file of preservePaths) {
+        const target = path.join(filesDir, file);
+        await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+        await fs.writeFile(target, sourceBytes[file], { mode: 0o600 });
+        const readBack = await fs.readFile(target);
+        const readBackBlob = gitBlobSha(readBack);
+        if (readBackBlob !== observedBlobs[file]) throw new Error(`PRIMARY_MAC_SNAPSHOT_VERIFY_FAILED:${file}`);
+        recoveryFiles[file] = { gitBlobSha: observedBlobs[file], bytes: readBack.length, relativePath: path.relative(snapshotDir, target) };
+      }
+      const manifest = { snapshotId, createdAt: new Date().toISOString(), repo, beforeHead: before, originMain: (await runDeveloper("git", ["-C", repo, "rev-parse", "origin/main"])).stdout.trim(), files: recoveryFiles, restoreVerified: true };
+      const manifestPath = path.join(snapshotDir, "manifest.json");
+      await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), { mode: 0o600 });
+      const manifestReadBack = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+      if (manifestReadBack.snapshotId !== snapshotId || manifestReadBack.restoreVerified !== true) throw new Error("PRIMARY_MAC_MANIFEST_VERIFY_FAILED");
+      await runDeveloper("git", ["-C", repo, "restore", "--source=origin/main", "--staged", "--worktree", "--", ...preservePaths]);
+      const afterRestore = await runDeveloper("git", ["-C", repo, "status", "--porcelain=v1", "--untracked-files=all"]);
+      if (afterRestore.stdout.trim()) throw new Error("PRIMARY_MAC_RECONCILE_NOT_CLEAN");
+      await runDeveloper("git", ["-C", repo, "merge", "--ff-only", "origin/main"], { timeout: 120000 });
+      const after = (await runDeveloper("git", ["-C", repo, "rev-parse", "HEAD"])).stdout.trim();
+      const installer = path.join(repo, "mac-agent/install.sh");
+      setTimeout(() => {
+        const child = spawn("/bin/zsh", [installer], { cwd: repo, detached: true, stdio: "ignore", env: { ...process.env, GEORGIE_NODE_BINARY: process.execPath } });
+        child.unref();
+      }, 3000);
+      return { repo, before, after, snapshotId, snapshotDir, manifestPath, observedBlobs, mainBlobs, restoreVerified: true, fastForwardOnly: true, restartScheduled: true, restartDelayMs: 3000, wordpressMutation: false };
     }
     case "developer.update_restart_from_main": {
       const repo = assertDeveloperRoot(a.repo);
