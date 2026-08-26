@@ -58,6 +58,16 @@ export function deterministicToolPlan(input = "") {
   const text = String(input || "").trim();
   const lower = text.toLowerCase();
   if (!text) return [];
+  if (lower.includes("developer.snapshot_reconcile_restart_from_main")) {
+    const preservePaths = ["mac-agent/agent.js", "src/governed-connector.js", "src/tools.js"];
+    const escapePattern = value => value.replace(/[.*+?^$\{\}()|[\]\\]/g, "\\  if (!text) return [];
+");
+    const expectedBlobs = Object.fromEntries(preservePaths.map(file => {
+      const match = text.match(new RegExp(`${escapePattern(file)}\\s*[:=]\\s*([0-9a-f]{40})`, "i"));
+      return [file, match?.[1]?.toLowerCase() || ""];
+    }));
+    return [{tool:"developer.snapshot_reconcile_restart_from_main",args:{repo:"/Users/mac/Georgie",preservePaths,expectedBlobs}}];
+  }
   if(/\b(?:create|prepare|replace)\b/.test(lower)&&/\b(?:governed\s+)?supabase plan\b/.test(lower)&&/\bleaked[- ]password protection\b/.test(lower)&&/\b(?:connection allocation|fixed 10|percentage)\b/.test(lower))return[{tool:"approvals.prepare_plan",args:supabaseAuthHardeningPlan()}];
   const phase2EngineeringInspection = /\b(?:github|vercel|render)\b/.test(lower)
     && /\b(?:repository|deployment|build|integration|monitor|handoff)\w*\b/.test(lower)
