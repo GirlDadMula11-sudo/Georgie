@@ -13,6 +13,7 @@ test("each preserved command compiles to its own durable objective instead of li
     assert.deepEqual(objective.steps.map(step => step.id), ["capture-before-state", "execute-bounded-batch", "capture-after-state"]);
     assert.equal(objective.steps[1].verification.expect.verified, true);
     assert.equal(objective.steps[1].verification.expect.planHash, objective.phase2.planHash);
+    assert.match(objective.stableKey, new RegExp(objective.phase2.planHash.slice(0, 16) + "$"));
     assert.notEqual(objective.steps[1].tool, "seo.wordpress_link_integrity_repair");
   }
 });
