@@ -1,0 +1,35 @@
+diff --git a/mac-agent/agent.js b/mac-agent/agent.js
+index fca3889..f1b4ba1 100644
+--- a/mac-agent/agent.js
++++ b/mac-agent/agent.js
+@@ -562,7 +562,6 @@ async function execute(job) {
+         if (observedBlobs[file] !== expectedBlobs[file]) throw new Error(`PRIMARY_MAC_WORKING_BLOB_MISMATCH:${file}`);
+         mainBlobs[file] = (await runDeveloper("git", ["-C", repo, "rev-parse", `origin/main:${file}`])).stdout.trim();
+       }
+-      if (observedBlobs["src/tools.js"] !== mainBlobs["src/tools.js"]) throw new Error("PRIMARY_MAC_TOOLS_NOT_REMOTE_IDENTICAL");
+       const snapshotId = `seo-phase2-${Date.now()}-${crypto.randomUUID()}`;
+       const snapshotDir = path.join(HEALTH_DIR, "recovery-snapshots", snapshotId);
+       await fs.mkdir(snapshotDir, { recursive: true, mode: 0o700 });
+@@ -588,12 +587,21 @@ async function execute(job) {
+       if (afterRestore.stdout.trim()) throw new Error("PRIMARY_MAC_RECONCILE_NOT_CLEAN");
+       await runDeveloper("git", ["-C", repo, "merge", "--ff-only", "origin/main"], { timeout: 120000 });
+       const after = (await runDeveloper("git", ["-C", repo, "rev-parse", "HEAD"])).stdout.trim();
++      for (const file of preservePaths) {
++        const target = path.join(repo, file);
++        await fs.writeFile(target, sourceBytes[file]);
++        const restored = await fs.readFile(target);
++        if (gitBlobSha(restored) !== observedBlobs[file]) throw new Error(`PRIMARY_MAC_PRESERVED_RESTORE_VERIFY_FAILED:${file}`);
++      }
++      const preservedStatus = await runDeveloper("git", ["-C", repo, "status", "--porcelain=v1", "--untracked-files=all"]);
++      const preservedDirtyPaths = preservedStatus.stdout.split("\n").filter(Boolean).map(line => line.slice(3));
++      if (preservedDirtyPaths.length !== preservePaths.length || preservePaths.some(file => !preservedDirtyPaths.includes(file))) throw new Error("PRIMARY_MAC_PRESERVED_RESTORE_SCOPE_FAILED");
+       const installer = path.join(repo, "mac-agent/install.sh");
+       setTimeout(() => {
+         const child = spawn("/bin/zsh", [installer], { cwd: repo, detached: true, stdio: "ignore", env: { ...process.env, GEORGIE_NODE_BINARY: process.execPath } });
+         child.unref();
+       }, 3000);
+-      return { repo, before, after, snapshotId, snapshotDir, manifestPath, observedBlobs, mainBlobs, restoreVerified: true, fastForwardOnly: true, restartScheduled: true, restartDelayMs: 3000, wordpressMutation: false };
++      return { repo, before, after, snapshotId, snapshotDir, manifestPath, observedBlobs, mainBlobs, restoreVerified: true, preservedWorktreeRestored: true, fastForwardOnly: true, restartScheduled: true, restartDelayMs: 3000, wordpressMutation: false };
+     }
+     case "developer.update_restart_from_main": {
+       const repo = assertDeveloperRoot(a.repo);
