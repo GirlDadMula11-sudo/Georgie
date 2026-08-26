@@ -44,6 +44,18 @@ async function rpc(name, body = {}) {
   return response.json();
 }
 
+async function storageObjectExists(storagePath) {
+  const response = await fetch(`${SIERRA_URL}/storage/v1/object/info/${BUCKET}/${encodeStoragePath(storagePath)}`, {
+    method: "GET",
+    headers: headers(),
+    signal: AbortSignal.timeout(10000)
+  });
+  if (response.status === 200) return true;
+  if (response.status === 404) return false;
+  const detail = await response.text().catch(() => "");
+  throw new Error(`Sierra storage existence check failed (${response.status})${detail ? `: ${detail.slice(0, 300)}` : ""}`);
+}
+
 export function sierraCorrespondenceConfigured() { return configured(); }
 
 export async function resolveCorrespondenceTarget(userId, message = {}) {
@@ -84,16 +96,25 @@ export async function uploadCorrespondenceAttachment(target = {}, message = {}, 
   const messageHash = sha256(messageIdentity).slice(0, 20);
   const filename = safeFilename(file.filename);
   const storagePath = `${partnerId}/${referralId}/georgie-mail/${messageHash}/${contentHash.slice(0, 16)}-${filename}`;
-  const response = await fetch(`${SIERRA_URL}/storage/v1/object/${BUCKET}/${encodeStoragePath(storagePath)}`, {
-    method: "POST",
-    headers: headers({ "content-type": mimeType, "x-upsert": "false" }),
-    body: content,
-    signal: AbortSignal.timeout(30000)
-  });
-  if (!response.ok && response.status !== 409) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(`Sierra document upload failed (${response.status})${detail ? `: ${detail.slice(0, 300)}` : ""}`);
+
+  let deduplicatedStorage = await storageObjectExists(storagePath);
+  if (!deduplicatedStorage) {
+    const response = await fetch(`${SIERRA_URL}/storage/v1/object/${BUCKET}/${encodeStoragePath(storagePath)}`, {
+      method: "POST",
+      headers: headers({ "content-type": mimeType, "x-upsert": "false" }),
+      body: content,
+      signal: AbortSignal.timeout(30000)
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      if ((response.status === 400 || response.status === 409) && await storageObjectExists(storagePath)) {
+        deduplicatedStorage = true;
+      } else {
+        throw new Error(`Sierra document upload failed (${response.status})${detail ? `: ${detail.slice(0, 300)}` : ""}`);
+      }
+    }
   }
+
   const classification = classifyCorrespondenceAttachment(file);
   return {
     storage_path: storagePath,
@@ -103,7 +124,7 @@ export async function uploadCorrespondenceAttachment(target = {}, message = {}, 
     content_hash: contentHash,
     document_type: classification.documentType,
     document_label: classification.documentLabel,
-    deduplicated_storage: response.status === 409
+    deduplicated_storage: deduplicatedStorage
   };
 }
 
