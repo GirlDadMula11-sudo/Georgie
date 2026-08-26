@@ -21,7 +21,7 @@ const contracts = Object.freeze({
     verify: ["public_html", "title", "h1", "protected_surface_invariants"]
   }),
   sitewide_positioning_and_topic_architecture: Object.freeze({
-    pages: ["/", "/about-us/", "/sba-loans-for-small-businesses/", "/business-line-of-credit/", "/sba-bank-term-loans-for-business/"],
+    pages: ["/", "/about-sierra-marketing-inc/", "/sba-loans-for-small-businesses/", "/business-line-of-credit/", "/sba-bank-term-loans-for-business/"],
     changeClasses: ["title", "meta_description", "heading_hierarchy", "positioning_copy", "internal_link_anchor", "breadcrumb_copy", "placeholder_cleanup"],
     verify: ["public_html", "heading_hierarchy", "internal_links", "protected_surface_invariants"]
   }),
@@ -31,12 +31,12 @@ const contracts = Object.freeze({
     verify: ["public_html", "factual_predicates", "source_links", "protected_surface_invariants"]
   }),
   trust_conversion_semantics: Object.freeze({
-    pages: ["/", "/about-us/", "/contact-us/", "/sba-loans-for-small-businesses/", "/business-line-of-credit/"],
+    pages: ["/", "/about-sierra-marketing-inc/", "/contact-us/", "/sba-loans-for-small-businesses/", "/business-line-of-credit/"],
     changeClasses: ["trust_copy", "advisor_role_copy", "form_label_copy", "accessibility_copy", "schema", "internal_link_anchor", "breadcrumb_copy"],
     verify: ["public_html", "structured_data", "form_labels", "protected_surface_invariants"]
   }),
   qualified_conversion_architecture: Object.freeze({
-    pages: ["/", "/about-us/", "/contact-us/", "/sba-loans-for-small-businesses/", "/business-line-of-credit/"],
+    pages: ["/", "/about-sierra-marketing-inc/", "/contact-us/", "/sba-loans-for-small-businesses/", "/business-line-of-credit/"],
     changeClasses: ["cta_label", "cta_href", "visible_form_label", "navigation_href", "accessibility_copy"],
     verify: ["public_html", "cta_targets", "attribution_preservation", "protected_form_backend_invariants"]
   }),

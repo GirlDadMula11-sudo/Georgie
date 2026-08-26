@@ -35,6 +35,14 @@ test("batch contracts cannot silently escape their page scope", () => {
   assert.throws(() => compileSeoPhase2Batch({ batch: "homepage_positioning_and_onpage_integrity", pages: ["https://example.com/"] }), /SEO_PHASE2_EXTERNAL_URL_REJECTED/);
 });
 
+test("public page scopes use the live canonical About page", () => {
+  for (const batch of ["sitewide_positioning_and_topic_architecture", "trust_conversion_semantics", "qualified_conversion_architecture"]) {
+    const plan = compileSeoPhase2Batch({ batch });
+    assert.ok(plan.pages.includes("/about-sierra-marketing-inc/"));
+    assert.ok(!plan.pages.includes("/about-us/"));
+  }
+});
+
 test("protected systems remain universal invariants", () => {
   for (const surface of ["form_post_endpoints", "users", "plugins", "security", "dns", "email", "lender_systems"]) {
     assert.ok(SEO_PHASE2_PROTECTED_SURFACES.includes(surface));
