@@ -6,12 +6,14 @@ const NS="coordination_control_plane_v2";
 const USER=()=>process.env.GEORGIE_EXECUTIVE_USER_ID||process.env.GEORGIE_PRIMARY_USER_ID||"primary";
 const DEFAULT_LEASE_MS=Math.max(60_000,Number(process.env.GEORGIE_CONTROL_LEASE_MS||5*60_000));
 const MAX_CALLBACK_DELIVERY_ATTEMPTS=Math.max(1,Number(process.env.GEORGIE_CALLBACK_DELIVERY_MAX_ATTEMPTS||8));
+const PARTICIPANT_HEARTBEAT_MS=Math.max(30_000,Number(process.env.GEORGIE_CONTROL_PARTICIPANT_HEARTBEAT_MS||60_000));
 const localStates=new Map(),mutationChains=new Map();
 const now=()=>new Date().toISOString();
 const bounded=(value,max=4000)=>String(value??"").trim().slice(0,max);
 const clone=value=>structuredClone(value);
 const digest=value=>crypto.createHash("sha256").update(typeof value==="string"?value:JSON.stringify(value)).digest("hex");
 function serialized(userId,work){const key=String(userId||USER()),prior=mutationChains.get(key)||Promise.resolve();const run=prior.catch(()=>{}).then(work);mutationChains.set(key,run.catch(()=>{}));return run;}
+function sameJson(a,b){return JSON.stringify(a)===JSON.stringify(b);}
 
 export const PARTICIPANTS=Object.freeze({
   owner:{id:"jason",role:"owner",authority:"ultimate_user_authority"},
@@ -51,7 +53,12 @@ export function authorityDecision(action=""){
 export function registerParticipant(userId=USER(),input={}){return serialized(userId,async()=>{
   const state=await load(userId),id=bounded(input.id,100);if(!id)throw new Error("participant id required");
   const existing=state.participants[id]||{};
-  state.participants[id]={...existing,id,role:bounded(input.role||existing.role,120),authority:bounded(input.authority||existing.authority,160),capabilities:Array.isArray(input.capabilities)?[...new Set(input.capabilities.map(v=>bounded(v,160)).filter(Boolean))].slice(0,200):existing.capabilities||[],callbackMode:bounded(input.callbackMode||existing.callbackMode||"pull",80),endpointBound:Boolean(input.endpointBound),lastSeenAt:now(),updatedAt:now()};
+  const capabilities=Array.isArray(input.capabilities)?[...new Set(input.capabilities.map(v=>bounded(v,160)).filter(Boolean))].slice(0,200):existing.capabilities||[];
+  const proposed={id,role:bounded(input.role||existing.role,120),authority:bounded(input.authority||existing.authority,160),capabilities,callbackMode:bounded(input.callbackMode||existing.callbackMode||"pull",80),endpointBound:Boolean(input.endpointBound)};
+  const existingStable={id:existing.id,role:existing.role,authority:existing.authority,capabilities:existing.capabilities||[],callbackMode:existing.callbackMode,endpointBound:Boolean(existing.endpointBound)};
+  const unchanged=sameJson(existingStable,proposed),lastSeen=Date.parse(existing.lastSeenAt||0);
+  if(unchanged&&Number.isFinite(lastSeen)&&Date.now()-lastSeen<PARTICIPANT_HEARTBEAT_MS)return clone(existing);
+  const stamp=now();state.participants[id]={...existing,...proposed,lastSeenAt:stamp,updatedAt:stamp};
   await save(userId,state);return clone(state.participants[id]);
 });}
 
@@ -63,9 +70,13 @@ export async function negotiateAssignee(userId=USER(),{requiredCapabilities=[],p
 
 export function ensureObjective(userId=USER(),input={}){return serialized(userId,async()=>{
   const state=await load(userId),id=bounded(input.id,80)||objectiveIdFor(input);
-  let objective=state.objectives.find(row=>row.id===id);
-  if(!objective){objective={id,missionId:SHARED_MISSION.id,createdAt:now(),status:"active",version:1};state.objectives.push(objective);}else objective.version=Number(objective.version||1)+1;
-  Object.assign(objective,{stableKey:bounded(input.stableKey||objective.stableKey,300)||null,title:bounded(input.title||input.text||objective.title,500),text:bounded(input.text||objective.text,6000),domain:bounded(input.domain||objective.domain||"general",80),kind:bounded(input.kind||objective.kind||"objective",80),priority:Math.max(1,Math.min(100,Number(input.priority??objective.priority??50))),status:["active","waiting","blocked","verified","cancelled"].includes(input.status)?input.status:objective.status||"active",acceptanceCriteria:Array.isArray(input.acceptanceCriteria)?input.acceptanceCriteria.map(v=>bounded(v,1200)).filter(Boolean).slice(0,40):objective.acceptanceCriteria||[],updatedAt:now()});
+  let objective=state.objectives.find(row=>row.id===id),created=false;
+  if(!objective){objective={id,missionId:SHARED_MISSION.id,createdAt:now(),status:"active",version:1};state.objectives.push(objective);created=true;}
+  const proposed={stableKey:bounded(input.stableKey||objective.stableKey,300)||null,title:bounded(input.title||input.text||objective.title,500),text:bounded(input.text||objective.text,6000),domain:bounded(input.domain||objective.domain||"general",80),kind:bounded(input.kind||objective.kind||"objective",80),priority:Math.max(1,Math.min(100,Number(input.priority??objective.priority??50))),status:["active","waiting","blocked","verified","cancelled"].includes(input.status)?input.status:objective.status||"active",acceptanceCriteria:Array.isArray(input.acceptanceCriteria)?input.acceptanceCriteria.map(v=>bounded(v,1200)).filter(Boolean).slice(0,40):objective.acceptanceCriteria||[]};
+  const current={stableKey:objective.stableKey??null,title:objective.title||"",text:objective.text||"",domain:objective.domain||"general",kind:objective.kind||"objective",priority:Number(objective.priority??50),status:objective.status||"active",acceptanceCriteria:objective.acceptanceCriteria||[]};
+  if(!created&&sameJson(current,proposed))return clone(objective);
+  if(!created)objective.version=Number(objective.version||1)+1;
+  Object.assign(objective,proposed,{updatedAt:now()});
   state.objectives=state.objectives.slice(-2500);await save(userId,state);return clone(objective);
 });}
 
@@ -73,8 +84,8 @@ export function appendEvidence(userId=USER(),input={}){return serialized(userId,
   const state=await load(userId),objectiveId=bounded(input.objectiveId,80);if(!objectiveId)throw new Error("objectiveId required");
   const payload={objectiveId,source:bounded(input.source||"unknown",200),kind:bounded(input.kind||"observation",80),claim:bounded(input.claim,5000),refs:Array.isArray(input.refs)?input.refs.map(v=>bounded(v,500)).filter(Boolean).slice(0,50):[],observedAt:input.observedAt||now(),confidence:bounded(input.confidence||"observed",80),metadata:input.metadata&&typeof input.metadata==="object"?input.metadata:{}};
   const evidence={id:`ev_${digest(payload).slice(0,24)}`,...payload,recordedAt:now(),immutableHash:digest(payload)};
-  if(!state.evidence.some(row=>row.id===evidence.id))state.evidence.push(evidence);
-  state.evidence=state.evidence.slice(-10000);await save(userId,state);return clone(evidence);
+  if(state.evidence.some(row=>row.id===evidence.id))return clone(state.evidence.find(row=>row.id===evidence.id));
+  state.evidence.push(evidence);state.evidence=state.evidence.slice(-10000);await save(userId,state);return clone(evidence);
 });}
 
 function activeLock(state,resource){const at=Date.now();return state.locks.find(lock=>lock.resource===resource&&Date.parse(lock.expiresAt||0)>at)||null;}
@@ -88,7 +99,7 @@ export function acquireLock(userId=USER(),{objectiveId,owner,resource,ttlMs=DEFA
 });}
 export function releaseLock(userId=USER(),{resource,owner}={}){return serialized(userId,async()=>{
   const state=await load(userId),r=bounded(resource,300),o=bounded(owner,100),before=state.locks.length;
-  state.locks=state.locks.filter(lock=>!(lock.resource===r&&(!o||lock.owner===o)));await save(userId,state);return{released:before-state.locks.length};
+  state.locks=state.locks.filter(lock=>!(lock.resource===r&&(!o||lock.owner===o)));if(before===state.locks.length)return{released:0};await save(userId,state);return{released:before-state.locks.length};
 });}
 
 export function commandEnvelope(input={}){
@@ -115,7 +126,7 @@ export function createHandoff(userId=USER(),input={}){return serialized(userId,a
 });}
 export function acknowledgeHandoff(userId=USER(),{handoffId,participant}={}){return serialized(userId,async()=>{
   const state=await load(userId),handoff=state.handoffs.find(row=>row.id===handoffId);if(!handoff)return null;if(handoff.to!==participant)throw new Error("handoff may only be acknowledged by its assignee");
-  handoff.status="acknowledged";handoff.acknowledgedAt=now();handoff.updatedAt=now();await save(userId,state);return clone(handoff);
+  if(handoff.status==="acknowledged")return clone(handoff);handoff.status="acknowledged";handoff.acknowledgedAt=now();handoff.updatedAt=now();await save(userId,state);return clone(handoff);
 });}
 
 function callbackPayload(input={}){
@@ -125,7 +136,7 @@ function safeDeliveryReceipt(receipt={}){return{ok:Boolean(receipt?.ok),readBack
 export function recordCallback(userId=USER(),input={}){return serialized(userId,async()=>{
   const state=await load(userId),payload=callbackPayload(input),idempotencyKey=bounded(input.idempotencyKey,220)||null,deliveryHash=digest(payload);
   let callback=idempotencyKey?state.callbacks.find(row=>row.idempotencyKey===idempotencyKey):null;
-  if(callback){const changed=callback.deliveryHash!==deliveryHash;Object.assign(callback,payload,{deliveryHash,updatedAt:now()});if(changed){callback.deliveryRevision=Number(callback.deliveryRevision||1)+1;callback.revisionDeliveryAttempts=0;callback.delivered=false;callback.deliveredAt=null;callback.deliveryReadBackConfirmed=false;callback.lastDeliveryError=null;callback.deliveryExhausted=false;callback.deliveryReceipt=null;}}
+  if(callback){const changed=callback.deliveryHash!==deliveryHash;if(!changed)return clone(callback);Object.assign(callback,payload,{deliveryHash,updatedAt:now()});callback.deliveryRevision=Number(callback.deliveryRevision||1)+1;callback.revisionDeliveryAttempts=0;callback.delivered=false;callback.deliveredAt=null;callback.deliveryReadBackConfirmed=false;callback.lastDeliveryError=null;callback.deliveryExhausted=false;callback.deliveryReceipt=null;}
   else{callback={id:crypto.randomUUID(),...payload,idempotencyKey,deliveryHash,deliveryRevision:1,createdAt:now(),updatedAt:now(),delivered:false,deliveredAt:null,deliveryReadBackConfirmed:false,deliveryAttempts:0,revisionDeliveryAttempts:0,lastDeliveryAttemptAt:null,lastDeliveryError:null,deliveryErrors:[],deliveryExhausted:false,deliveryReceipt:null};state.callbacks.push(callback);}
   state.callbacks=state.callbacks.slice(-5000);await save(userId,state);return clone(callback);
 });}
