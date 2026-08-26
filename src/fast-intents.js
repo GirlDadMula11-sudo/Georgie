@@ -91,6 +91,17 @@ export function deterministicToolPlan(input = "") {
   const text = String(input || "").trim();
   const lower = text.toLowerCase();
   if (!text) return [];
+  const explicitDeveloperFileRead = /\bdeveloper\.file_read\b/i.test(text);
+  if (explicitDeveloperFileRead) {
+    const repoMatch = text.match(/\brepo\s*[:=]\s*([^\s,;]+)/i);
+    const pathMatch = text.match(/\bpath\s*[:=]\s*([^\s,;]+)/i);
+    const repo = repoMatch?.[1] || "";
+    const path = pathMatch?.[1] || "";
+    if (repo === "/Users/mac/Georgie" && /^(?:mac-agent|src)\/[A-Za-z0-9._/-]+$/.test(path)) {
+      return [{tool:"developer.file_read",args:{repo,path}}];
+    }
+    return [];
+  }
   const snapshotPlanRequest = /\b(?:prepare|create|register)\b/.test(lower)
     && /\b(?:immutable\s+)?approval\s+plan\b/.test(lower)
     && /\b(?:snapshot|reconcile|primary[- ]mac|seo phase 2)\b/.test(lower)
