@@ -466,3 +466,15 @@ test("developer repository inspection receipts preserve bounded read-only eviden
   assert.deepEqual(summary.repositoryInspection,{repo:"/Users/mac/Georgie",branch:"main",status:" M package-lock.json\n?? local.tmp\n",recentCommits:"abc repair",readOnly:true});
   assert.equal("trackedFiles" in summary.repositoryInspection,false);
 });
+
+
+test("governed Mac keyboard activation is exact-scope and maps only to existing UI actions",()=>{
+  const source=fs.readFileSync(new URL("../src/governed-connector.js",import.meta.url),"utf8");
+  assert.match(source,/"primary_mac\.ui_keyboard"/);
+  assert.match(source,/operations: new Set\(\["type_text", "press_return"\]\)/);
+  assert.match(source,/route\.capability === "primary_mac\.ui_keyboard"/);
+  assert.match(source,/route\.operation === "type_text" \? "ui\.type_text" : "ui\.key"/);
+  assert.match(source,/key: "return", modifiers: \[\]/);
+  assert.match(source,/PRIMARY_MAC_UI_TEXT_REQUIRED/);
+  assert.match(source,/"wordpress\.publish"/);
+});
