@@ -97,7 +97,7 @@ export function deterministicToolPlan(input = "") {
     const pathMatch = text.match(/\bpath\s*[:=]\s*([^\s,;]+)/i);
     const repo = repoMatch?.[1] || "";
     const path = pathMatch?.[1] || "";
-    if (repo === "/Users/mac/Georgie" && /^(?:mac-agent|src)\/[A-Za-z0-9._/-]+$/.test(path)) {
+    if (repo === "/Users/mac/Georgie" && /^(?:mac-agent|src)\/[A-Za-z0-9._/-]+$/.test(path) && !path.split("/").includes("..")) {
       return [{tool:"developer.file_read",args:{repo,path}}];
     }
     return [];
