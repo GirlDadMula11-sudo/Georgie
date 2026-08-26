@@ -117,6 +117,12 @@ const CAPABILITIES = Object.freeze({
     operations: new Set(["connection_verify_and_backfill", "static_contract_inspection"]),
     prohibitedRoutes: new Set(["cm-100", "stale_continuation", "gmail", "apple_mail", "sierra.diagnostic_investigation", "sierra.continue_diagnostic_investigation"])
   }),
+  "primary_mac.ui_keyboard": Object.freeze({
+    targetDevice: "primary-mac",
+    authority: "local_admin",
+    operations: new Set(["type_text", "press_return"]),
+    prohibitedRoutes: new Set(["cm-100", "stale_continuation", "gmail", "apple_mail", "mailbox.read", "mailbox.write", "wordpress.publish"])
+  }),
   "primary_mac.agent.maintenance": Object.freeze({
     targetDevice: "primary-mac",
     authority: "local_admin",
@@ -423,6 +429,15 @@ async function executeTypedCapability({ userId, command }) {
   if (route.capability === "primary_mac.neo.cdp_read_only") {
     const job = await enqueueMacJob({ userId, deviceId: route.target_device, action: "mailbox.neo_cdp_verify_session", args: { objectiveId: route.objective_id, authority: route.authority, mailboxes: command.metadata?.mailboxes || [] }, risk: "read", reason: "Verify local loopback CDP and exact NEO mailbox bindings without message access", idempotencyKey: `connector:${command.id}:${route.operation}`, maxAttempts: 1 });
     return { terminalState: "in_progress", completed: false, route, job: { id: job.id, status: job.status, deviceId: route.target_device, action: job.action, authority: route.authority, dispatchReceipt: job.dispatchReceipt } };
+  }
+  if (route.capability === "primary_mac.ui_keyboard") {
+    const action = route.operation === "type_text" ? "ui.type_text" : "ui.key";
+    const args = route.operation === "type_text"
+      ? { text: clean(command.metadata?.text, 10000) }
+      : { key: "return", modifiers: [] };
+    if (route.operation === "type_text" && !args.text) throw new Error("PRIMARY_MAC_UI_TEXT_REQUIRED");
+    const job = await enqueueMacJob({ userId, deviceId: route.target_device, action, args, risk: "sensitive_write", reason: "Execute an explicitly bounded local keyboard action on the authorized Mac", idempotencyKey: `connector:${command.id}:${route.operation}`, maxAttempts: 1 });
+    return { terminalState: "in_progress", completed: false, route, job: { id: job.id, status: job.status, action, deviceId: route.target_device, dispatchReceipt: job.dispatchReceipt }, productionMutation: false };
   }
   if (route.capability === "primary_mac.agent.maintenance") {
     const repo = clean(command.metadata?.repo || "/Users/mac/Georgie", 300);
