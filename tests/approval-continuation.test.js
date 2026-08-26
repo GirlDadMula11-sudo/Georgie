@@ -3,7 +3,15 @@ import assert from "node:assert/strict";
 import { deterministicToolPlan, latestDeterministicApprovalPlan } from "../src/fast-intents.js";
 import { isConversationalApproval, preflightExecution } from "../src/approval-continuation.js";
 import { sierraWorkflowDirectResponse } from "../src/sierra-workflow-summary.js";
-import { approvalDispatchPolicy } from "../src/tools.js";
+import { approvalDispatchPolicy, isApprovalDispatchTool } from "../src/tools.js";
+
+
+test("approval recovery dispatches only Mac tools and the exact governed developer reconciliation",()=>{
+  assert.equal(isApprovalDispatchTool("mac.browser_workflow"),true);
+  assert.equal(isApprovalDispatchTool("developer.snapshot_reconcile_restart_from_main"),true);
+  assert.equal(isApprovalDispatchTool("developer.repo_inspect"),false);
+  assert.equal(isApprovalDispatchTool("system.reconciliation_execute_bounded"),false);
+});
 
 test("approved plans dispatch immediately without two-second idle cloud polling",()=>{
   const policy=approvalDispatchPolicy();
