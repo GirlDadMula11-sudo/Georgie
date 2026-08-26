@@ -229,7 +229,7 @@ export async function executeTool({name,args,userId,policy="low_risk_write",work
 
 let approvalDispatchTimer=null,approvalDispatchBusy=false,approvalDispatchRequested=false;
 const APPROVAL_DISPATCH_RECOVERY_INTERVAL_MS=Math.max(30_000,Math.min(300_000,Number(process.env.GEORGIE_APPROVAL_DISPATCH_RECOVERY_MS||30_000)));
-export function approvalDispatchPolicy(){return{mode:"event_driven_with_recovery_sweep",approvalPath:"immediate",idleCloudPolling:false,recoveryIntervalMs:APPROVAL_DISPATCH_RECOVERY_INTERVAL_MS,coalesced:true,idempotent:true}}
+export function isApprovalDispatchTool(name=""){const tool=String(name||"");return tool.startsWith("mac.")||tool==="developer.snapshot_reconcile_restart_from_main"}\nexport function approvalDispatchPolicy(){return{mode:"event_driven_with_recovery_sweep",approvalPath:"immediate",idleCloudPolling:false,recoveryIntervalMs:APPROVAL_DISPATCH_RECOVERY_INTERVAL_MS,coalesced:true,idempotent:true}}
 async function runApprovalDispatchSweep(userId=process.env.GEORGIE_PRIMARY_USER_ID||"primary"){
   if(approvalDispatchBusy){approvalDispatchRequested=true;return{coalesced:true,dispatched:[]}}
   approvalDispatchBusy=true;const dispatched=[];
@@ -237,7 +237,7 @@ async function runApprovalDispatchSweep(userId=process.env.GEORGIE_PRIMARY_USER_
     do{
       approvalDispatchRequested=false;
       for(const plan of await listRecoverableApprovalDispatches(userId,{limit:10})){
-        const approvedTool=String(plan.execution?.tool||"");\n        if(!approvedTool.startsWith("mac.")&&approvedTool!=="developer.snapshot_reconcile_restart_from_main")continue;
+        const approvedTool=String(plan.execution?.tool||"");\n        if(!isApprovalDispatchTool(approvedTool))continue;
         const target=registry.get(plan.execution.tool);if(!target)continue;
         await recordApprovalDispatch(userId,plan.id,{status:"dispatching"});
         try{
