@@ -238,7 +238,8 @@ async function runApprovalDispatchSweep(userId=process.env.GEORGIE_PRIMARY_USER_
     do{
       approvalDispatchRequested=false;
       for(const plan of await listRecoverableApprovalDispatches(userId,{limit:10})){
-        const approvedTool=String(plan.execution?.tool||"");\n        if(!isApprovalDispatchTool(approvedTool))continue;
+        const approvedTool=String(plan.execution?.tool||"");
+        if(!isApprovalDispatchTool(approvedTool))continue;
         const target=registry.get(plan.execution.tool);if(!target)continue;
         await recordApprovalDispatch(userId,plan.id,{status:"dispatching"});
         try{
