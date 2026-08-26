@@ -25,7 +25,10 @@ if (!developerBlock.includes("authoritativeJob")) {
 
 const recoveringAnchor = 'if(result?.completed===false||["in_progress","working","recovering","queued","running"].includes(terminalState)){const receipt=await record(userId,command,"recovering",{...evidence,error:clean(result?.error||result?.exactBlocker||terminalState,1000)},claim);await transition(userId,command.operatingNodeId,{status:"recovering",recovery:"Resume this same command and lease checkpoint; do not create a duplicate.",nextAction:"Continue from the durable lease checkpoint."}).catch(()=>{});return{commandId:command.id,objectiveId:command.objectiveId,status:"recovering",result,receipt,lease:await readLease(userId,command.id)};}';
 const recoveringReplacement = 'if(result?.completed===false||["in_progress","working","recovering","queued","running"].includes(terminalState)){const receipt=await record(userId,command,"recovering",{...evidence,error:clean(result?.error||result?.exactBlocker||terminalState,1000)},claim);await transition(userId,command.operatingNodeId,{status:"recovering",recovery:"Resume this same command and lease checkpoint; do not create a duplicate.",nextAction:"Continue from the durable lease checkpoint."}).catch(()=>{});if(command.routing&&(result?.job||result?.jobs)){const requeue=()=>{if(!schedule(userId,command)){const retry=setTimeout(requeue,500);retry.unref?.();}};const timer=setTimeout(requeue,1000);timer.unref?.();}return{commandId:command.id,objectiveId:command.objectiveId,status:"recovering",result,receipt,lease:await readLease(userId,command.id)};}';
-if (!source.includes('const requeue=()=>{if(!schedule(userId,command))')) {
+const modernBoundedRecovery = source.includes("function scheduleRecovery(userId,command,lease)")
+  && source.includes('if(outcome?.status==="recovering")scheduleRecovery(userId,command,outcome.lease)')
+  && source.includes("boundedRecoveryMaxAttempts");
+if (!source.includes('const requeue=()=>{if(!schedule(userId,command))') && !modernBoundedRecovery) {
   if (!source.includes(recoveringAnchor)) throw new Error("TERMINAL_RECONCILIATION_RECOVERY_ANCHOR_NOT_FOUND");
   source = source.replace(recoveringAnchor, recoveringReplacement);
 }
@@ -37,19 +40,25 @@ if (!source.includes('liveManifestVerified:result?.liveManifestVerification?.ver
 }
 const statusAnchor = 'if(job)response.macJob=summarizeGovernedMacJob(job);response.packetManifests=await listMailboxPacketManifests(userId,{objectiveId:command.objectiveId,limit:25});';
 const statusReplacement = 'if(job){response.macJob=summarizeGovernedMacJob(job);if(["completed","failed","dead_letter"].includes(job.status)&&["accepted","running","recovering","failed"].includes(command.status)){schedule(userId,command);response.reconciliationScheduled=true;}}response.packetManifests=await listMailboxPacketManifests(userId,{objectiveId:command.objectiveId,limit:25});';
-if (!source.includes('response.reconciliationScheduled=true')) {
+if (!source.includes('response.reconciliationScheduled=true') && !modernBoundedRecovery) {
   if (!source.includes(statusAnchor)) throw new Error("TERMINAL_RECONCILIATION_STATUS_ANCHOR_NOT_FOUND");
   source = source.replace(statusAnchor, statusReplacement);
 }
 const resumeAnchor = 'async function resume(userId="primary"){const state=await read(userId),pending=state.commands.filter(row=>["accepted","running","recovering","failed"].includes(row.status)),scheduled=[];for(const command of pending){const lease=leaseFor(state,command.id);if(!activeLease(lease)||lease?.status==="queued"){schedule(userId,command);scheduled.push({commandId:command.id,objectiveId:command.objectiveId});}}return scheduled;}';
 const resumeReplacement = 'async function resume(userId="primary"){const state=await read(userId),jobs=await listMacJobs(userId,500),jobById=new Map(jobs.map(job=>[job.id,job])),nowMs=Date.now(),pending=state.commands.filter(row=>["accepted","running","recovering"].includes(row.status)).map(command=>{const child=jobById.get(clean(command.result?.job?.id||command.metadata?.existing_job_id||command.metadata?.existingJobId,200));const terminalChild=Boolean(child&&["completed","failed","dead_letter"].includes(child.status));const certificationGate=Boolean(command.metadata?.required_live_manifest||command.metadata?.requiredLiveManifest||String(command.command||"").includes("unified-georgie-runtime"));const updatedMs=Date.parse(command.updatedAt||command.createdAt||0)||0;return{command,terminalChild,certificationGate,updatedMs};}).filter(item=>item.certificationGate||item.terminalChild||nowMs-item.updatedMs<600000).sort((a,b)=>Number(b.certificationGate)-Number(a.certificationGate)||Number(b.terminalChild)-Number(a.terminalChild)||b.updatedMs-a.updatedMs).slice(0,12),scheduled=[];for(const item of pending){const command=item.command,lease=leaseFor(state,command.id);if(!activeLease(lease)||lease?.status==="queued"){schedule(userId,command);scheduled.push({commandId:command.id,objectiveId:command.objectiveId,terminalChild:item.terminalChild,certificationGate:item.certificationGate});}}return scheduled;}';
-if (!source.includes('certificationGate:item.certificationGate')) {
+if (!source.includes('certificationGate:item.certificationGate') && !modernBoundedRecovery) {
   if (!source.includes(resumeAnchor)) throw new Error("TERMINAL_RECONCILIATION_RESUME_ANCHOR_NOT_FOUND");
   source = source.replace(resumeAnchor, resumeReplacement);
 }
 fs.writeFileSync(target, source);
 const finalSource = fs.readFileSync(target, "utf8");
-for (const marker of [manifestImport, "authoritativeJob", "server_live_capability_manifest", "inspectionResultReturned", "liveManifestVerified", "response.reconciliationScheduled=true", "const requeue=()=>{if(!schedule(userId,command)", "item.certificationGate||item.terminalChild", "unified-georgie-runtime\\.v[a-z0-9]+(?:-[a-z0-9]+)*"]) if (!finalSource.includes(marker)) throw new Error(`TERMINAL_RECONCILIATION_VERIFICATION_FAILED:${marker}`);
+for (const marker of [manifestImport, "authoritativeJob", "server_live_capability_manifest", "inspectionResultReturned", "liveManifestVerified", "unified-georgie-runtime\\.v[a-z0-9]+(?:-[a-z0-9]+)*"]) if (!finalSource.includes(marker)) throw new Error(`TERMINAL_RECONCILIATION_VERIFICATION_FAILED:${marker}`);
+if (!modernBoundedRecovery) for (const marker of ["response.reconciliationScheduled=true", "item.certificationGate||item.terminalChild"]) if (!finalSource.includes(marker)) throw new Error(`TERMINAL_RECONCILIATION_VERIFICATION_FAILED:${marker}`);
+const finalRecoveryContract = finalSource.includes('const requeue=()=>{if(!schedule(userId,command)')
+  || (finalSource.includes("function scheduleRecovery(userId,command,lease)")
+    && finalSource.includes('if(outcome?.status==="recovering")scheduleRecovery(userId,command,outcome.lease)')
+    && finalSource.includes("boundedRecoveryMaxAttempts"));
+if (!finalRecoveryContract) throw new Error("TERMINAL_RECONCILIATION_RECOVERY_CONTRACT_MISSING");
 
 const portableTarget = path.join(root, "src", "portable-connector-mcp.js");
 let portable = fs.readFileSync(portableTarget, "utf8");

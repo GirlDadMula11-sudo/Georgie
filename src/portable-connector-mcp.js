@@ -108,7 +108,7 @@ export function createPortableMcpHandler({ connector, userId = "primary" } = {})
 }
 
 export function createPortableMcpRouter({ executeCommand, userId = "primary" } = {}) {
-  const router = express.Router(); const connector = createGovernedConnector({ executeCommand }); const handle = createPortableMcpHandler({ connector, userId });
+  const router = express.Router(); const connector = createGovernedConnector({ executeCommand }); const handle = createPortableMcpHandler({ connector, userId }); const resumePendingConnectorWork=()=>connector.resume(userId).catch(error=>console.error("[Georgie] connector recovery supervisor failed:",error instanceof Error?error.message:error)); setImmediate(resumePendingConnectorWork); const connectorRecoveryTimer=setInterval(resumePendingConnectorWork,45000); connectorRecoveryTimer.unref?.();
   router.use((req, res, next) => connectorTokenAuthorized(req.headers.authorization) || verifyConnectorAccessToken(req.headers.authorization) ? next() : res.status(401).set("WWW-Authenticate", `Bearer resource_metadata="${String(process.env.GEORGIE_PUBLIC_ORIGIN || "https://georgie.onrender.com").replace(/\/$/, "")}/.well-known/oauth-protected-resource/mcp"`).json({ jsonrpc: "2.0", id: req.body?.id ?? null, error: { code: -32001, message: "Georgie connector authentication required" } }));
   router.post("/", async (req, res) => { const result = await handle(req.body || {}); if (!result) return res.status(202).end(); res.set("Cache-Control", "no-store").json(result); });
   router.get("/", (_req, res) => res.status(405).set("Allow", "POST").json({ error: "Use MCP Streamable HTTP POST" }));
