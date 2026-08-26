@@ -16,6 +16,9 @@ if (!source.includes("connectorRecoveryTimer=setInterval")) {
 
 const governedTarget = path.join(root, "src", "governed-connector.js");
 let governed = fs.readFileSync(governedTarget, "utf8");
+const modernBoundedRecovery = governed.includes("function scheduleRecovery(userId,command,lease)")
+  && governed.includes('if(outcome?.status==="recovering")scheduleRecovery(userId,command,outcome.lease)')
+  && governed.includes("boundedRecoveryMaxAttempts");
 if (governed.includes('.slice(0,12),scheduled=[]')) governed = governed.replace('.slice(0,12),scheduled=[]', '.slice(0,2),scheduled=[]');
 else if (governed.includes('.slice(0,3),scheduled=[]')) governed = governed.replace('.slice(0,3),scheduled=[]', '.slice(0,2),scheduled=[]');
 
@@ -32,7 +35,10 @@ for (const marker of ["resumePendingConnectorWork", "connectorRecoveryTimer=setI
   if (!finalSource.includes(marker)) throw new Error(`CONNECTOR_RECOVERY_SUPERVISOR_VERIFY_FAILED:${marker}`);
 }
 const finalGoverned = fs.readFileSync(governedTarget, "utf8");
-for (const marker of ['.slice(0,2),scheduled=[]', 'const existingJobId = clean(command.result?.job?.id', 'const enqueuedJob = existingJob || await enqueueMacJob']) {
+const governedMarkers = ['const existingJobId = clean(command.result?.job?.id', 'const enqueuedJob = existingJob || await enqueueMacJob'];
+if (!modernBoundedRecovery) governedMarkers.unshift('.slice(0,2),scheduled=[]');
+for (const marker of governedMarkers) {
   if (!finalGoverned.includes(marker)) throw new Error(`CONNECTOR_RECOVERY_SUPERVISOR_GOVERNED_VERIFY_FAILED:${marker}`);
 }
-console.log("[Georgie] persistent connector recovery supervisor installed: batch=2 interval=45s completed-child-fast-path=true");
+if (modernBoundedRecovery && !finalGoverned.includes("boundedRecoveryMaxAttempts")) throw new Error("CONNECTOR_RECOVERY_SUPERVISOR_BOUNDED_RECOVERY_MISSING");
+console.log(`[Georgie] persistent connector recovery supervisor installed: batch=${modernBoundedRecovery ? "bounded" : "2"} interval=45s completed-child-fast-path=true`);
