@@ -476,7 +476,7 @@ test("governed Mac keyboard activation is exact-scope and maps only to existing 
   assert.match(source,/route\.operation === "type_text" \? "ui\.type_text" : "ui\.key"/);
   assert.match(source,/key: "return", modifiers: \[\]/);
   assert.match(source,/PRIMARY_MAC_UI_TEXT_REQUIRED/);
-  assert.match(source,/connector:\$\{command\.id\}:focus_terminal:spotlight/);
+  assert.match(source,/connector:\$\{command\.id\}:focus_terminal:\$\{item\.suffix\}/);
   assert.match(source,/key: "space", modifiers: \["command down"\]/);
   assert.match(source,/text: "Terminal"/);
   assert.match(source,/"wordpress\.publish"/);
