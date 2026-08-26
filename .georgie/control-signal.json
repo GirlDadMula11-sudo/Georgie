@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "issueNumber": 68,
-  "commentId": 5417610223,
-  "objectiveId": "SIERRA-SEO-AUTOPILOT-20260824-001",
-  "commandId": "cmd_seo_phase2_hash_read_tools_20260825_1818",
-  "idempotencyKey": "seo-phase2-hash-read-tools-20260825-v1",
-  "updatedAt": "2026-08-25T22:19:32.853Z",
-  "wakeSequence": 8
+  "issueNumber": 212,
+  "commentId": 5420508700,
+  "objectiveId": "SIERRA-SEO-PHASE2-20260826-001",
+  "commandId": "cmd_sierra_seo_phase2_homepage_positioning_repair_20260825_1327",
+  "idempotencyKey": "sierra-seo-phase2-complete-20260826-v2",
+  "updatedAt": "2026-08-26T04:16:30.000Z",
+  "wakeSequence": 9
 }
