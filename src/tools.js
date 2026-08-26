@@ -237,7 +237,7 @@ async function runApprovalDispatchSweep(userId=process.env.GEORGIE_PRIMARY_USER_
     do{
       approvalDispatchRequested=false;
       for(const plan of await listRecoverableApprovalDispatches(userId,{limit:10})){
-        if(!String(plan.execution?.tool||"").startsWith("mac."))continue;
+        const approvedTool=String(plan.execution?.tool||"");\n        if(!approvedTool.startsWith("mac.")&&approvedTool!=="developer.snapshot_reconcile_restart_from_main")continue;
         const target=registry.get(plan.execution.tool);if(!target)continue;
         await recordApprovalDispatch(userId,plan.id,{status:"dispatching"});
         try{
