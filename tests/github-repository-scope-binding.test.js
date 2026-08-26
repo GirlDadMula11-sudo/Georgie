@@ -33,3 +33,9 @@ test("GitHub certification fails closed on conflicting repository scopes", () =>
     /Conflicting GitHub repository scope/
   );
 });
+
+test("negated GitHub route constraints cannot trigger GitHub certification", () => {
+  const prompt = "ROUTE-LOCKED WordPress Hostinger cache purge. Do not call system.github or run GitHub certification. Use primary-mac and verify the public sitemap.";
+  const plan = deterministicToolPlan(prompt);
+  assert.equal(plan.some(action => String(action.tool).startsWith("github.")), false);
+});
