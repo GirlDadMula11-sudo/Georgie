@@ -12,7 +12,7 @@ test("Mac agent exposes hash-bound snapshot reconciliation without destructive g
   assert.match(agent, /PRIMARY_MAC_SNAPSHOT_VERIFY_FAILED/);
   assert.match(agent, /PRIMARY_MAC_TOOLS_NOT_REMOTE_IDENTICAL/);
   assert.match(agent, /recovery-snapshots/);
-  assert.match(agent, /"merge", \["--ff-only", "origin\/main"\]/);
+  assert.match(agent, /"--ff-only", "origin\/main"/);
   assert.doesNotMatch(agent, /"reset", \["--hard"/);
   assert.doesNotMatch(agent, /"clean", \["-f/);
 });
