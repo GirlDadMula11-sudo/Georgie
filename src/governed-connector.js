@@ -171,13 +171,7 @@ export function validateCommandEnvelope(input = {}) {
   if (typed) {
     const orchestration = orchestrateCapabilityRequest({ capability, targetDevice, operation, authority, prohibitedRoutes, command }, CAPABILITIES);
     capabilityOrchestration = orchestration.audit || { status: orchestration.status };
-    if (orchestration.status === "reformulated") {
-      capability = orchestration.route.capability;
-      targetDevice = orchestration.route.targetDevice;
-      operation = orchestration.route.operation;
-      authority = orchestration.route.authority;
-      prohibitedRoutes = orchestration.route.prohibitedRoutes || prohibitedRoutes;
-    } else if (orchestration.status === "unsupported" && orchestration.alternatives?.length) {
+    if (orchestration.status === "unsupported" && orchestration.alternatives?.length) {
       capabilityOrchestration = { ...capabilityOrchestration, alternatives: orchestration.alternatives };
     }
   }
@@ -185,7 +179,12 @@ export function validateCommandEnvelope(input = {}) {
   if (typed && (!capability || !targetDevice || !operation || !authority)) throw new Error("Typed command envelope requires capability, target_device, operation, and authority");
   if (typed) {
     const contract = CAPABILITIES[capability];
-    if (!contract) throw new Error(`UNSUPPORTED_CAPABILITY: ${capability}`);
+    if (!contract) {
+      if (/^(?:developer\.control_plane|developer\.engineering|engineering\.control_plane|developer\.operator_core)$/.test(capability)) {
+        throw new Error(`EXECUTION_CAPABILITY_UNAVAILABLE: ${capabilityOrchestration?.missingPrerequisite || `registered executor for ${capability}/${operation} on ${targetDevice} with ${authority} authority`}`);
+      }
+      throw new Error(`UNSUPPORTED_CAPABILITY: ${capability}`);
+    }
     if (targetDevice !== contract.targetDevice) throw new Error(`CAPABILITY_TARGET_MISMATCH: ${capability} requires ${contract.targetDevice}`);
     if (!contract.operations.has(operation)) throw new Error(`UNSUPPORTED_OPERATION: ${capability}/${operation}`);
     const requiredAuthority = contract.authorityByOperation?.[operation] || contract.authority;

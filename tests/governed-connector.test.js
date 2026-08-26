@@ -144,6 +144,16 @@ test("developer typed capabilities are exact, allowlisted, and approval separate
   assert.equal(validateCommandEnvelope(apply).routing.capability,"developer.patch_application");
 });
 
+test("unsupported engineering writes return one exact missing prerequisite", () => {
+  assert.throws(() => validateCommandEnvelope({
+    source:"openai",
+    objectiveId:"SIERRA-CORE-RESET-20260826",
+    idempotencyKey:"core-reset-write-1",
+    command:"Repair and deploy the Sierra execution kernel",
+    metadata:{capability:"developer.control_plane",target_device:"georgie-runtime",operation:"upgrade_core_operator",authority:"low-risk-reversible-engineering"}
+  }), /EXECUTION_CAPABILITY_UNAVAILABLE: registered executor for developer\.control_plane\/upgrade_core_operator on georgie-runtime with low-risk-reversible-engineering authority/);
+});
+
 
 
 test("developer file receipts expose hashes and capability facts without source text", () => {
