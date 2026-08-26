@@ -30,7 +30,9 @@ export function buildSeoPhase2Objective(input = {}) {
   const plan = compilePreservedSeoPhase2Command(input);
   assertSeoPhase2Predecessor(plan, input.completedCommandIds || []);
   const planHash = phase2PlanFingerprint(plan);
-  const stableKey = `seo-phase2:${plan.commandId}`;
+  // A compiled plan hash is part of durable identity. This prevents a blocked
+  // pre-repair checkpoint from resuming with stale pages or transformations.
+  const stableKey = `seo-phase2:${plan.commandId}:${planHash.slice(0, 16)}`;
   return Object.freeze({
     stableKey,
     title: `Sierra SEO Phase 2 — ${plan.batch}`,
