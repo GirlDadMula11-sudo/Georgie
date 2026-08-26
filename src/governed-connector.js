@@ -120,7 +120,7 @@ const CAPABILITIES = Object.freeze({
   "primary_mac.ui_keyboard": Object.freeze({
     targetDevice: "primary-mac",
     authority: "local_admin",
-    operations: new Set(["type_text", "press_return"]),
+    operations: new Set(["focus_terminal", "type_text", "press_return"]),
     prohibitedRoutes: new Set(["cm-100", "stale_continuation", "gmail", "apple_mail", "mailbox.read", "mailbox.write", "wordpress.publish"])
   }),
   "primary_mac.agent.maintenance": Object.freeze({
@@ -431,6 +431,19 @@ async function executeTypedCapability({ userId, command }) {
     return { terminalState: "in_progress", completed: false, route, job: { id: job.id, status: job.status, deviceId: route.target_device, action: job.action, authority: route.authority, dispatchReceipt: job.dispatchReceipt } };
   }
   if (route.capability === "primary_mac.ui_keyboard") {
+    if (route.operation === "focus_terminal") {
+      const sequence = [
+        { action: "ui.key", args: { key: "space", modifiers: ["command down"] }, suffix: "spotlight" },
+        { action: "ui.type_text", args: { text: "Terminal" }, suffix: "terminal" },
+        { action: "ui.key", args: { key: "return", modifiers: [] }, suffix: "open" }
+      ];
+      const jobs = [];
+      for (const item of sequence) {
+        const job = await enqueueMacJob({ userId, deviceId: route.target_device, action: item.action, args: item.args, risk: "sensitive_write", reason: "Focus the authorized Mac Terminal through an allowlisted keyboard sequence", idempotencyKey: `connector:${command.id}:focus_terminal:${item.suffix}`, maxAttempts: 1 });
+        jobs.push({ id: job.id, status: job.status, action: item.action, deviceId: route.target_device, dispatchReceipt: job.dispatchReceipt });
+      }
+      return { terminalState: "in_progress", completed: false, route, jobs, productionMutation: false };
+    }
     const action = route.operation === "type_text" ? "ui.type_text" : "ui.key";
     const args = route.operation === "type_text"
       ? { text: clean(command.metadata?.text, 10000) }
