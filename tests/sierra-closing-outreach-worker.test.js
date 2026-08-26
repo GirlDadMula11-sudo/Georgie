@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { evaluateClosingOutreachCandidate, executeClosingOutreachCandidate, runSierraClosingOutreachCycle } from "../src/sierra-closing-outreach-worker.js";
 
-const deal={reference_number:"SCA-100",legal_business_name:"Acme LLC",first_name:"Alex",client_email:"alex@example.com",stage_status:"offer_received"};
+const deal={reference_number:"SCA-100",legal_business_name:"Acme LLC",first_name:"Alex",client_email:"alex@example.com",stage_status:"offer_received",available_offers:1};
 const verified={offer_id:"offer-1",status:"verified",evidence_refs:["evidence-1"]};
 
 test("requires exact deal identity, client email, and evidence-backed verified offer",()=>{
