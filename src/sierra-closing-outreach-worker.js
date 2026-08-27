@@ -1,3 +1,4 @@
+import { specialistExecutionPermit } from "./resource-governor.js";
 import crypto from "crypto";
 import { neoMailConfigured, selectGeorgieCorrespondenceMailbox, sendMessage } from "./integrations/neo-mail.js";
 import { recordOutboundCorrespondence } from "./integrations/sierra-correspondence.js";
@@ -69,6 +70,6 @@ export async function runSierraClosingOutreachCycle({ userId=USER_ID,portfolio=g
 
 export function startSierraClosingOutreachWorker(){
   if(timer||!configured()){if(!configured())console.warn("Sierra closing outreach worker not started: runtime configuration missing or explicitly disabled");return timer;}
-  const schedule=(delay=POLL_MS)=>{timer=setTimeout(async()=>{if(running)return schedule();running=true;try{const result=await runSierraClosingOutreachCycle();if(result.sent)console.log("SIERRA_CLOSING_OUTREACH",JSON.stringify({sent:result.sent,inspected:result.inspected,portfolioSize:result.portfolioSize,completedAt:result.completedAt}));}catch(error){console.error("SIERRA_CLOSING_OUTREACH_CYCLE_FAILED",clean(error?.stack||error,1200));}finally{running=false;schedule();}},delay);timer.unref?.();};
+  const schedule=(delay=POLL_MS)=>{timer=setTimeout(async()=>{if(running)return schedule();const permit=specialistExecutionPermit("sierra-closing-outreach");if(!permit.allowed){console.warn("SIERRA_CLOSING_OUTREACH_CORE_PRESSURE",JSON.stringify({reason:permit.reason,retryAfterMs:permit.retryAfterMs}));return schedule(permit.retryAfterMs)}running=true;try{const result=await runSierraClosingOutreachCycle();if(result.sent)console.log("SIERRA_CLOSING_OUTREACH",JSON.stringify({sent:result.sent,inspected:result.inspected,portfolioSize:result.portfolioSize,completedAt:result.completedAt}));}catch(error){console.error("SIERRA_CLOSING_OUTREACH_CYCLE_FAILED",clean(error?.stack||error,1200));}finally{running=false;schedule();}},delay);timer.unref?.();};
   schedule(1_000);console.log(`Sierra verified-offer closing outreach worker online (${POLL_MS}ms) ${SIERRA_CLOSING_OUTREACH_CONTRACT}`);return timer;
 }
