@@ -1,4 +1,5 @@
 import { performance } from "node:perf_hooks";
+import { modelCostGovernorStatus } from "./model-cost-governor.js";
 const MAX_ACTIVE=Math.max(1,Number(process.env.GEORGIE_MODEL_MAX_CONCURRENCY||4));
 const MAX_QUEUED=Math.max(MAX_ACTIVE,Number(process.env.GEORGIE_MODEL_MAX_QUEUE||24));
 const QUEUE_TIMEOUT_MS=Math.max(1000,Number(process.env.GEORGIE_MODEL_QUEUE_TIMEOUT_MS||15000));
@@ -33,4 +34,4 @@ export function specialistExecutionPermit(lane="specialist",{utilization=null}={
   return{allowed:!reason,reason,retryAfterMs:reason?SPECIALIST_RETRY_MS:0,eventLoopUtilization:Number.isFinite(measured)?measured:0,activeModelRequests:active,queuedModelRequests:queue.length};
 }
 
-export function resourceGovernorStatus(){return{active,queued:queue.length,maxActive:MAX_ACTIVE,maxQueued:MAX_QUEUED,queueTimeoutMs:QUEUE_TIMEOUT_MS,saturated:active>=MAX_ACTIVE,specialistBudget:{maxEventLoopUtilization:SPECIALIST_MAX_UTILIZATION,retryMs:SPECIALIST_RETRY_MS,deferrals:Object.fromEntries(specialistDeferrals)}};}
+export function resourceGovernorStatus(){return{active,queued:queue.length,maxActive:MAX_ACTIVE,maxQueued:MAX_QUEUED,queueTimeoutMs:QUEUE_TIMEOUT_MS,saturated:active>=MAX_ACTIVE,modelCostBudget:modelCostGovernorStatus(),specialistBudget:{maxEventLoopUtilization:SPECIALIST_MAX_UTILIZATION,retryMs:SPECIALIST_RETRY_MS,deferrals:Object.fromEntries(specialistDeferrals)}};}

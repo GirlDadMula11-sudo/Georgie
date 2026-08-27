@@ -16,6 +16,8 @@ const requiredMarkers = new Map([
   ["src/memory.js", ["MEMORY_READ_TIMEOUT_MS", "durable_cloud_with_local_mirror", "foregroundReadBudgetMs", "durable local mirror retained"]],
   ["src/georgie.js", ["modelCreditBlock", "model_credits_exhausted", "credit-blocked-truthful-fallback", "Nothing is still running"]],
   ["src/reliability-fast-paths.js", ["deterministic-practical-guidance", "scheduled blocks", "ten-minute reset"]],
+  ["src/model-cost-governor.js", ["GEORGIE_MODEL_REQUESTS_PER_MINUTE", "GEORGIE_MODEL_REQUESTS_PER_DAY", "billingCircuitOpen", "blockedRequests"]],
+  ["src/resource-governor.js", ["modelCostBudget", "modelCostGovernorStatus"]],
   ["src/capability-manifest.js", ["runtimeAuthority", "sourceMutationDuringStartup: false", "specialistFailureIsolation: true", "coreFirstStartup: true"]],
   ["src/runtime-components.js", ["SPECIALIST_COMPONENT_IDS", "Georgie specialist isolated", 'component.plane === "core"', "scheduleRuntimePlane", "SPECIALIST_START_DELAY_MS"]],
   ["src/runtime.js", ['plane: "core"', 'scheduleRuntimePlane("web", "specialist")']],
