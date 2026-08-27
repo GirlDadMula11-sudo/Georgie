@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { startRuntimeProfile, validateRuntimeRegistry } from "../src/runtime-components.js";
+import { scheduleRuntimePlane, startRuntimeProfile, validateRuntimeRegistry } from "../src/runtime-components.js";
 
 const kernel = start => ({ id: "objective-worker", profiles: ["web"], role: "kernel", authority: "objective-lifecycle", plane: "core", start });
 const specialist = start => ({ id: "specialist-test", profiles: ["web"], role: "executor", authority: "specialist-test", plane: "specialist", start });
@@ -27,4 +27,21 @@ test("Phase 2 forbids specialist objective kernels", () => {
   const result = validateRuntimeRegistry(invalid);
   assert.equal(result.ok, false);
   assert.ok(result.errors.includes("specialist-kernel:objective-worker"));
+});
+
+test("Phase 2 schedules specialists only after core startup", () => {
+  const events = [];
+  const components = [kernel(() => events.push("core")), specialist(() => events.push("specialist"))];
+  const logger = { log(message) { events.push(message); }, warn() {} };
+  startRuntimeProfile("web", { components, plane: "core", logger });
+  let deferred = null;
+  const scheduled = scheduleRuntimePlane("web", "specialist", {
+    components, delayMs: 1500, logger,
+    schedule(fn, delay) { deferred = { fn, delay }; return { unref() {} }; }
+  });
+  assert.equal(scheduled.delayMs, 1500);
+  assert.equal(deferred.delay, 1500);
+  assert.equal(events.includes("specialist"), false);
+  deferred.fn();
+  assert.equal(events.includes("specialist"), true);
 });
