@@ -12,7 +12,8 @@ const requiredMarkers = new Map([
   ["mac-agent/agent.js", ["browser.wordpress_enable_application_passwords"]],
   ["src/governed-connector.js", ["failedActions=Array.isArray(result?.actions)", "||failedActions"]],
   ["src/fast-intents.js", ["georgieRuntimeSelfInspection", 'scope: "runtime_authority"']],
-  ["src/capability-manifest.js", ["runtimeAuthority", "sourceMutationDuringStartup: false"]],
+  ["src/capability-manifest.js", ["runtimeAuthority", "sourceMutationDuringStartup: false", "specialistFailureIsolation: true"]],
+  ["src/runtime-components.js", ["SPECIALIST_COMPONENT_IDS", "Georgie specialist isolated", 'component.plane === "core"']],
 ]);
 const syntaxFiles = [
   "src/runtime.js", "src/runtime-components.js", "src/server.js", "src/objective-worker.js",
