@@ -178,6 +178,7 @@ export function deterministicToolPlan(input = "") {
     && /\b(?:fix|repair|complete|finish|work(?:ing)? through|attack|stabili[sz]e|prioriti[sz]e|make sure|ensure|get)\b/.test(lower)
     && /\b(?:everything|entire|whole|all|pending|priorities|functioning|operating|as designed|end[- ]to[- ]end)\b/.test(lower);
   if (broadSierraExecution) return [
+    {tool:"system.reconciliation_execute_bounded",args:{scope:"broad_sierra_execution"}},
     {tool:"sierra.health",args:{}},
     {tool:"sierra.infrastructure",args:{}},
     {tool:"sierra.apply_inventory",args:{limit:100,status:"all"}},
