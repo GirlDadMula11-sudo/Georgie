@@ -14,6 +14,8 @@ const requiredMarkers = new Map([
   ["src/fast-intents.js", ["georgieRuntimeSelfInspection", 'scope: "runtime_authority"']],
   ["src/v2-turn-engine.js", ["deterministic-runtime-status", "Georgie runtime certification:", 'result?.tool==="system.status"', "unified-georgie-runtime-v1-local-inspection", "deterministic_local"]],
   ["src/memory.js", ["MEMORY_READ_TIMEOUT_MS", "durable_cloud_with_local_mirror", "foregroundReadBudgetMs", "durable local mirror retained"]],
+  ["src/georgie.js", ["modelCreditBlock", "model_credits_exhausted", "credit-blocked-truthful-fallback", "Nothing is still running"]],
+  ["src/reliability-fast-paths.js", ["deterministic-practical-guidance", "scheduled blocks", "ten-minute reset"]],
   ["src/capability-manifest.js", ["runtimeAuthority", "sourceMutationDuringStartup: false", "specialistFailureIsolation: true", "coreFirstStartup: true"]],
   ["src/runtime-components.js", ["SPECIALIST_COMPONENT_IDS", "Georgie specialist isolated", 'component.plane === "core"', "scheduleRuntimePlane", "SPECIALIST_START_DELAY_MS"]],
   ["src/runtime.js", ['plane: "core"', 'scheduleRuntimePlane("web", "specialist")']],
