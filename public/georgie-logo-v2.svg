@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">Georgie</title>
+  <desc id="description">An orbital G surrounding a protected compass core.</desc>
+  <defs>
+    <linearGradient id="gold" x1="78" y1="60" x2="420" y2="452" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f4dda1"/><stop offset=".48" stop-color="#d6ae55"/><stop offset="1" stop-color="#8d6526"/>
+    </linearGradient>
+    <linearGradient id="navy" x1="120" y1="88" x2="390" y2="430" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#163352"/><stop offset=".52" stop-color="#091827"/><stop offset="1" stop-color="#040b13"/>
+    </linearGradient>
+    <radialGradient id="core"><stop stop-color="#baf5ff"/><stop offset=".18" stop-color="#43d9f5"/><stop offset=".55" stop-color="#0c75a9"/><stop offset="1" stop-color="#06101c"/></radialGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <mask id="g-mask">
+      <rect width="512" height="512" fill="black"/>
+      <circle cx="250" cy="256" r="178" fill="white"/>
+      <circle cx="250" cy="256" r="105" fill="black"/>
+      <path d="M355 154h120v110H332z" fill="black"/>
+      <path d="M256 242h180v70H256z" fill="white"/>
+    </mask>
+  </defs>
+  <ellipse cx="256" cy="256" rx="226" ry="107" fill="none" stroke="url(#gold)" stroke-width="12" transform="rotate(-22 256 256)" opacity=".88"/>
+  <ellipse cx="256" cy="256" rx="213" ry="96" fill="none" stroke="#43d9f5" stroke-width="3" transform="rotate(-22 256 256)" opacity=".65" filter="url(#glow)"/>
+  <rect width="512" height="512" fill="url(#gold)" mask="url(#g-mask)"/>
+  <circle cx="250" cy="256" r="154" fill="none" stroke="url(#navy)" stroke-width="58" mask="url(#g-mask)"/>
+  <path d="M256 242h180v70H256z" fill="url(#gold)" mask="url(#g-mask)"/>
+  <path d="M279 251h139v50H279z" fill="url(#navy)"/>
+  <circle cx="256" cy="256" r="66" fill="#071321" stroke="url(#gold)" stroke-width="11"/>
+  <circle cx="256" cy="256" r="46" fill="url(#core)" stroke="#43d9f5" stroke-opacity=".55" stroke-width="3"/>
+  <path d="M256 178l13 65 65 13-65 13-13 65-13-65-65-13 65-13z" fill="url(#gold)"/>
+  <path d="M256 216l8 32 32 8-32 8-8 32-8-32-32-8 32-8z" fill="#d7faff" filter="url(#glow)"/>
+  <circle cx="69" cy="346" r="20" fill="#071321" stroke="url(#gold)" stroke-width="7"/>
+  <circle cx="69" cy="346" r="7" fill="#43d9f5" filter="url(#glow)"/>
+</svg>

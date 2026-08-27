@@ -3,48 +3,55 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#070708" />
+  <meta name="theme-color" content="#07101d" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Georgie" />
   <title>Georgie</title>
   <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="icon" href="/georgie-icon.svg" type="image/svg+xml" />
+  <link rel="icon" href="/georgie-logo-v2.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/styles.css" />
   <link rel="stylesheet" href="/sierra.css" />
   <link rel="stylesheet" href="/enrollment.css" />
   <link rel="stylesheet" href="/attachments.css" />
   <link rel="stylesheet" href="/workspace.css" />
+  <link rel="stylesheet" href="/georgie-v2.css" />
 </head>
 <body>
-  <section id="enrollmentGate" class="enrollment-gate" hidden><form id="enrollmentForm" class="enrollment-card"><img src="/georgie-icon.svg" alt="" /><h1>Activate Georgie</h1><p>Enter your one-time secure enrollment code. This connects only this device and can be revoked.</p><input id="enrollmentCode" autocomplete="one-time-code" placeholder="Enrollment code" required /><button type="submit">Activate this device</button><button id="recoveryCodeButton" type="button" class="secondary-action">Send recovery code</button><small id="enrollmentMessage">Your private Sierra information stays locked until activation.</small></form></section>
+  <section id="enrollmentGate" class="enrollment-gate" hidden><form id="enrollmentForm" class="enrollment-card"><img src="/georgie-logo-v2.svg" alt="" /><span class="eyebrow">PRIVATE EXECUTIVE OS</span><h1>Activate Georgie</h1><p>Enter your one-time secure enrollment code. This connects only this device and can be revoked.</p><input id="enrollmentCode" autocomplete="one-time-code" placeholder="Enrollment code" required /><button type="submit">Activate this device</button><button id="recoveryCodeButton" type="button" class="secondary-action">Send recovery code</button><small id="enrollmentMessage">Your private information stays locked until activation.</small></form></section>
   <main class="app-shell">
     <header class="topbar">
       <a class="icon-button menu-button" href="#workspaceDetails" aria-label="Open command center"><span></span><span></span><span></span></a>
-      <div class="brand"><strong>GEORGIE</strong><span>Your operating intelligence</span></div>
-      <div class="topbar-actions"><button id="notificationButton" class="micro-button" type="button" aria-label="Enable notifications">◇</button><button id="voiceOutputToggle" class="icon-button voice-output-toggle" type="button" aria-label="Toggle Georgie's voice" aria-pressed="true">◖</button></div>
+      <div class="brand"><img src="/georgie-logo-v2.svg" alt="" /><div><strong>GEORGIE</strong><span>Private executive intelligence</span></div></div>
+      <div class="topbar-actions"><span class="desktop-system-label">EXECUTIVE OS</span><button id="notificationButton" class="micro-button" type="button" aria-label="Enable notifications">◇</button><button id="voiceOutputToggle" class="icon-button voice-output-toggle" type="button" aria-label="Toggle Georgie's voice" aria-pressed="true">◖</button></div>
     </header>
 
-    <section class="identity-card compact-identity">
-      <div class="avatar-ring" aria-label="Georgie portrait">
-        <img src="/georgie-avatar.jpg?v=20260818" alt="Georgie, your personal AI assistant" style="width:100%;height:100%;display:block;border-radius:50%;object-fit:cover" />
-      </div>
-      <div class="identity-copy"><h1>Georgie</h1><div class="presence-row"><span id="presenceDot" class="presence-dot"></span><span id="presenceState" class="presence-state">Online</span></div></div>
-    </section>
-    <div class="operating-strip"><span class="live-pulse"></span><strong>Live continuity</strong><span id="continuityState">Restoring conversation</span></div>
-    <p id="status" class="status">Ready. Talk or type whenever you need me.</p>
+    <div class="workspace-layout">
+      <aside class="identity-rail">
+        <section class="identity-card compact-identity">
+          <div class="avatar-ring" aria-label="Georgie logo"><img src="/georgie-logo-v2.svg" alt="Georgie" /></div>
+          <div class="identity-copy"><span class="eyebrow">YOUR OPERATING INTELLIGENCE</span><h1>Georgie</h1><div class="presence-row"><span id="presenceDot" class="presence-dot"></span><span id="presenceState" class="presence-state">Online</span><span class="presence-divider"></span><span>Protected</span></div></div>
+        </section>
+        <div class="operating-strip"><span class="live-pulse"></span><div><strong>Live continuity</strong><span id="continuityState">Restoring conversation</span></div></div>
+        <p id="status" class="status">Ready. Talk or type whenever you need me.</p>
+        <div class="rail-capabilities" aria-label="Core capabilities"><span>Durable memory</span><span>Governed execution</span><span>Voice ready</span></div>
+        <a class="command-center-link" href="#workspaceDetails"><span>Open command center</span><strong>↗</strong></a>
+      </aside>
 
-    <section class="conversation" id="conversation" aria-live="polite"></section>
-    <section class="controls chat-composer">
-      <div id="attachmentTray" class="attachment-tray" aria-live="polite"></div>
-      <form id="textForm" class="text-form"><input id="attachmentInput" type="file" multiple hidden accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.rtf,.json,.jpg,.jpeg,.png,.webp,.gif" /><button id="attachmentButton" class="attachment-button" type="button" aria-label="Attach photos or documents">＋</button><input id="textInput" autocomplete="off" placeholder="Message Georgie…" aria-label="Message Georgie" /><button type="submit" aria-label="Send message">↑</button></form>
-      <button id="voiceButton" class="voice-button" type="button" aria-label="Talk to Georgie"><span class="wave">▥</span><span class="voice-core">●</span><span id="voiceLabel">HOLD TO TALK</span><span class="wave">▥</span></button>
-      <div class="handsfree-panel"><div><strong>Hands-free</strong><span>Say “Georgie” to wake me</span></div><button id="handsFreeToggle" class="mode-toggle" type="button" role="switch" aria-checked="false"><span class="toggle-knob"></span></button></div>
-      <p class="privacy-note"><span id="voiceOutputState">Voice on</span> • full conversation preserved • full response on screen</p>
-    </section>
+      <section class="conversation-panel">
+        <div class="conversation-head"><div><span class="eyebrow">PRIVATE WORKSPACE</span><h2>What are we attacking?</h2></div><span class="encrypted-badge">● SECURE</span></div>
+        <section class="conversation" id="conversation" aria-live="polite"></section>
+        <section class="controls chat-composer">
+          <div id="attachmentTray" class="attachment-tray" aria-live="polite"></div>
+          <form id="textForm" class="text-form"><input id="attachmentInput" type="file" multiple hidden accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.rtf,.json,.jpg,.jpeg,.png,.webp,.gif" /><button id="attachmentButton" class="attachment-button" type="button" aria-label="Attach photos or documents">＋</button><input id="textInput" autocomplete="off" placeholder="Message Georgie…" aria-label="Message Georgie" /><button type="submit" aria-label="Send message">↑</button></form>
+          <div class="voice-row"><button id="voiceButton" class="voice-button" type="button" aria-label="Talk to Georgie"><span class="wave">▥</span><span class="voice-core">●</span><span id="voiceLabel">HOLD TO TALK</span><span class="wave">▥</span></button><div class="handsfree-panel"><div><strong>Hands-free</strong><span>Say “Georgie”</span></div><button id="handsFreeToggle" class="mode-toggle" type="button" role="switch" aria-checked="false"><span class="toggle-knob"></span></button></div></div>
+          <p class="privacy-note"><span id="voiceOutputState">Voice on</span> • conversation preserved • evidence-backed execution</p>
+        </section>
+      </section>
+    </div>
 
     <details id="workspaceDetails" class="workspace-details">
-      <summary>Command Center &amp; Connected Systems</summary>
+      <summary><span><small>OPERATIONS</small>Command Center &amp; Connected Systems</span><strong>Open workspace</strong></summary>
       <section class="capability-grid" aria-label="Georgie capabilities">
         <article><span class="cap-icon">◉</span><strong>Memory</strong><small>Active</small></article>
         <article><span class="cap-icon">✓</span><strong>Tasks</strong><small>Ready</small></article>

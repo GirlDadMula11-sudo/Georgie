@@ -1,13 +1,12 @@
 {
-  "name": "Georgie Personal Assistant",
+  "name": "Georgie Executive Intelligence",
   "short_name": "Georgie",
-  "description": "Voice-first personal AI assistant",
+  "description": "Private executive intelligence with durable memory and governed execution",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#070709",
-  "theme_color": "#0b0b0d",
-  "orientation": "portrait-primary",
+  "background_color": "#06101c",
+  "theme_color": "#07101d",
   "icons": [
-    { "src": "/georgie-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+    { "src": "/georgie-logo-v2.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
   ]
 }
