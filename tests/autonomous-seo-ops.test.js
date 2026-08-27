@@ -3,15 +3,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { seoIntegrationStatus, websiteControlStatus, sameWebsiteHost } from "../src/integrations/seo-ops.js";
 import { objectiveWorkerStatus } from "../src/objective-worker.js";
+import { componentsForProfile } from "../src/runtime-components.js";
 
 test("production start uses unified durable runtime", () => {
   const pkg=JSON.parse(fs.readFileSync(new URL("../package.json",import.meta.url),"utf8"));
   assert.match(pkg.scripts.start,/node src\/runtime\.js$/);
-  const runtime=fs.readFileSync(new URL("../src/runtime.js",import.meta.url),"utf8");
-  assert.match(runtime,/startObjectiveWorker\(\)/);
-  assert.match(runtime,/startEngineeringCoordinator\(\)/);
-  assert.match(runtime,/startReconciliationWorkers\(\)/);
-  assert.match(runtime,/startBackgroundOperatingLayer\(\)/);
+  const componentIds=new Set(componentsForProfile("web").map(component=>component.id));
+  for(const id of ["objective-worker","engineering-coordinator","reconciliation","background-operating-layer"]) assert.ok(componentIds.has(id));
 });
 
 test("durable objective worker advertises restart recovery and approval awareness", () => {
@@ -45,7 +43,6 @@ test("SEO tool installer is present in both prestart and check", () => {
   assert.match(pkg.scripts.prestart,/install-autonomous-seo-ops\.mjs/);
   assert.match(pkg.scripts.check,/install-autonomous-seo-ops\.mjs/);
 });
-
 
 test("SEO host guard treats Sierra www and apex as the same controlled site", () => {
   assert.equal(sameWebsiteHost("https://www.sierramarketinginc.com/path", "https://sierramarketinginc.com/"), true);
