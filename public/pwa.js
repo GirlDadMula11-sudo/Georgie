@@ -10,15 +10,21 @@ if ("serviceWorker" in navigator) {
 }
 
 let deferredInstallPrompt = null;
+const installButton = document.querySelector("#installButton");
+function syncInstallButton() {
+  if (installButton) installButton.hidden = !deferredInstallPrompt || window.matchMedia("(display-mode: standalone)").matches;
+}
 window.addEventListener("beforeinstallprompt", (event) => {
   event.preventDefault();
   deferredInstallPrompt = event;
   document.documentElement.dataset.installable = "true";
+  syncInstallButton();
 });
 
 window.addEventListener("appinstalled", () => {
   deferredInstallPrompt = null;
   document.documentElement.dataset.installable = "false";
+  syncInstallButton();
 });
 
 export async function installGeorgie() {
@@ -26,5 +32,9 @@ export async function installGeorgie() {
   deferredInstallPrompt.prompt();
   await deferredInstallPrompt.userChoice;
   deferredInstallPrompt = null;
+  syncInstallButton();
   return true;
 }
+
+installButton?.addEventListener("click", installGeorgie);
+syncInstallButton();
