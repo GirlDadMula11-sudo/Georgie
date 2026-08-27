@@ -202,6 +202,10 @@ export function deterministicToolPlan(input = "") {
     && /\b(?:georgie|repo|repository|codebase|architecture)\b/.test(lower)
     && /\b(?:reliability|silent|working|tool|continuity|completion|failure|weakness|crash)\b/.test(lower);
   if (explicitDeveloperSourceSearch) return [{tool:"developer.search",args:{repo:null,query:"completeTurnV2|respond/stream|sendTextTurn|isBusy|appendSessionTurn|executePlannedActions|verifiedDirectResponse|planActions|queueMacAndWait|recordTurnEvaluation|restoreSession|backgroundLearn"}}];
+  const georgieRuntimeSelfInspection = /\b(?:georgie(?:'s)?|canonical runtime|runtime registry|startup authority|objective lifecycle kernel)\b/.test(lower)
+    && /\b(?:self[- ]inspection|inspect|verify|certif(?:y|ication)|status|currently deployed)\b/.test(lower)
+    && /\b(?:runtime|startup|component|registry|kernel|source mutation|emergency neo|durable neo|idempotent|degraded dependencies?)\b/.test(lower);
+  if (georgieRuntimeSelfInspection) return [{ tool: "system.status", args: { scope: "runtime_authority" } }];
   const continuationTarget=investigationTargetFrom(text);
   if(/\b(?:continue|resume|pick up)\b/.test(lower)&&/\b(?:investigation|diagnosis|inspection|evidence)\b/.test(lower)&&continuationTarget)return [{tool:"sierra.continue_diagnostic_investigation",args:{reference:continuationTarget,scope:"deal_continuation",freshnessMs:300000}}];
   if (/\b(?:inspect|review|check)\b/.test(lower) && /\b(?:repo|repository|codebase|working tree|git status)\b/.test(lower)) return [{tool:"developer.repo_inspect",args:{repo:null}}];
