@@ -2,6 +2,40 @@ import { dayTradingCapabilityContract } from "./day-trading-intelligence.js";
 
 const INVESTMENT = /\b(stock(?:s)?|equity|equities|crypto(?:currency)?|bitcoin|btc|ethereum|eth|token|blockchain|etf|bond|treasury|fixed income|commodity|gold|oil|forex|currency|option(?:s)?|future(?:s)?|portfolio|brokerage|dividend|earnings|valuation|market cap|short interest|sec filing|10-[kq]|8-k|yield curve|investment|investing|trade|trading)\b/i;
 export function isInvestmentIntent(input = "") { return INVESTMENT.test(String(input || "")); }
+export function investmentDirectResponse(input = "", history = []) {
+  if (!isInvestmentIntent(input) && !/\b(?:automate|autopilot|control it all|control everything|run it all|do it all)\b/i.test(String(input||""))) return null;
+  const text = String(input || "").toLowerCase();
+  const recent = Array.isArray(history) ? history.slice(-8).map(item=>String(item?.content||"")).join(" ").toLowerCase() : "";
+  const combined = text + " " + recent;
+  const asksDayTrading = /\bday\s*trad(?:e|ing)\b/.test(text);
+  const asksToManage = /\b(?:can|could|would|will)\s+you\s+(?:manage|handle|invest|trade|build|run)\b/.test(text) || /\bmanage\s+my\s+(?:stocks?|portfolio|investments?)\b/.test(text);
+  const asksAutonomy = /\b(?:automate|autopilot|control it all|control everything|run it all|do it all|take over)\b/.test(text) && /\b(?:you|through you|for me|trading|trade|stocks?|portfolio|invest)\b/.test(combined);
+  if (!asksToManage && !asksDayTrading && !asksAutonomy) return null;
+  const match = combined.match(/\$\s?(\d+(?:,\d{3})*(?:\.\d{1,2})?)/);
+  const budget = match?.[1]?.replace(/,/g, "") || null;
+  if (asksAutonomy) {
+    return {
+      text: "I can automate almost the entire trading workflow for you: screening, research, watchlists, risk rules, position sizing, entry/exit logic, alerts, paper trading, portfolio monitoring, trade journaling, and exact order preparation. What I will not do is place real-money trades or move funds completely on my own. The strongest setup is near-autopilot: I do the analysis and prepare the exact live order, then you approve or reject that specific trade. After approval, the system can execute only that approved order and verify the result. " + (budget ? "With your $" + budget + " account, I would keep risk especially tight and make the approval step fast and simple." : "For a small account, I would keep risk especially tight and make the approval step fast and simple."),
+      responseId:null, webSearches:0, model:"deterministic-investment-authority", completed:true, terminalState:"verified",
+      route:{domain:"investment",tier:"fast",reasoningEffort:"low",latencyClass:"instant"}
+    };
+  }
+  if (asksDayTrading) {
+    const accountText = budget ? "With a $" + budget + " account, " : "With a small account, ";
+    return {
+      text: "Day trading is something I can help you analyze and manage as a disciplined strategy, but " + accountText + "I would treat it as a tightly controlled experiment rather than the core plan. I can screen liquid setups, define entries, exits, stop levels, position size, maximum daily loss, and keep a trade journal, then tell you when the setup no longer has an edge. I will not place real trades on my own; each live order still needs your specific approval. The biggest risks at this size are overtrading, spreads/fees, concentration, and trying to force daily profits. If you want, I can build a $" + (budget || "200") + " day-trading ruleset and a separate longer-term allocation so the two do not contaminate each other.",
+      responseId:null, webSearches:0, model:"deterministic-investment-capability", completed:true, terminalState:"verified",
+      route:{domain:"investment",tier:"fast",reasoningEffort:"low",latencyClass:"instant"}
+    };
+  }
+  const budgetText = budget ? "With $" + budget + ", I can build a disciplined starter plan around position sizing, diversification, downside limits, fees, and what each position is supposed to accomplish. " : "I can build and manage the research, allocation plan, risk rules, watchlist, and decision process. ";
+  return {
+    text: "Yes — I can manage the intelligence and decision process around your stocks at a very high level. " + budgetText + "I can research current opportunities, compare bull/base/bear cases, track the portfolio, tell you when the thesis changes, and prepare exact trades for your approval. I will not place real trades or move money on my own; each real transaction still needs your specific approval. For a small account, I’d focus on avoiding overtrading and concentration before chasing returns. If you want, give me your time horizon and how much of that money you could tolerate losing, and I’ll build the first allocation.",
+    responseId:null, webSearches:0, model:"deterministic-investment-capability", completed:true, terminalState:"verified",
+    route:{domain:"investment",tier:"fast",reasoningEffort:"low",latencyClass:"instant"}
+  };
+}
+
 export function investmentRuntimePrompt(input = "") {
   if (!isInvestmentIntent(input)) return "";
   const dayTrading = /\b(day\s*trad(?:e|ing)|scalp(?:ing)?|intraday|opening range|vwap)\b/i.test(String(input||""));

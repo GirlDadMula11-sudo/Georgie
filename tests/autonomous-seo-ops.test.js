@@ -38,9 +38,9 @@ test("installer registers objective, analytics, crawler, indexing, synthetic and
   for(const name of ["system.objective_schedule","system.objective_list","seo.search_console","seo.ga4","seo.crawl","seo.pagespeed","seo.sitemap_submit","seo.indexnow","seo.record_attribution","seo.application_funnel","seo.experiment_record","seo.funded_outcomes","seo.evidence_record","seo.synthetic_conversion"]) assert.match(source,new RegExp(name.replaceAll(".","\\.")));
 });
 
-test("SEO tool installer is present in both prestart and check", () => {
+test("production verifies materialized SEO tools while maintenance retains installer", () => {
   const pkg=JSON.parse(fs.readFileSync(new URL("../package.json",import.meta.url),"utf8"));
-  assert.match(pkg.scripts.prestart,/install-autonomous-seo-ops\.mjs/);
+  assert.match(pkg.scripts.prestart,/verify-runtime-baseline\.mjs/);
   assert.match(pkg.scripts.check,/install-autonomous-seo-ops\.mjs/);
 });
 

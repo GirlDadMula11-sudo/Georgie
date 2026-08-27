@@ -6,6 +6,13 @@ function referenceFrom(text = "") {
   return explicit ? explicit[1] : null;
 }
 
+function githubRepositoryScopeFrom(text="") {
+  const matches=[...String(text).matchAll(/\b([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\b/g)].map(match=>match[1]);
+  const repositories=[...new Set(matches.filter(value=>value.includes("-")||/github|sierra|georgie/i.test(value)))];
+  if(repositories.length>1) throw new Error(`Conflicting GitHub repository scope: ${repositories.join(", ")}`);
+  return repositories[0]||null;
+}
+
 function investigationTargetFrom(text=""){
   const reference=referenceFrom(text);if(reference)return reference;
   const quoted=String(text).match(/[“"]([^”"]{2,80})[”"]/);if(quoted)return quoted[1].trim();
@@ -87,10 +94,42 @@ function snapshotReconcileApprovalPlan(text = "") {
   };
 }
 
+
+function parseExplicitVercelMemberInvite(text = "") {
+  const raw=String(text||"").trim();
+  if(!/\bvercel\b/i.test(raw)||!/\b(?:invite|add)\b/i.test(raw)||!/\bdeveloper\b/i.test(raw))return null;
+  const email=(raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)||[])[0];
+  if(!email)return null;
+  const explicitlyApproved=/\b(?:i approve|i authorize|you have my approval|this is my approval|approved to (?:invite|add)|treat [^.]{0,140} authorization [^.]{0,100} as approval)\b/i.test(raw);
+  return{email,role:"DEVELOPER",explicitlyApproved};
+}
+function vercelMemberInvitePlan({email,role="DEVELOPER"}={}){
+  return{title:"Invite approved Vercel developer",summary:"Invite the exact approved email to the configured Vercel team as Developer, then independently verify the provider member record and assigned role.",steps:["Invite the exact email through the governed Vercel team-member endpoint","Read the provider team-member list and verify the exact email and Developer role"],domain:"technical",risk:"high",reversible:true,verificationMethod:"Read Vercel team members from the provider and match the exact email and role.",rollbackPlan:"Do not remove the member automatically. Any later removal requires a separate explicit approval.",execution:{tool:"infrastructure_admin.vercel_team_member_invite",args:{email,role},expect:{ok:true,action:"vercel.team.member.invite"},verification:[{tool:"infrastructure_admin.vercel_team_member_verify",args:{email,role},expect:{verified:true,email,role}}]}};
+}
+
 export function deterministicToolPlan(input = "") {
   const text = String(input || "").trim();
   const lower = text.toLowerCase();
   if (!text) return [];
+  const vercelMemberInvite = parseExplicitVercelMemberInvite(text);
+  if(vercelMemberInvite){
+    const plan=vercelMemberInvitePlan(vercelMemberInvite);
+    if(vercelMemberInvite.explicitlyApproved)return[{tool:"approvals.prepare_plan",args:plan},{tool:"approvals.continue_latest",args:{utterance:"execute the plan now, you have my approval"}}];
+    return[{tool:"approvals.prepare_plan",args:plan}];
+  }
+  const githubReadOnlyCertification = /\b(?:read[- ]only|connector|source)\b/.test(lower) && /\bcertif(?:y|ication)\b/.test(lower) && /\bgithub\b/.test(lower);
+  if (githubReadOnlyCertification) {
+    const repository=githubRepositoryScopeFrom(text);
+    if(!repository) throw new Error("GitHub certification requires one explicit owner/name repository scope");
+    return [
+      {tool:"github.repository.list",args:{repository}},
+      {tool:"github.repository.get",args:{repository}},
+      {tool:"github.branch.list",args:{repository}},
+      {tool:"github.branch.get",args:{repository,branch:"main"}},
+      {tool:"github.file.read",args:{repository,path:"package.json",ref:"main"}},
+      {tool:"github.source.search",args:{repository,query:"referrals"}}
+    ];
+  }
   const explicitDeveloperFileRead = /\bdeveloper\.file_read\b/i.test(text);
   if (explicitDeveloperFileRead) {
     const repoMatch = text.match(/\brepo\s*[:=]\s*([^\s,;]+)/i);
@@ -155,7 +194,14 @@ export function deterministicToolPlan(input = "") {
     {tool:"sierra.audit_events",args:{reference:null,limit:100}}
   ];
   if (/\b(?:inspect|show|identify|diagnose|explain|list)\b/.test(lower) && /\bguarded\b/.test(lower) && /\b(?:lender[- ]activity|evidence)\b/.test(lower) && /\bconflicts?\b/.test(lower)) return [{tool:"sierra.guarded_conflict_intelligence",args:{reference:referenceFrom(text),limit:50}}];
-  if (/\b(?:analy[sz]e|audit|diagnose|review|inspect)\b/.test(lower) && /\b(?:georgie|repo|repository|codebase|architecture)\b/.test(lower) && /\b(?:reliability|silent|working|tool|continuity|completion|failure|weakness|crash)\b/.test(lower)) return [{tool:"developer.search",args:{repo:null,query:"completeTurnV2|respond/stream|sendTextTurn|isBusy|appendSessionTurn|executePlannedActions|verifiedDirectResponse|planActions|queueMacAndWait|recordTurnEvaluation|restoreSession|backgroundLearn"}}];
+  // Operator-core upgrade: only take the deterministic developer.search shortcut when the
+  // user explicitly asks to search/inspect source. Broad requests to repair, strengthen,
+  // upgrade, sophisticate, or improve Georgie must reach the normal planner so it can
+  // decompose the objective, select multiple tools, verify work, recover, and continue.
+  const explicitDeveloperSourceSearch = /\b(?:search|grep|find|locate|inspect source|inspect code|search source|search code)\b/.test(lower)
+    && /\b(?:georgie|repo|repository|codebase|architecture)\b/.test(lower)
+    && /\b(?:reliability|silent|working|tool|continuity|completion|failure|weakness|crash)\b/.test(lower);
+  if (explicitDeveloperSourceSearch) return [{tool:"developer.search",args:{repo:null,query:"completeTurnV2|respond/stream|sendTextTurn|isBusy|appendSessionTurn|executePlannedActions|verifiedDirectResponse|planActions|queueMacAndWait|recordTurnEvaluation|restoreSession|backgroundLearn"}}];
   const continuationTarget=investigationTargetFrom(text);
   if(/\b(?:continue|resume|pick up)\b/.test(lower)&&/\b(?:investigation|diagnosis|inspection|evidence)\b/.test(lower)&&continuationTarget)return [{tool:"sierra.continue_diagnostic_investigation",args:{reference:continuationTarget,scope:"deal_continuation",freshnessMs:300000}}];
   if (/\b(?:inspect|review|check)\b/.test(lower) && /\b(?:repo|repository|codebase|working tree|git status)\b/.test(lower)) return [{tool:"developer.repo_inspect",args:{repo:null}}];

@@ -12,6 +12,11 @@ import { resourceGovernorStatus } from "./resource-governor.js";
 import { listDomainPacks } from "./domain-packs.js";
 import { investmentCapabilityContract } from "./investment-intelligence.js";
 import { masterCloserContract } from "./master-closer.js";
+import { seoContentPipelineContract } from "./seo-content-pipeline.js";
+import { deploymentControlStatus } from "./integrations/deployment-control.js";
+import { seoIntegrationStatus, websiteControlStatus } from "./integrations/seo-ops.js";
+import { objectiveWorkerStatus } from "./objective-worker.js";
+import { githubEngineeringStatus } from "./integrations/github-engineering.js";
 
 function configured(value) {
   return value ? "configured" : "not_configured";
@@ -38,7 +43,7 @@ export function getCapabilityManifest() {
       rawCredentialsExposedToModel: false
     },
     sessionRuntime: {
-      unifiedOperatingRuntime: "unified-georgie-runtime.v1",
+      unifiedOperatingRuntime: "unified-georgie-runtime.v2-control-plane",
       operatingLoop: ["understand", "plan", "act", "verify", "recover", "report", "learn"],
       persistentToolRouter: true,
       toolsAttachedToEveryTurn: true,
@@ -125,6 +130,18 @@ export function getCapabilityManifest() {
       completionRequires: ["provider_receipt", "crm_readback", "document_readback", "internal_notification_readback"],
       retryOnIncompleteVerification: true
     },
+    autonomousObjectiveWorker: objectiveWorkerStatus(),
+    governedGitHubEngineering: githubEngineeringStatus(),
+    seoOperations: {
+      ...seoIntegrationStatus(),
+      websiteControl: websiteControlStatus(),
+      capabilities: ["search_console_performance","url_inspection","ga4_reporting","technical_crawl","pagespeed_lighthouse","core_web_vitals","sitemap_submission","indexnow","organic_attribution","application_funnel","seo_experiments","funded_outcome_aggregation","synthetic_conversion","durable_evidence_ledger"],
+      productionPromotionGoverned: true,
+      syntheticRecordsExcludedFromLearning: true,
+      borrowerPiiInSeoAnalytics: false
+    },
+    seoContentProduction: seoContentPipelineContract(),
+    deploymentControl: deploymentControlStatus(),
     investmentIntelligence: investmentCapabilityContract(),
     connections: {
       neoMail: {

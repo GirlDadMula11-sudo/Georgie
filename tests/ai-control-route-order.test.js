@@ -5,7 +5,7 @@ import fs from "node:fs";
 const pkg=JSON.parse(fs.readFileSync(new URL("../package.json",import.meta.url),"utf8"));
 const repair=fs.readFileSync(new URL("../scripts/repair-server-tail.mjs",import.meta.url),"utf8");
 
-for(const scriptName of ["prestart","dev","check"]){
+for(const scriptName of ["check"]){
   test(`${scriptName} installs AI-control routes after server-tail normalization`,()=>{
     const script=String(pkg.scripts?.[scriptName]||"");
     const repairIndex=script.indexOf("scripts/repair-server-tail.mjs");
@@ -13,6 +13,14 @@ for(const scriptName of ["prestart","dev","check"]){
     assert.notEqual(repairIndex,-1,`${scriptName} must run server-tail normalization`);
     assert.notEqual(relayIndex,-1,`${scriptName} must install the receipt relay`);
     assert.ok(repairIndex<relayIndex,`${scriptName} must install receipt/inbound routes after tail normalization so later source slicing cannot remove them`);
+  });
+}
+
+for(const scriptName of ["prestart","dev"]){
+  test(`${scriptName} verifies materialized AI-control routes without source mutation`,()=>{
+    const script=String(pkg.scripts?.[scriptName]||"");
+    assert.match(script,/verify-runtime-baseline\.mjs/);
+    assert.doesNotMatch(script,/install-|repair-/);
   });
 }
 

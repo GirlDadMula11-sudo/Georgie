@@ -36,7 +36,7 @@ async function queueAIControlReceipt(userId,item,envelope,{status,summary,eviden
   return{callback:updated||callback,delivery};
 }
 async function flushAIControlReceiptOutbox(userId,{limit=5}={}){
-  const pending=await listPendingCallbacks(userId,{deliveryMode:"github_ai_control",limit}),results=[];
+  const pending=(await listPendingCallbacks(userId,{deliveryMode:"github_ai_control",limit})).filter(callback=>!/Resource not accessible by personal access token|permission_denied|GitHub request failed \(403\)/i.test(String(callback?.lastDeliveryError||""))),results=[];
   for(const callback of pending){
     const metadata=callback.metadata||{};
     if(!metadata.repository||!metadata.issueNumber||!metadata.commandId){const error="AI-control callback is missing durable GitHub routing metadata.";const updated=await recordCallbackDelivery(userId,{callbackId:callback.id,delivered:false,error,receipt:{ok:false,readBackConfirmed:false,attempts:1,errors:[error]}});results.push({callbackId:callback.id,delivered:false,error,exhausted:Boolean(updated?.deliveryExhausted)});continue;}

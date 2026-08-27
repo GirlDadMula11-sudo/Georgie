@@ -86,6 +86,7 @@ function createExecutionPanel(item, startedAt) {
   const panel=document.createElement("details");
   panel.className="execution-panel";
   panel.open=true;
+  panel.hidden=true;
   panel.innerHTML='<summary><span class="execution-signal"></span><strong>Georgie is working</strong><time>0.0s</time></summary><div class="execution-steps"></div><div class="execution-receipt"></div>';
   item.append(panel);
   panel._startedAt=startedAt;
@@ -108,6 +109,9 @@ function executionStep(panel,key,label,state="running"){
 function updateExecutionPanel(panel,event){
   if(!panel||!event)return;
   const stage=event.stage||event.type;
+  const operational=Boolean(event.tool)||["plan_ready","tool_running","tool_complete","verification","repair_plan","planning_failed","plan_recovered"].includes(stage);
+  if(operational)panel.hidden=false;
+  if(stage==="heartbeat"&&panel.hidden)return;
   const key=event.tool?`tool:${event.tool}`:`stage:${stage}`;
   if(stage==="accepted")executionStep(panel,key,"Request accepted","done");
   else if(stage==="plan_ready")executionStep(panel,key,event.message||"Governed plan ready","done");
@@ -117,7 +121,7 @@ function updateExecutionPanel(panel,event){
   else if(stage==="verification")executionStep(panel,key,event.message||"Verifying outcome",event.ok===false?"failed":"running");
   else if(stage==="plan_recovered")executionStep(panel,key,event.message||"Repair plan recovered","done");
   else if(stage==="planning_failed")executionStep(panel,key,event.message||"Planning failed","failed");
-  else if(stage==="heartbeat")executionStep(panel,"stage:heartbeat",event.message||"Still working — durable connection active","running");
+  else if(stage==="heartbeat")executionStep(panel,"stage:heartbeat",event.message||"Still working on this.","running");
 }
 
 async function recoverDurableTurn(requestId,{attempts=45,delayMs=1500}={}){
@@ -155,7 +159,7 @@ function finishExecutionPanel(panel,payload,{failed=false}={}){
   const receipt=panel.querySelector(".execution-receipt");
   if(receipt){
     const evidence=Number(payload?.evidence?.length||0);
-    receipt.textContent=terminalState==="completed"?(actions.length?`${actions.length} tool${actions.length===1?"":"s"} · ${evidence} evidence source${evidence===1?"":"s"} · terminal outcome recorded`:"No tools required."):terminalState==="in_progress"?"Work started; completion awaits terminal business evidence.":terminalState==="retained"?"Work retained for recovery; no completion was claimed.":"No completion was claimed.";
+    receipt.textContent=terminalState==="completed"?(actions.length?`${actions.length} tool${actions.length===1?"":"s"} · ${evidence} evidence source${evidence===1?"":"s"}`:"Response complete."):terminalState==="in_progress"?"Still working on this.":terminalState==="retained"?"Still working on this.":"This could not be completed.";
   }
   panel.open=terminalState!=="completed";
 }
@@ -389,7 +393,7 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
   // The server owns the bounded turn lifecycle. A browser timer must never
   // cancel durable tool work or discard a terminal result that is still arriving.
   const progressDeadlineMs = 20000;
-  const deadline = setTimeout(() => setStatus("Still working safely — any long-running tool remains durable and Georgie will return a terminal result."), progressDeadlineMs);
+  const deadline = setTimeout(() => setStatus("Still working on this."), progressDeadlineMs);
 
   try {
     let endpoint="/api/mobile/respond/stream",headers,body;
@@ -443,7 +447,7 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
     durableRequestId=durableRequestId||error?.requestId||assistantItem?.querySelector(".execution-panel")?.dataset?.requestId||null;
     if(durableRequestId){
       try{
-        setStatus("Connection interrupted. Reconnecting to the durable task…");
+        setStatus("Connection interrupted. Reconnecting…");
         const recovered=await recoverDurableTurn(durableRequestId);
         if(recovered){
           if(!assistantItem)assistantItem=appendMessage("assistant",recovered.text||"Task result recovered.");else updateMessage(assistantItem,recovered.text||"Task result recovered.");
@@ -452,15 +456,15 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
           localStorage.removeItem("georgie:activeTurn");
           return recovered;
         }
-        error=new Error(`Durable request ${durableRequestId} is still running. Its result remains saved and reconnectable from the activity center.`);
+        error=new Error("The request is still running. Please keep this screen open while I reconnect.");
       }catch(recoveryError){error=new Error(`Durable task blocked: ${String(recoveryError?.message||recoveryError)}`);}
     }
     const timedOut = error?.name === "AbortError" || error?.name === "TimeoutError";
-    const failureText = timedOut ? "That request exceeded Georgie’s response deadline and was stopped. I did not verify completion, and nothing should be treated as completed." : `I could not complete that request: ${String(error?.message || "the response pipeline failed").slice(0,300)}. Nothing should be treated as completed.`;
+    const failureText = timedOut ? "I couldn’t finish that response in time. Please try again." : `I couldn’t complete that request: ${String(error?.message || "the response pipeline failed").slice(0,300)}.`;
     if (assistantItem) { updateMessage(assistantItem, failureText); finishExecutionPanel(assistantItem.querySelector(".execution-panel"),null,{failed:true}); } else assistantItem = appendMessage("assistant", failureText);
     attachHearResponse(assistantItem, failureText);
     pushHistory("assistant", failureText);
-    setStatus(timedOut ? "Request stopped at the deadline. A failure report is on screen." : "Request failed. A failure report is on screen.");
+    setStatus(timedOut ? "That took too long. Please try again." : "I couldn’t complete that request.");
     if (speakResponse) void speak(failureText).catch(()=>{});
     throw error;
   } finally {

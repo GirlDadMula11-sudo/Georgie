@@ -115,7 +115,17 @@ function requireApiKey() { if (!process.env.OPENAI_API_KEY) throw new Error("OPE
 async function openAI(path, options = {}) { const response = await fetch(`${OPENAI_BASE_URL}${path}`, { ...options, signal:options.signal||AbortSignal.timeout(Math.min(24000,Math.max(5000,Number(process.env.GEORGIE_OPENAI_TIMEOUT_MS||24000)))), headers: { Authorization: `Bearer ${requireApiKey()}`, ...(options.headers || {}) } }); if (!response.ok) { const body = await response.text(); throw new Error(`OpenAI request failed (${response.status}): ${body.slice(0, 500)}`); } return response; }
 function extractResponseText(payload) { if (payload.output_text) return payload.output_text; for (const item of payload.output || []) for (const content of item.content || []) if (content.type === "output_text" && content.text) return content.text; return ""; }
 function reasoning(effort = "medium") { return { effort, context: "all_turns" }; }
-async function jsonResponse({ model, instructions, input, effort = "medium" }) { return withModelPermit(async()=>{const response = await openAI("/responses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, instructions, input, reasoning: reasoning(effort), text: { verbosity: "low" } }) }); const payload = await response.json(); const raw = extractResponseText(payload).trim(); return JSON.parse(raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim());}); }
+function parseModelJson(rawValue){
+  const raw=String(rawValue||"").trim().replace(/^```json\s*/i,"").replace(/```$/i,"").trim();
+  try{return JSON.parse(raw);}catch{}
+  const firstObj=raw.indexOf("{"); const firstArr=raw.indexOf("[");
+  const start=firstObj<0?firstArr:firstArr<0?firstObj:Math.min(firstObj,firstArr);
+  if(start<0)throw new Error("Model did not return structured JSON");
+  const opener=raw[start],closer=opener==="{"?"}":"]"; let depth=0,inString=false,escaped=false;
+  for(let i=start;i<raw.length;i++){const ch=raw[i];if(inString){if(escaped)escaped=false;else if(ch==="\\")escaped=true;else if(ch==='"')inString=false;continue;}if(ch==='"'){inString=true;continue;}if(ch===opener)depth++;else if(ch===closer){depth--;if(depth===0)return JSON.parse(raw.slice(start,i+1));}}
+  throw new Error("Model returned incomplete structured JSON");
+}
+async function jsonResponse({ model, instructions, input, effort = "medium" }) { return withModelPermit(async()=>{const response = await openAI("/responses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, instructions, input, reasoning: reasoning(effort), text: { verbosity: "low" } }) }); const payload = await response.json(); return parseModelJson(extractResponseText(payload));}); }
 
 async function askGeorgieCore(input, history = [], context = "", { onTextDelta, modelOverride = null, attachmentParts = [] } = {}) {
   if (!input?.trim()) throw new Error("Input is required");

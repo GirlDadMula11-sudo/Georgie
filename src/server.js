@@ -33,6 +33,8 @@ import { startBackgroundOperatingLayer } from "./background-operating-layer.js";
 import { intelligenceControlMapStatus, refreshIntelligenceControlMap, startIntelligenceControlMap } from "./intelligence-control-map.js";
 import { startEngineeringCoordinator } from "./engineering-coordinator.js";
 import { createGovernedConnectorRouter } from "./governed-connector.js";
+import { createGithubReceiptRelayRouter } from "./github-receipt-relay.js";
+import { createGithubControlInboundRouter } from "./github-control-inbound.js";
 import { createPortableMcpRouter } from "./portable-connector-mcp.js";
 import { createConnectorOAuthRouter, startConnectorHeartbeatMonitor } from "./connector-oauth.js";
 
@@ -61,6 +63,8 @@ async function completeTurn({userId,sessionId,input,history=[]}){
   }
   return completeTurnV2({userId,sessionId,input,history});
 }
+app.use("/api/ai-control/receipt-relay",createGithubReceiptRelayRouter());
+app.use("/api/ai-control/inbound",createGithubControlInboundRouter({executeCommand:({userId,sessionId,input})=>completeTurn({userId,sessionId,input,history:[]})}));
 app.use("/api/connector",createGovernedConnectorRouter({executeCommand:({userId,sessionId,input})=>completeTurn({userId,sessionId,input,history:[]})}));
 app.use("/mcp",createPortableMcpRouter({executeCommand:({userId,sessionId,input})=>completeTurn({userId,sessionId,input,history:[]}),userId:String(process.env.GEORGIE_PRIMARY_USER_ID||"primary")}));
 app.get("/health",(_req,res)=>{const r=readinessSnapshot();res.json({ok:true,assistant:"Georgie",version:"2.2.1",ready:r.ready,...r.platform,neoMail:r.connections.neoMail,sierraWorkforce:r.connections.sierraWorkforce,macAgent:r.connections.macAgent,macQueue:r.connections.macQueue,liveWebResearch:r.connections.liveWebResearch,memoryStorage:r.connections.memoryStorage,operationalStorage:r.connections.operationalStorage,configured:r.connections.openAI,activationState:r.activationState,blockers:r.blockers})});
