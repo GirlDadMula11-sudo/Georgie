@@ -1,3 +1,4 @@
+import { specialistExecutionPermit } from "./resource-governor.js";
 import { readCloudState, writeCloudState } from "./cloud-state.js";
 import { scheduleObjective } from "./objective-worker.js";
 import { seoIntegrationStatus } from "./integrations/seo-ops.js";
@@ -42,5 +43,5 @@ export async function runSeoMonitorSchedulerCycle(userId=USER()){
     return{status:"scheduled",stableKey,nextRunAt,scheduledStatus:scheduled.status,stepCount:steps.length};
   }finally{running=false;}
 }
-export function startSeoMonitorScheduler(){if(timer)return;void runSeoMonitorSchedulerCycle();timer=setInterval(()=>void runSeoMonitorSchedulerCycle().catch(e=>console.warn("SEO monitor scheduler failed:",e instanceof Error?e.message:e)),MIN_MS);timer.unref?.();}
+export function startSeoMonitorScheduler(){if(timer)return;const run=()=>{const permit=specialistExecutionPermit("seo-monitor");if(!permit.allowed){console.warn("SEO monitor deferred for core pressure",JSON.stringify({reason:permit.reason,retryAfterMs:permit.retryAfterMs}));return;}void runSeoMonitorSchedulerCycle().catch(e=>console.warn("SEO monitor scheduler failed:",e instanceof Error?e.message:e));};run();timer=setInterval(run,MIN_MS);timer.unref?.();}
 export function stopSeoMonitorScheduler(){if(timer)clearInterval(timer);timer=null;}
