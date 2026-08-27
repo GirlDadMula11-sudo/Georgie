@@ -1,24 +1,7 @@
 import "dotenv/config";
-import { startCloudStateRecovery } from "./cloud-state.js";
-import { startApprovalDispatchWorker } from "./tools.js";
-import { startEngineeringCoordinator } from "./engineering-coordinator.js";
-import { startMaintenanceSentinel } from "./maintenance-sentinel.js";
-import { startReconciliationWorkers } from "./reconciliation-workers.js";
-import { startBackgroundOperatingLayer } from "./background-operating-layer.js";
-import { startSelfEvolution } from "./self-evolution.js";
-import { startSmartleadReplyCloserWorker } from "./smartlead-reply-closer-worker.js";
-import { startSierraClosingOutreachWorker } from "./sierra-closing-outreach-worker.js";
+import { startRuntimeProfile } from "./runtime-components.js";
 
-startCloudStateRecovery();
-startApprovalDispatchWorker();
-startMaintenanceSentinel();
-startReconciliationWorkers();
-startSelfEvolution();
-startBackgroundOperatingLayer();
-startEngineeringCoordinator();
-startSmartleadReplyCloserWorker();
-startSierraClosingOutreachWorker();
-console.log("Georgie background engineering worker online");
+startRuntimeProfile("worker");
 setInterval(()=>{},60_000);
 let shuttingDown=false;
 for(const signal of ["SIGTERM","SIGINT"])process.on(signal,()=>{
