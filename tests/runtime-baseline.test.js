@@ -11,3 +11,10 @@ test("production boot verifies committed runtime without installer mutation", ()
   assert.doesNotMatch(pkg.scripts.prestart, /install-|repair-/);
   assert.match(execFileSync(process.execPath, ["scripts/verify-runtime-baseline.mjs"], { cwd: root, encoding: "utf8" }), /mutation=false/);
 });
+
+test("normal runtime never launches the emergency mailbox backfill", () => {
+  const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(pkg.scripts.start, "node src/runtime.js");
+  assert.equal(pkg.scripts["maintenance:neo-backfill"], "node scripts/emergency-neo-mailbox-backfill.mjs");
+  for (const name of ["start", "prestart", "dev", "check"]) assert.doesNotMatch(pkg.scripts[name], /(?:^|&& )node scripts\/emergency-neo-mailbox-backfill/);
+});
