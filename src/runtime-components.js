@@ -67,15 +67,17 @@ export function validateRuntimeRegistry(components = RUNTIME_COMPONENTS) {
   return { ok: errors.length === 0, errors, componentCount: components.length, kernel: kernels[0]?.id || null };
 }
 
-export function componentsForProfile(profile, components = RUNTIME_COMPONENTS) {
-  return components.filter(component => component.profiles.includes(profile));
+export const SPECIALIST_START_DELAY_MS = Math.max(250, Math.min(30_000, Number(process.env.GEORGIE_SPECIALIST_START_DELAY_MS || 1_500)));
+
+export function componentsForProfile(profile, components = RUNTIME_COMPONENTS, plane = null) {
+  return components.filter(component => component.profiles.includes(profile) && (!plane || component.plane === plane));
 }
 
-export function startRuntimeProfile(profile, { logger = console, components = RUNTIME_COMPONENTS } = {}) {
+export function startRuntimeProfile(profile, { logger = console, components = RUNTIME_COMPONENTS, plane = null } = {}) {
   const validation = validateRuntimeRegistry(components);
   if (!validation.ok) throw new Error(`Invalid Georgie runtime registry: ${validation.errors.join(",")}`);
-  const selected = componentsForProfile(profile, components);
-  if (!selected.length) throw new Error(`Unknown or empty Georgie runtime profile: ${profile}`);
+  const selected = componentsForProfile(profile, components, plane);
+  if (!selected.length) throw new Error(`Unknown or empty Georgie runtime profile: ${profile}${plane ? `/${plane}` : ""}`);
   const started = [];
   const degraded = [];
   for (const component of selected) {
@@ -89,6 +91,20 @@ export function startRuntimeProfile(profile, { logger = console, components = RU
       logger.warn(`Georgie specialist isolated: ${component.id}: ${detail}`);
     }
   }
-  logger.log(`Georgie ${profile} profile online (${started.join(", ")})`);
-  return { profile, started, degraded, kernel: validation.kernel };
+  logger.log(`Georgie ${profile}${plane ? `/${plane}` : ""} profile online (${started.join(", ")})`);
+  return { profile, plane, started, degraded, kernel: validation.kernel };
+}
+
+export function scheduleRuntimePlane(profile, plane, { delayMs = SPECIALIST_START_DELAY_MS, logger = console, components = RUNTIME_COMPONENTS, schedule = setTimeout } = {}) {
+  const boundedDelayMs = Math.max(0, Math.min(30_000, Number(delayMs) || 0));
+  const timer = schedule(() => {
+    try {
+      startRuntimeProfile(profile, { logger, components, plane });
+    } catch (error) {
+      logger.warn(`Georgie ${profile}/${plane} plane failed to start: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, boundedDelayMs);
+  timer?.unref?.();
+  logger.log(`Georgie ${profile}/${plane} plane scheduled after ${boundedDelayMs}ms`);
+  return { profile, plane, delayMs: boundedDelayMs, timer };
 }
