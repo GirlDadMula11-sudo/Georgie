@@ -152,10 +152,10 @@ export function createConnectorOAuthRouter() {
   router.get("/.well-known/oauth-protected-resource/mcp", (_req, res) => res.json({
     resource: `${origin()}/mcp`,
     authorization_servers: [origin()],
-    scopes_supported: ["georgie:command", "georgie:status"]
+    scopes_supported: ["georgie:command", "georgie:status", "offline_access"]
   }));
   router.get("/.well-known/oauth-protected-resource", (_req, res) => res.json({
-    resource: `${origin()}/mcp`, authorization_servers: [origin()], scopes_supported: ["georgie:command", "georgie:status"]
+    resource: `${origin()}/mcp`, authorization_servers: [origin()], scopes_supported: ["georgie:command", "georgie:status", "offline_access"]
   }));
   router.get("/.well-known/oauth-authorization-server", (_req, res) => res.json({
     issuer: origin(),
@@ -166,7 +166,7 @@ export function createConnectorOAuthRouter() {
     grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: ["none", "client_secret_basic", "client_secret_post"],
-    scopes_supported: ["georgie:command", "georgie:status"]
+    scopes_supported: ["georgie:command", "georgie:status", "offline_access"]
   }));
   router.post("/oauth/register", express.json({ limit: "64kb" }), (req, res) => {
     const redirectUris = Array.isArray(req.body?.redirect_uris) ? req.body.redirect_uris.map(value => clean(value, 1200)).filter(value => /^https:\/\//i.test(value)).slice(0, 10) : [];
@@ -181,7 +181,7 @@ export function createConnectorOAuthRouter() {
     const allowedRedirect = client?.public ? client.redirect_uris.includes(redirectUri) : client?.redirectUri === redirectUri;
     if (req.query.response_type !== "code" || !client || !allowedRedirect || !challenge || method !== "S256" || clean(req.query.resource, 1000) && clean(req.query.resource, 1000) !== `${origin()}/mcp`) return res.status(400).send("Invalid connector authorization request");
     const code = crypto.randomBytes(32).toString("base64url");
-    codes.set(code, { clientId, redirectUri, challenge, resource: `${origin()}/mcp`, scope: clean(req.query.scope || "georgie:command georgie:status", 500), expiresAt: Date.now() + 120000 });
+    codes.set(code, { clientId, redirectUri, challenge, resource: `${origin()}/mcp`, scope: clean(req.query.scope || "georgie:command georgie:status offline_access", 500), expiresAt: Date.now() + 120000 });
     const target = new URL(redirectUri); target.searchParams.set("code", code); target.searchParams.set("iss", origin()); if (req.query.state) target.searchParams.set("state", clean(req.query.state, 1000));
     res.redirect(302, target.toString());
   });

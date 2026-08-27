@@ -28,7 +28,10 @@ export async function recordTurnEvaluation(userId, input = {}) {
     executionAuthority: "observe_recommend_prepare",
     responseCharacters: Math.max(0, Number(input.responseCharacters) || 0),
     completed: input.completed !== false,
-    actionSuccess: input.toolCount ? Boolean(input.actionSuccess) : null
+    actionSuccess: input.toolCount ? Boolean(input.actionSuccess) : null,
+    resumeFidelity: input.resumeFidelity == null ? null : Boolean(input.resumeFidelity),
+    routingCorrect: input.routingCorrect == null ? null : Boolean(input.routingCorrect),
+    terminalReceiptVerified: input.terminalReceiptVerified == null ? null : Boolean(input.terminalReceiptVerified)
   };
   evaluations.push(item);
   await writeCloudState(uid, NS, { evaluations: evaluations.slice(-5000), updatedAt: now() });
@@ -88,6 +91,9 @@ export async function evaluationScorecard(userId, { limit = 200 } = {}) {
     highImpactReviewRequired: items.filter((item) => item.highImpact && item.unsupportedClaimRisk === "review_required").length,
     completionRate: items.length ? Number((items.filter((item) => item.completed).length / items.length).toFixed(3)) : 0,
     actionSuccessRate: actionItems.length ? Number((actionItems.filter((item) => item.actionSuccess).length / actionItems.length).toFixed(3)) : null,
+    resumeFidelityRate: items.filter(i=>i.resumeFidelity!==null&&i.resumeFidelity!==undefined).length ? Number((items.filter(i=>i.resumeFidelity===true).length / items.filter(i=>i.resumeFidelity!==null&&i.resumeFidelity!==undefined).length).toFixed(3)) : null,
+    routingCorrectnessRate: items.filter(i=>i.routingCorrect!==null&&i.routingCorrect!==undefined).length ? Number((items.filter(i=>i.routingCorrect===true).length / items.filter(i=>i.routingCorrect!==null&&i.routingCorrect!==undefined).length).toFixed(3)) : null,
+    terminalReceiptVerificationRate: items.filter(i=>i.terminalReceiptVerified!==null&&i.terminalReceiptVerified!==undefined).length ? Number((items.filter(i=>i.terminalReceiptVerified===true).length / items.filter(i=>i.terminalReceiptVerified!==null&&i.terminalReceiptVerified!==undefined).length).toFixed(3)) : null,
     tierDistribution,
     inexpensiveRoutingRate: items.length ? Number((items.filter((item) => ["fast", "balanced"].includes(item.tier)).length / items.length).toFixed(3)) : 0,
     latencyTargets: { simpleAnswerMs: 2000, routineActionMs: 5000, complexFirstResponseMs: 3000 },

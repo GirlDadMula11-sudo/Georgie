@@ -16,7 +16,7 @@ test("planner failure degrades to normal conversation instead of task limbo",()=
 
 test("production startup installs the reliability failover",()=>{
   const pkg=JSON.parse(fs.readFileSync(new URL("../package.json",import.meta.url),"utf8"));
-  assert.match(pkg.scripts.prestart,/install-runtime-reliability\.mjs/);
+  assert.match(pkg.scripts.prestart,/verify-runtime-baseline\.mjs/);
   assert.match(pkg.scripts.check,/runtime-reliability\.js/);
   assert.match(pkg.scripts.check,/paper-trading-lab\.js/);
 });

@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { readCloudState, writeCloudState } from "./cloud-state.js";
 import { executeTool } from "./tools.js";
+import { recoveryDecision, resetStepAttempts, reliabilityReceipt } from "./operator-reliability-v2.js";
 
 const NS = "durable_objective_worker_v1";
 const USER = () => process.env.GEORGIE_EXECUTIVE_USER_ID || process.env.GEORGIE_PRIMARY_USER_ID || "primary";
@@ -72,7 +73,7 @@ export async function scheduleObjective(userId, input = {}) {
   objective = {
     id: crypto.randomUUID(), stableKey, title: clean(input.title || stableKey, 300), domain: clean(input.domain || "general", 80),
     status: "queued", priority: ["urgent", "high", "normal", "low"].includes(input.priority) ? input.priority : "normal",
-    steps, stepIndex: 0, attempts: 0, maxAttempts: Math.max(1, Math.min(Number(input.maxAttempts || 8), 25)),
+    steps, stepIndex: 0, attempts: 0, attemptsByStep: {}, recoveryTrail: [], maxAttempts: Math.max(1, Math.min(Number(input.maxAttempts || 8), 25)),
     approvalId: clean(input.approvalId, 160) || null, nextRunAt: input.nextRunAt || now(), lease: null,
     checkpoint: { createdAt: now(), lastStepId: null, lastStatus: "queued", lastError: null }, evidence: [],
     createdAt: now(), updatedAt: now()
@@ -123,13 +124,13 @@ export async function runObjectiveWorkerCycle(userId = USER()) {
     const workerId = `${process.env.RENDER_INSTANCE_ID || process.pid}:${crypto.randomUUID().slice(0,8)}`;
     objective.lease = { owner: workerId, claimedAt: now(), until: new Date(Date.now()+LEASE_MS).toISOString() };
     objective.status = objective.status === "running" ? "recovering" : "running";
-    objective.attempts = Number(objective.attempts || 0) + 1;
+    objective.attempts = Number(objective.attempts || 0) + 1; objective.attemptsByStep = objective.attemptsByStep || {}; objective.recoveryTrail = Array.isArray(objective.recoveryTrail) ? objective.recoveryTrail : [];
     await persistObjective(userId, objective);
 
     const step = objective.steps[objective.stepIndex];
     if (!step) {
       objective.status = "verified"; objective.lease = null; objective.checkpoint = { ...objective.checkpoint, lastStatus: "verified", completedAt: now() };
-      await persistObjective(userId, objective); return { status: "verified", objectiveId: objective.id };
+      await persistObjective(userId, objective); return { status: "verified", objectiveId: objective.id, receipt: reliabilityReceipt({ objective, terminalStatus: "verified", evidence: objective.evidence }) };
     }
     if (step.requiresApproval && !objective.approvalId) {
       objective.status = "waiting_approval"; objective.lease = null; objective.checkpoint = { ...objective.checkpoint, lastStepId: step.id, lastStatus: "waiting_approval", lastError: null };
@@ -141,9 +142,12 @@ export async function runObjectiveWorkerCycle(userId = USER()) {
     const execution = await executeTool({ name: step.tool, args, userId, policy: objective.approvalId ? "external_side_effect" : step.policy });
     if (!execution.ok) {
       objective.lease = null;
-      objective.status = execution.approvalRequired ? "waiting_approval" : (objective.attempts >= objective.maxAttempts ? "blocked" : "recovering");
-      objective.nextRunAt = new Date(Date.now() + Math.min(300_000, 5_000 * 2 ** Math.min(objective.attempts, 6))).toISOString();
-      objective.checkpoint = { ...objective.checkpoint, lastStepId: step.id, lastStatus: objective.status, lastError: clean(execution.error || execution.blockedBy || "execution_failed", 1000) };
+      const recovery = recoveryDecision({ stepId: step.id, attemptsByStep: objective.attemptsByStep, maxAttempts: objective.maxAttempts, error: execution.error || execution.blockedBy || "execution_failed", approvalRequired: execution.approvalRequired });
+      objective.attemptsByStep = { ...objective.attemptsByStep, [step.id]: recovery.attempts };
+      objective.recoveryTrail = [...objective.recoveryTrail, recovery.recoveryEvent].slice(-100);
+      objective.status = recovery.status;
+      objective.nextRunAt = recovery.nextRunAt || objective.nextRunAt;
+      objective.checkpoint = { ...objective.checkpoint, lastStepId: step.id, lastStatus: objective.status, lastError: clean(execution.error || execution.blockedBy || "execution_failed", 1000), lastFailureClass: recovery.failureClass, stepAttempt: recovery.attempts };
       objective.evidence.push({ at: now(), stepId: step.id, tool: step.tool, state: objective.status, ref: execution.result?.dispatchReceipt?.id || null });
       await persistObjective(userId, objective);
       return { status: objective.status, objectiveId: objective.id, step: step.id };
@@ -164,7 +168,7 @@ export async function runObjectiveWorkerCycle(userId = USER()) {
     }
 
     objective.evidence.push({ at: now(), stepId: step.id, tool: step.tool, state: "verified", verificationTool: step.verification?.tool || null, ref: execution.result?.dispatchReceipt?.id || null });
-    objective.stepIndex += 1; objective.lease = null; objective.attempts = 0;
+    objective.stepIndex += 1; objective.lease = null; objective.attempts = 0; objective.attemptsByStep = resetStepAttempts(objective.attemptsByStep, step.id);
     objective.status = objective.stepIndex >= objective.steps.length ? "verified" : "queued";
     objective.nextRunAt = new Date(Date.now() + step.delayMsAfter).toISOString();
     objective.checkpoint = { ...objective.checkpoint, lastStepId: step.id, lastStatus: objective.status, lastError: null, lastVerifiedAt: now() };

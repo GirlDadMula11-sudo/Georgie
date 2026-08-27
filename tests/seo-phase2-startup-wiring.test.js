@@ -5,8 +5,8 @@ import fs from "node:fs";
 const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 const macBuild = fs.readFileSync(new URL("../mac-agent/build-runtime.mjs", import.meta.url), "utf8");
 
-test("production prestart installs the bounded SEO Phase 2 executor", () => {
-  assert.match(pkg.scripts.prestart, /node scripts\/install-seo-phase2-executor\.mjs/);
+test("production prestart verifies the materialized bounded SEO Phase 2 executor", () => {
+  assert.match(pkg.scripts.prestart, /node scripts\/verify-runtime-baseline\.mjs/);
 });
 
 test("primary-mac runtime build installs and certifies the Phase 2 writer", () => {

@@ -127,9 +127,9 @@ router.post("/respond/stream",async(req,res)=>{
   console.log(`[Georgie] turn accepted ${JSON.stringify({requestId,inputLength:input.length})}`);
   res.status(200);res.setHeader("Content-Type","application/x-ndjson; charset=utf-8");res.setHeader("Cache-Control","no-cache, no-transform");res.setHeader("X-Accel-Buffering","no");res.setHeader("X-Georgie-Request-Id",requestId);res.flushHeaders?.();
   const send=event=>{if(!res.writableEnded&&!res.destroyed)res.write(`${JSON.stringify({...event,requestId})}\n`);};
-  send({type:"status",stage:"accepted",message:"Request accepted. The work will continue even if this screen disconnects.",elapsedMs:0});
+  send({type:"status",stage:"accepted",message:"Got it.",elapsedMs:0});
   const job=await beginDurableTurn({requestId,userId,sessionId,input,history,recoverable:/\b(?:continue|resume)\b/i.test(input)&&/\b(?:investigation|diagnosis|inspection|evidence)\b/i.test(input)});
-  const heartbeat=setInterval(()=>send({type:"status",stage:"heartbeat",message:"Still working. This request is durable and reconnectable.",elapsedMs:Date.now()-started}),4000);heartbeat.unref?.();
+  const heartbeat=setInterval(()=>send({type:"status",stage:"heartbeat",message:"Still working on this.",elapsedMs:Date.now()-started}),4000);heartbeat.unref?.();
   try{
     const response=await runDurableTurn({job,execute:({onProgress})=>complete(userId,sessionId,input,{history,onProgress,durableStream:true}),onProgress:send});
     send({type:"final",ok:true,spokenText:spokenResponseFor(input,response.text),result:{...response,requestId}});

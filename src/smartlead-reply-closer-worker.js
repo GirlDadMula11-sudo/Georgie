@@ -1,17 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { enforceHumanAccessHtml } from "./master-closer.js";
 import { evaluateSmartleadWebhookThreadFallback } from "./smartlead-reply-fallback-evidence.js";
+import { nextReplyCloserSchedule } from "./smartlead-reply-backpressure.js";
 
 const SIERRA_URL = String(process.env.GEORGIE_SUPABASE_URL || "").replace(/\/$/, "");
 const SIERRA_KEY = String(process.env.GEORGIE_SUPABASE_SERVICE_ROLE_KEY || "");
 const SMARTLEAD_BASE = String(process.env.GEORGIE_SMARTLEAD_BASE_URL || "https://server.smartlead.ai/api/v1").replace(/\/$/, "");
 const SMARTLEAD_KEY = String(process.env.GEORGIE_SMARTLEAD_API_KEY || "").trim();
 const WORKER_ID = "georgie-smartlead-reply-closer-v1";
-const WORKER_VERSION = "georgie.smartlead-reply-closer.v2.4";
+const WORKER_VERSION = "georgie.smartlead-reply-closer.v2.5.2";
 const INSTANCE_ID = String(process.env.RENDER_INSTANCE_ID || process.env.HOSTNAME || randomUUID()).slice(0, 200);
-const POLL_MS = Math.max(15_000, Number(process.env.GEORGIE_SMARTLEAD_REPLY_POLL_MS || 30_000));
+const ACTIVE_POLL_MS = Math.max(15_000, Number(process.env.GEORGIE_SMARTLEAD_REPLY_POLL_MS || 30_000));
+const IDLE_POLL_MS = Math.max(ACTIVE_POLL_MS, Number(process.env.GEORGIE_SMARTLEAD_REPLY_IDLE_POLL_MS || 60_000));
+const MAX_BACKOFF_MS = Math.max(IDLE_POLL_MS, Number(process.env.GEORGIE_SMARTLEAD_REPLY_MAX_BACKOFF_MS || 180_000));
 const AUTO_CLASSES = new Set(["partner_interest", "interested", "follow_up_later", "call_request"]);
 let timer = null;
+let authorityRetryTimer = null;
 let running = false;
 let authorityGeneration = null;
 let authorityStale = false;
@@ -188,9 +192,10 @@ async function quarantine(job, reason, extra = {}) { const now = new Date().toIS
 async function enrichJob(job) { const rows = await db(`smartlead_reply_obligations?id=eq.${encodeURIComponent(job.obligation_id)}&select=*,outreach_contacts(contact_name)`); const full = Array.isArray(rows) ? rows[0] : null; return full ? { ...job, ...full, contact_name: full.outreach_contacts?.contact_name || "", required_disclosure: full.metadata?.required_disclosure || job.required_disclosure } : job; }
 
 async function reconcileAccepted(limit = 5) {
-  await assertAuthority();
   const rows = await db(`smartlead_reply_obligations?response_status=eq.queued&metadata->>provider_send_accepted=eq.true&select=*&limit=${Math.max(1, Math.min(limit, 10))}`), results = [];
-  for (const row of rows || []) {
+  if (!Array.isArray(rows) || rows.length === 0) return results;
+  await assertAuthority();
+  for (const row of rows) {
     try { await assertAuthority(); const job = { ...row, obligation_id: row.id }, leadId = await resolveLeadId(job), receipt = await findSentReceipt(job, leadId, row.metadata?.provider_send_accepted_at || row.updated_at); if (!receipt?.providerMessageId) { results.push({ id: row.id, status: "waiting_receipt" }); continue; } await complete({ ...job, worker_id: WORKER_ID }, row.metadata?.send_reservation || idem(row.id), receipt, { reconciled: true }, "dual_message_history"); console.log("SMARTLEAD_REPLY_CLOSER_RECEIPT", JSON.stringify({ obligationId: row.id, providerMessageId: receipt.providerMessageId, generation: authorityGeneration })); results.push({ id: row.id, status: "reconciled", providerMessageId: receipt.providerMessageId }); }
     catch (error) { if (isStaleAuthorityError(error)) { authorityStale = true; break; } console.error("SMARTLEAD_REPLY_CLOSER_RECEIPT_ERROR", clean(error?.message || error, 500)); results.push({ id: row.id, status: "receipt_error", error: clean(error?.message || error, 300) }); }
   }
@@ -251,9 +256,37 @@ export async function runSmartleadReplyCloserOnce() {
 }
 
 export function startSmartleadReplyCloserWorker() {
-  if (timer || !configured()) { if (!configured()) console.warn("Smartlead reply closer worker not started: Sierra/Smartlead runtime configuration missing"); return; }
-  const tick = () => runSmartleadReplyCloserOnce().catch(error => console.error("SMARTLEAD_REPLY_CLOSER_ERROR", clean(error?.stack || error, 1200)));
-  activateAuthority().then(async generation => { await heartbeat("heartbeat"); setTimeout(tick, 5_000).unref?.(); timer = setInterval(tick, POLL_MS); timer.unref?.(); console.log(`Georgie Smartlead threaded reply closer worker online (${POLL_MS}ms) ${WORKER_VERSION} generation=${generation} instance=${INSTANCE_ID}`); }).catch(error => console.error("SMARTLEAD_REPLY_CLOSER_AUTHORITY_START_ERROR", clean(error?.stack || error, 1200)));
+  if (timer || authorityRetryTimer || !configured()) { if (!configured()) console.warn("Smartlead reply closer worker not started: Sierra/Smartlead runtime configuration missing"); return; }
+  let backpressureFailures = 0;
+  const schedule = delayMs => { if (timer) clearTimeout(timer); timer = setTimeout(tick, delayMs); timer.unref?.(); };
+  const tick = async () => {
+    let result = null, error = null;
+    try { result = await runSmartleadReplyCloserOnce(); }
+    catch (caught) { error = caught; console.error("SMARTLEAD_REPLY_CLOSER_ERROR", clean(caught?.stack || caught, 1200)); }
+    const next = nextReplyCloserSchedule({ result, error, failures: backpressureFailures, activeMs: ACTIVE_POLL_MS, idleMs: IDLE_POLL_MS, maxBackoffMs: MAX_BACKOFF_MS });
+    backpressureFailures = next.failures;
+    if (!authorityStale) schedule(next.delayMs);
+    if (next.mode === "infra_backoff") console.warn("SMARTLEAD_REPLY_CLOSER_BACKPRESSURE", JSON.stringify({ mode: next.mode, delayMs: next.delayMs, failures: next.failures, version: WORKER_VERSION }));
+  };
+  const retryDelays = [120_000, 180_000, 240_000, 300_000];
+  let retryAttempt = 0;
+  const activate = async () => {
+    authorityRetryTimer = null;
+    try {
+      const generation = await activateAuthority();
+      retryAttempt = 0;
+      await heartbeat("heartbeat");
+      schedule(5_000);
+      console.log(`Georgie Smartlead threaded reply closer worker online (active=${ACTIVE_POLL_MS}ms idle=${IDLE_POLL_MS}ms maxBackoff=${MAX_BACKOFF_MS}ms) ${WORKER_VERSION} generation=${generation} instance=${INSTANCE_ID}`);
+    } catch (error) {
+      const delayMs = retryDelays[Math.min(retryAttempt, retryDelays.length - 1)];
+      retryAttempt += 1;
+      console.error("SMARTLEAD_REPLY_CLOSER_AUTHORITY_START_ERROR", clean(error?.stack || error, 1200), `retry_in_ms=${delayMs}`);
+      authorityRetryTimer = setTimeout(activate, delayMs);
+      authorityRetryTimer.unref?.();
+    }
+  };
+  void activate();
 }
 
-export const smartleadReplyCloserWorkerContract = Object.freeze({ version: WORKER_VERSION, workerId: WORKER_ID, transport: "smartlead_reply_email_thread", threadPreservationRequired: true, immutableProviderLeadIdentityPreferred: true, immutableProviderStatsIdentityRequired: true, dualProviderThreadReadRequired: true, provenProviderReplyPayload: "email_stats_id+to_email+reply_message_id+reply_email_body+reply_email_time", replySenderSeparatedFromProviderLead: true, rollingDeployGenerationFence: true, preSendAuthorityReassertion: true, legacyWorkerClaimsDisabled: true, newReservationDistinctFromExistingReservation: true, originalSenderAssignmentRequired: true, providerThreadInboundIdentityRequired: true, providerThreadWebhookFallback: "deterministic_local_event_evidence_only", providerThreadWebhookFallbackRequiresNoReservation: true, suppressIfNewerInboundExists: true, suppressIfLaterOutboundExists: true, blindRetryAfterAmbiguousSend: false, ambiguousSendDisposition: "human_review", autoClasses: [...AUTO_CLASSES], providerReceiptRequired: true, humanAccessDisclosureRequired: true, historicalReplyAgeAwareCopy: true, idempotency: "one durable reservation per obligation", healthHeartbeat: true });
+export const smartleadReplyCloserWorkerContract = Object.freeze({ version: WORKER_VERSION, workerId: WORKER_ID, transport: "smartlead_reply_email_thread", threadPreservationRequired: true, immutableProviderLeadIdentityPreferred: true, immutableProviderStatsIdentityRequired: true, dualProviderThreadReadRequired: true, provenProviderReplyPayload: "email_stats_id+to_email+reply_message_id+reply_email_body+reply_email_time", replySenderSeparatedFromProviderLead: true, rollingDeployGenerationFence: true, preSendAuthorityReassertion: true, legacyWorkerClaimsDisabled: true, newReservationDistinctFromExistingReservation: true, originalSenderAssignmentRequired: true, providerThreadInboundIdentityRequired: true, providerThreadWebhookFallback: "deterministic_local_event_evidence_only", providerThreadWebhookFallbackRequiresNoReservation: true, suppressIfNewerInboundExists: true, suppressIfLaterOutboundExists: true, blindRetryAfterAmbiguousSend: false, ambiguousSendDisposition: "human_review", autoClasses: [...AUTO_CLASSES], providerReceiptRequired: true, humanAccessDisclosureRequired: true, historicalReplyAgeAwareCopy: true, idempotency: "one durable reservation per obligation", healthHeartbeat: true, adaptiveBackpressure: true, fixedIntervalPolling: false, idlePollRelaxation: true, transientInfraBackoff: true, maxBackoffMs: MAX_BACKOFF_MS, receiptReconcileReadBeforeAuthorityAssert: true, authorityActivationRetry: true, authorityActivationFailClosed: true, authorityActivationRetryMinMs: 120000, authorityActivationRetryMaxMs: 300000 });
