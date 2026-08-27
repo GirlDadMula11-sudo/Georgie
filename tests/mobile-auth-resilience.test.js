@@ -11,5 +11,8 @@ test("native authentication has a bounded provider-verified fallback without per
   assert.match(source,/rawTokensPersisted:false/);
   assert.match(source,/verifiedDevices\.set\(tokenHash,\{tokenHash,device,verifiedAt:now\}\)/);
   assert.match(source,/await persistCache\(\)/);
+  assert.match(source,/cachePersistTail=Promise\.resolve\(\)/);
+  assert.match(source,/crypto\.randomUUID\(\)/);
+  assert.match(source,/cachePersistTail\.catch\(\(\)=>\{\}\)\.then/);
   assert.doesNotMatch(source,/JSON\.stringify\([^\n]*raw/);
 });
