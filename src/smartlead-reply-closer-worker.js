@@ -1,3 +1,4 @@
+import { specialistExecutionPermit } from "./resource-governor.js";
 import { randomUUID } from "node:crypto";
 import { enforceHumanAccessHtml } from "./master-closer.js";
 import { evaluateSmartleadWebhookThreadFallback } from "./smartlead-reply-fallback-evidence.js";
@@ -260,6 +261,8 @@ export function startSmartleadReplyCloserWorker() {
   let backpressureFailures = 0;
   const schedule = delayMs => { if (timer) clearTimeout(timer); timer = setTimeout(tick, delayMs); timer.unref?.(); };
   const tick = async () => {
+    const permit = specialistExecutionPermit("smartlead-reply-closer");
+    if (!permit.allowed) { console.warn("SMARTLEAD_REPLY_CLOSER_CORE_PRESSURE", JSON.stringify({ reason: permit.reason, retryAfterMs: permit.retryAfterMs })); schedule(permit.retryAfterMs); return; }
     let result = null, error = null;
     try { result = await runSmartleadReplyCloserOnce(); }
     catch (caught) { error = caught; console.error("SMARTLEAD_REPLY_CLOSER_ERROR", clean(caught?.stack || caught, 1200)); }
