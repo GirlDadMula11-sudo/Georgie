@@ -60,6 +60,9 @@ button:focus-visible,a:focus-visible,input:focus-visible,summary:focus-visible{o
 .topbar-actions .voice-output-toggle{position:static;inset:auto;width:42px;height:42px;border-radius:14px;background:rgba(255,255,255,.025);border-color:var(--hairline)}
 .micro-button{position:static;width:42px;height:42px;border-radius:14px;font-size:16px;background:rgba(255,255,255,.025);border-color:var(--hairline)}
 .desktop-system-label{padding:7px 10px;border:1px solid rgba(216,184,106,.22);border-radius:999px;color:var(--gold-soft);font-size:9px;letter-spacing:.14em}
+.desktop-install-button{height:36px;padding:0 13px;border:1px solid rgba(67,217,245,.22);border-radius:12px;background:rgba(67,217,245,.055);color:var(--cyan-soft);font-size:10px;font-weight:750;letter-spacing:.04em}
+.desktop-install-button:hover{border-color:rgba(67,217,245,.48);background:rgba(67,217,245,.1);transform:translateY(-1px)}
+.desktop-install-button[hidden]{display:none}
 
 .workspace-layout{display:grid;grid-template-columns:minmax(280px,340px) minmax(0,1fr);align-items:start;gap:22px}
 .identity-rail,.conversation-panel,.workspace-details{
@@ -140,7 +143,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,summary:focus-visible{o
   .app-shell{width:min(720px,100%);padding-left:14px;padding-right:14px;gap:14px}
   .topbar{position:sticky;z-index:20;top:0;margin:calc(-1 * max(18px,env(safe-area-inset-top))) -14px 0;padding:max(12px,env(safe-area-inset-top)) 14px 11px;background:rgba(5,13,22,.86);backdrop-filter:blur(22px);grid-template-columns:42px 1fr auto}
   .menu-button{order:1}.brand{order:2;justify-self:center}.brand img{width:38px;height:38px}.brand strong{font-size:18px}.brand span{display:none}
-  .topbar-actions{order:3}.desktop-system-label,.micro-button{display:none}.topbar-actions .voice-output-toggle{width:42px;height:42px}
+  .topbar-actions{order:3}.desktop-system-label,.desktop-install-button,.micro-button{display:none}.topbar-actions .voice-output-toggle{width:42px;height:42px}
   .workspace-layout{display:block}
   .identity-rail{position:relative;top:auto;padding:17px;border-radius:22px}
   .compact-identity{grid-template-columns:84px 1fr;justify-items:start;text-align:left;gap:14px}

@@ -6,9 +6,16 @@ const read = path => fs.readFileSync(new URL(`../${path}`, import.meta.url), "ut
 
 test("Georgie visual system preserves every interactive runtime anchor", () => {
   const html = read("public/index.html");
-  for (const id of ["enrollmentGate", "notificationButton", "voiceOutputToggle", "presenceState", "continuityState", "status", "conversation", "attachmentTray", "textForm", "attachmentInput", "attachmentButton", "textInput", "voiceButton", "voiceLabel", "handsFreeToggle", "voiceOutputState", "workspaceDetails"]) {
+  for (const id of ["enrollmentGate", "installButton", "notificationButton", "voiceOutputToggle", "presenceState", "continuityState", "status", "conversation", "attachmentTray", "textForm", "attachmentInput", "attachmentButton", "textInput", "voiceButton", "voiceLabel", "handsFreeToggle", "voiceOutputState", "workspaceDetails"]) {
     assert.match(html, new RegExp(`id=["']${id}["']`), `missing #${id}`);
   }
+});
+
+test("desktop installation is offered only when the browser supplies an install prompt", () => {
+  const pwa = read("public/pwa.js");
+  assert.match(pwa, /beforeinstallprompt/);
+  assert.match(pwa, /installButton\.hidden = !deferredInstallPrompt/);
+  assert.match(pwa, /installButton\?\.addEventListener\("click", installGeorgie\)/);
 });
 
 test("mobile and desktop layouts use the canonical Georgie brand assets", () => {
