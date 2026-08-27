@@ -11,12 +11,21 @@ test("detects cross-asset investment language without contaminating ordinary tur
   assert.equal(isInvestmentIntent("Plan a family trip"), false);
 });
 
-test("routes investment work to a frontier, current-evidence path", () => {
-  const route = intelligenceRoute("Research the latest Ethereum price and investment risks");
-  assert.equal(route.domain, "investments");
-  assert.equal(route.tier, "frontier");
-  assert.equal(route.requiresCurrentEvidence, true);
-  assert.equal(runtimePolicy("Check the latest Bitcoin price").allowWebTool, true);
+test("routes investment work to an explicitly enabled frontier, current-evidence path", () => {
+  const previous = process.env.GEORGIE_FRONTIER_INFERENCE_ENABLED;
+  process.env.GEORGIE_FRONTIER_INFERENCE_ENABLED = "true";
+  try {
+    const route = intelligenceRoute("Research the latest Ethereum price and investment risks");
+    assert.equal(route.domain, "investments");
+    assert.equal(route.requestedTier, "frontier");
+    assert.equal(route.tier, "frontier");
+    assert.equal(route.costPolicy.frontierEnabled, true);
+    assert.equal(route.requiresCurrentEvidence, true);
+    assert.equal(runtimePolicy("Check the latest Bitcoin price").allowWebTool, true);
+  } finally {
+    if (previous == null) delete process.env.GEORGIE_FRONTIER_INFERENCE_ENABLED;
+    else process.env.GEORGIE_FRONTIER_INFERENCE_ENABLED = previous;
+  }
 });
 
 test("activates a dedicated domain pack", () => {
