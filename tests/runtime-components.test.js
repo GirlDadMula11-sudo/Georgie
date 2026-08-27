@@ -23,3 +23,10 @@ test("worker profile cannot start a second objective authority", () => {
   assert.equal(worker.some(component => component.role === "kernel"), false);
   assert.equal(worker.some(component => component.id === "objective-worker"), false);
 });
+
+test("server delegates every background lifecycle to the runtime registry", async () => {
+  const server = await import("node:fs/promises").then(fs => fs.readFile(new URL("../src/server.js", import.meta.url), "utf8"));
+  const directStarts = server.match(/^start[A-Z][A-Za-z0-9]*\(\);$/gm) || [];
+  assert.deepEqual(directStarts, []);
+  assert.ok(RUNTIME_COMPONENTS.some(component => component.id === "email-intelligence"));
+});
