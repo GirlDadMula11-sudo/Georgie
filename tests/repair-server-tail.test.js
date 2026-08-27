@@ -13,7 +13,7 @@ const digest = value => createHash("sha256").update(value).digest("hex");
 test("startup tail repair preserves a healthy governed connector registration", async () => {
   const before = await readFile(serverPath, "utf8");
   assert.match(before, /app\.use\("\/mcp",createPortableMcpRouter/);
-  assert.match(before, /startEngineeringCoordinator\(\)/);
+  assert.doesNotMatch(before, /^start[A-Z][A-Za-z0-9]*\(\);$/m);
 
   const result = spawnSync(process.execPath, [repairPath.pathname], {
     cwd: new URL("..", import.meta.url).pathname,
@@ -26,7 +26,7 @@ test("startup tail repair preserves a healthy governed connector registration", 
   const after = await readFile(serverPath, "utf8");
   assert.equal(digest(after), digest(before));
   assert.match(after, /app\.use\("\/mcp",createPortableMcpRouter/);
-  assert.match(after, /startEngineeringCoordinator\(\)/);
+  assert.doesNotMatch(after, /^start[A-Z][A-Za-z0-9]*\(\);$/m);
 });
 
 test("v2 activation preserves connector routes registered after completeTurn", async () => {

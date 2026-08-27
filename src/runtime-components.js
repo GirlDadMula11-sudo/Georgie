@@ -10,18 +10,32 @@ import { startSeoMonitorScheduler } from "./seo-monitor.js";
 import { startSmartleadReplyCloserWorker } from "./smartlead-reply-closer-worker.js";
 import { startLenderDeliveryWorker } from "./lender-delivery-worker.js";
 import { startSierraClosingOutreachWorker } from "./sierra-closing-outreach-worker.js";
+import { startMobileTurnRecovery } from "./mobile-router.js";
+import { startProactiveEngine } from "./proactive.js";
+import { startEmailIntelligence } from "./email-worker.js";
+import { startWorldStateSentinel } from "./world-state-sentinel.js";
+import { startRevenueController } from "./revenue-controller.js";
+import { startIntelligenceControlMap } from "./intelligence-control-map.js";
+import { startConnectorHeartbeatMonitor } from "./connector-oauth.js";
 
 // Phase 1 authority map. Runtime components may start only through this registry.
 // `authority` describes the state a component may own; `observer` components may
 // inspect and recommend but must not become competing objective authorities.
 export const RUNTIME_COMPONENTS = Object.freeze([
   { id: "cloud-state-recovery", profiles: ["web", "worker"], role: "recovery", authority: "cloud-state-mirror", start: startCloudStateRecovery },
+  { id: "mobile-turn-recovery", profiles: ["web"], role: "recovery", authority: "mobile-turns", start: startMobileTurnRecovery },
+  { id: "proactive-engine", profiles: ["web"], role: "scheduler", authority: "proactive-events", start: startProactiveEngine },
+  { id: "email-intelligence", profiles: ["web"], role: "executor", authority: "neo-mail-triage", start: startEmailIntelligence },
   { id: "approval-dispatch", profiles: ["web", "worker"], role: "executor", authority: "approved-tool-dispatch", start: startApprovalDispatchWorker },
   { id: "maintenance-sentinel", profiles: ["web", "worker"], role: "observer", authority: null, start: startMaintenanceSentinel },
   { id: "reconciliation", profiles: ["web", "worker"], role: "observer", authority: null, start: startReconciliationWorkers },
   { id: "self-evolution", profiles: ["web", "worker"], role: "observer", authority: null, start: startSelfEvolution },
   { id: "background-operating-layer", profiles: ["web", "worker"], role: "observer", authority: null, start: startBackgroundOperatingLayer },
   { id: "engineering-coordinator", profiles: ["web", "worker"], role: "executor", authority: "engineering-handoffs", start: startEngineeringCoordinator },
+  { id: "world-state-sentinel", profiles: ["web"], role: "observer", authority: null, start: startWorldStateSentinel },
+  { id: "revenue-controller", profiles: ["web"], role: "observer", authority: null, start: startRevenueController },
+  { id: "intelligence-control-map", profiles: ["web"], role: "observer", authority: null, start: startIntelligenceControlMap },
+  { id: "connector-heartbeat", profiles: ["web"], role: "observer", authority: null, start: startConnectorHeartbeatMonitor },
   { id: "objective-worker", profiles: ["web"], role: "kernel", authority: "objective-lifecycle", start: startObjectiveWorker },
   { id: "seo-monitor", profiles: ["web"], role: "scheduler", authority: "seo-schedule", start: startSeoMonitorScheduler },
   { id: "smartlead-reply-closer", profiles: ["web", "worker"], role: "executor", authority: "smartlead-replies", start: startSmartleadReplyCloserWorker },
