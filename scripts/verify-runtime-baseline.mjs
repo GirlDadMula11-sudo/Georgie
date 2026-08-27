@@ -15,12 +15,19 @@ const requiredMarkers = new Map([
   ["src/capability-manifest.js", ["runtimeAuthority", "sourceMutationDuringStartup: false", "specialistFailureIsolation: true", "coreFirstStartup: true"]],
   ["src/runtime-components.js", ["SPECIALIST_COMPONENT_IDS", "Georgie specialist isolated", 'component.plane === "core"', "scheduleRuntimePlane", "SPECIALIST_START_DELAY_MS"]],
   ["src/runtime.js", ['plane: "core"', 'scheduleRuntimePlane("web", "specialist")']],
+  ["src/resource-governor.js", ["specialistExecutionPermit", "core_reasoning_queued", "event_loop_pressure"]],
+  ["src/seo-monitor.js", ['specialistExecutionPermit("seo-monitor")']],
+  ["src/smartlead-reply-closer-worker.js", ['specialistExecutionPermit("smartlead-reply-closer")']],
+  ["src/lender-delivery-worker.js", ['specialistExecutionPermit("lender-delivery")']],
+  ["src/sierra-closing-outreach-worker.js", ['specialistExecutionPermit("sierra-closing-outreach")']],
 ]);
 const syntaxFiles = [
   "src/runtime.js", "src/runtime-components.js", "src/server.js", "src/objective-worker.js",
   "src/tools.js", "src/smartlead-reply-closer-worker.js", "src/capability-orchestrator.js",
   "src/github-receipt-relay.js", "src/github-control-inbound.js", "src/governed-connector.js",
-  "src/fast-intents.js", "src/capability-manifest.js", "mac-agent/agent.js",
+  "src/fast-intents.js", "src/capability-manifest.js", "src/resource-governor.js",
+  "src/seo-monitor.js", "src/smartlead-reply-closer-worker.js", "src/lender-delivery-worker.js",
+  "src/sierra-closing-outreach-worker.js", "mac-agent/agent.js",
 ];
 
 const registry = validateRuntimeRegistry();
