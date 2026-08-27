@@ -1,7 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
+import os from "node:os";
+import path from "node:path";
 import { enqueueMacJob, claimMacJobs, completeMacJob, importRecoveredMacJob, listMacJobs, reconcileMacDispatches, repairRecoveredMailboxPayload, resumeFailedMacJob, versionRecoverableMailboxJob } from "../src/mac/queue.js";
+
+// Node runs test files concurrently. Give this file a private physical queue so
+// another suite cannot claim its jobs from the shared on-disk `primary` queue.
+process.env.GEORGIE_DATA_DIR = path.join(os.tmpdir(), `georgie-mac-dispatch-integrity-${process.pid}`);
 
 test("recovered Mac job import preserves identity and rejects conflicts",async()=>{
   const nonce=crypto.randomBytes(20).toString("hex"),root=`idem-${crypto.randomBytes(20).toString("hex")}`;
