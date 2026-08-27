@@ -21,7 +21,9 @@ import { startConnectorHeartbeatMonitor } from "./connector-oauth.js";
 // Phase 1 authority map. Runtime components may start only through this registry.
 // `authority` describes the state a component may own; `observer` components may
 // inspect and recommend but must not become competing objective authorities.
-export const RUNTIME_COMPONENTS = Object.freeze([
+const SPECIALIST_COMPONENT_IDS = new Set(["seo-monitor", "smartlead-reply-closer", "lender-delivery", "sierra-closing-outreach"]);
+
+const COMPONENT_DEFINITIONS = [
   { id: "cloud-state-recovery", profiles: ["web", "worker"], role: "recovery", authority: "cloud-state-mirror", start: startCloudStateRecovery },
   { id: "mobile-turn-recovery", profiles: ["web"], role: "recovery", authority: "mobile-turns", start: startMobileTurnRecovery },
   { id: "proactive-engine", profiles: ["web"], role: "scheduler", authority: "proactive-events", start: startProactiveEngine },
@@ -41,7 +43,12 @@ export const RUNTIME_COMPONENTS = Object.freeze([
   { id: "smartlead-reply-closer", profiles: ["web", "worker"], role: "executor", authority: "smartlead-replies", start: startSmartleadReplyCloserWorker },
   { id: "lender-delivery", profiles: ["web"], role: "executor", authority: "lender-delivery", start: startLenderDeliveryWorker },
   { id: "sierra-closing-outreach", profiles: ["web", "worker"], role: "executor", authority: "closing-outreach", start: startSierraClosingOutreachWorker },
-]);
+];
+
+export const RUNTIME_COMPONENTS = Object.freeze(COMPONENT_DEFINITIONS.map(component => Object.freeze({
+  ...component,
+  plane: SPECIALIST_COMPONENT_IDS.has(component.id) ? "specialist" : "core"
+})));
 
 export function validateRuntimeRegistry(components = RUNTIME_COMPONENTS) {
   const ids = new Set();
@@ -51,7 +58,9 @@ export function validateRuntimeRegistry(components = RUNTIME_COMPONENTS) {
     ids.add(component?.id);
     if (!Array.isArray(component?.profiles) || !component.profiles.length) errors.push(`missing-profile:${component?.id}`);
     if (typeof component?.start !== "function") errors.push(`missing-start:${component?.id}`);
+    if (!["core", "specialist"].includes(component?.plane)) errors.push(`invalid-plane:${component?.id}`);
     if (component?.role === "kernel" && component?.authority !== "objective-lifecycle") errors.push(`invalid-kernel-authority:${component?.id}`);
+    if (component?.role === "kernel" && component?.plane !== "core") errors.push(`specialist-kernel:${component?.id}`);
   }
   const kernels = components.filter(component => component.role === "kernel");
   if (kernels.length !== 1) errors.push(`kernel-count:${kernels.length}`);
@@ -62,16 +71,24 @@ export function componentsForProfile(profile, components = RUNTIME_COMPONENTS) {
   return components.filter(component => component.profiles.includes(profile));
 }
 
-export function startRuntimeProfile(profile, { logger = console } = {}) {
-  const validation = validateRuntimeRegistry();
+export function startRuntimeProfile(profile, { logger = console, components = RUNTIME_COMPONENTS } = {}) {
+  const validation = validateRuntimeRegistry(components);
   if (!validation.ok) throw new Error(`Invalid Georgie runtime registry: ${validation.errors.join(",")}`);
-  const selected = componentsForProfile(profile);
+  const selected = componentsForProfile(profile, components);
   if (!selected.length) throw new Error(`Unknown or empty Georgie runtime profile: ${profile}`);
   const started = [];
+  const degraded = [];
   for (const component of selected) {
-    component.start();
-    started.push(component.id);
+    try {
+      component.start();
+      started.push(component.id);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      if (component.plane === "core") throw new Error(`Core runtime component failed: ${component.id}: ${detail}`, { cause: error });
+      degraded.push({ id: component.id, error: detail });
+      logger.warn(`Georgie specialist isolated: ${component.id}: ${detail}`);
+    }
   }
   logger.log(`Georgie ${profile} profile online (${started.join(", ")})`);
-  return { profile, started, kernel: validation.kernel };
+  return { profile, started, degraded, kernel: validation.kernel };
 }

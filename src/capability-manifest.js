@@ -65,7 +65,12 @@ export function getCapabilityManifest() {
         objectiveKernelCount: RUNTIME_COMPONENTS.filter(component => component.role === "kernel").length,
         sourceMutationDuringStartup: false,
         emergencyNeoBackfillInNormalStartup: false,
-        durableNeoBackoffEnabled: true
+        durableNeoBackoffEnabled: true,
+        executionPlanes: {
+          core: RUNTIME_COMPONENTS.filter(component => component.plane === "core").map(component => component.id),
+          specialist: RUNTIME_COMPONENTS.filter(component => component.plane === "specialist").map(component => component.id)
+        },
+        specialistFailureIsolation: true
       }
     },
     productArchitecture: {
