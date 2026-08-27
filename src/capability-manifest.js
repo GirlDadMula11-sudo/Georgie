@@ -17,6 +17,7 @@ import { deploymentControlStatus } from "./integrations/deployment-control.js";
 import { seoIntegrationStatus, websiteControlStatus } from "./integrations/seo-ops.js";
 import { objectiveWorkerStatus } from "./objective-worker.js";
 import { githubEngineeringStatus } from "./integrations/github-engineering.js";
+import { RUNTIME_COMPONENTS, validateRuntimeRegistry } from "./runtime-components.js";
 
 function configured(value) {
   return value ? "configured" : "not_configured";
@@ -33,6 +34,7 @@ export function getCapabilityManifest() {
   const macDevices = getMacDeviceStatus();
   const memoryStorage = getMemoryStorageStatus();
   const operationalStorage = cloudStateStatus();
+  const runtimeRegistry = validateRuntimeRegistry();
 
   return {
     generatedAt: new Date().toISOString(),
@@ -53,7 +55,18 @@ export function getCapabilityManifest() {
       unfinishedWorkRecovery: true,
       approvalGates: true,
       killSwitchActive: process.env.GEORGIE_AUTOMATION_KILL_SWITCH === "true",
-      fallbackChannels: ["web", "native_ios", "mac_agent", "push_notifications", "neo_mail"]
+      fallbackChannels: ["web", "native_ios", "mac_agent", "push_notifications", "neo_mail"],
+      runtimeAuthority: {
+        valid: runtimeRegistry.ok,
+        startupAuthority: "runtime-components",
+        componentCount: runtimeRegistry.componentCount,
+        components: RUNTIME_COMPONENTS.map(component => component.id),
+        objectiveLifecycleKernel: runtimeRegistry.kernel,
+        objectiveKernelCount: RUNTIME_COMPONENTS.filter(component => component.role === "kernel").length,
+        sourceMutationDuringStartup: false,
+        emergencyNeoBackfillInNormalStartup: false,
+        durableNeoBackoffEnabled: true
+      }
     },
     productArchitecture: {
       identity: "universal_operating_intelligence",

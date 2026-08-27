@@ -10,11 +10,15 @@ const requiredMarkers = new Map([
   ["src/server.js", ["createGithubReceiptRelayRouter", "createGithubControlInboundRouter"]],
   ["src/smartlead-reply-closer-worker.js", ["SMARTLEAD_REPLY_CLOSER_AUTHORITY_START_ERROR"]],
   ["mac-agent/agent.js", ["browser.wordpress_enable_application_passwords"]],
+  ["src/governed-connector.js", ["failedActions=Array.isArray(result?.actions)", "||failedActions"]],
+  ["src/fast-intents.js", ["georgieRuntimeSelfInspection", 'scope: "runtime_authority"']],
+  ["src/capability-manifest.js", ["runtimeAuthority", "sourceMutationDuringStartup: false"]],
 ]);
 const syntaxFiles = [
   "src/runtime.js", "src/runtime-components.js", "src/server.js", "src/objective-worker.js",
   "src/tools.js", "src/smartlead-reply-closer-worker.js", "src/capability-orchestrator.js",
-  "src/github-receipt-relay.js", "src/github-control-inbound.js", "mac-agent/agent.js",
+  "src/github-receipt-relay.js", "src/github-control-inbound.js", "src/governed-connector.js",
+  "src/fast-intents.js", "src/capability-manifest.js", "mac-agent/agent.js",
 ];
 
 const registry = validateRuntimeRegistry();
