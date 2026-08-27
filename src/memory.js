@@ -11,6 +11,8 @@ const EMPTY_STORE = { version: 1, profiles: {}, memories: [], sessions: {} };
 const CLOUD_URL = String(process.env.GEORGIE_SUPABASE_URL || "").replace(/\/$/, "");
 const CLOUD_KEY = String(process.env.GEORGIE_SUPABASE_SERVICE_ROLE_KEY || "");
 const CLOUD_ENABLED = Boolean(CLOUD_URL && CLOUD_KEY);
+const MEMORY_READ_TIMEOUT_MS = Math.max(25, Math.min(1500, Number(process.env.GEORGIE_MEMORY_READ_TIMEOUT_MS || 500)));
+const MEMORY_WRITE_TIMEOUT_MS = Math.max(500, Math.min(10000, Number(process.env.GEORGIE_MEMORY_WRITE_TIMEOUT_MS || 6000)));
 let writeQueue = Promise.resolve();
 let lastCloudError = null;
 let activeDataDir = null;
@@ -20,9 +22,9 @@ function now(){return new Date().toISOString();}
 function normalizeUserId(value){return String(value||"primary").trim().slice(0,100)||"primary";}
 function normalizeStore(parsed){return {...EMPTY_STORE,...(parsed||{}),profiles:parsed?.profiles||{},memories:Array.isArray(parsed?.memories)?parsed.memories:[],sessions:parsed?.sessions||{}};}
 function cloudHeaders(){return {"content-type":"application/json","apikey":CLOUD_KEY,"authorization":`Bearer ${CLOUD_KEY}`};}
-async function cloudRpc(name,body){const response=await fetch(`${CLOUD_URL}/rest/v1/rpc/${name}`,{method:"POST",headers:cloudHeaders(),body:JSON.stringify(body),signal:AbortSignal.timeout(6000)});if(!response.ok)throw new Error(`Cloud state ${name} failed (${response.status})`);return response.json();}
-async function cloudRead(userId){const result=await cloudRpc("georgie_get_state",{p_user_id:normalizeUserId(userId)});lastCloudError=null;return normalizeStore(result);}
-async function cloudWrite(userId,store){await cloudRpc("georgie_put_state",{p_user_id:normalizeUserId(userId),p_state:store});lastCloudError=null;}
+async function cloudRpc(name,body,timeoutMs){const response=await fetch(`${CLOUD_URL}/rest/v1/rpc/${name}`,{method:"POST",headers:cloudHeaders(),body:JSON.stringify(body),signal:AbortSignal.timeout(timeoutMs)});if(!response.ok)throw new Error(`Cloud state ${name} failed (${response.status})`);return response.json();}
+async function cloudRead(userId){const result=normalizeStore(await cloudRpc("georgie_get_state",{p_user_id:normalizeUserId(userId)},MEMORY_READ_TIMEOUT_MS));memoryFallback=structuredClone(result);lastCloudError=null;return result;}
+async function cloudWrite(userId,store){await cloudRpc("georgie_put_state",{p_user_id:normalizeUserId(userId),p_state:store},MEMORY_WRITE_TIMEOUT_MS);lastCloudError=null;}
 
 async function resolveLocalDataDir(){
   if(activeDataDir)return activeDataDir;
@@ -72,10 +74,10 @@ async function localWrite(store){
 }
 
 async function readStore(userId="primary"){if(CLOUD_ENABLED){try{return await cloudRead(userId);}catch(error){lastCloudError=error instanceof Error?error.message:String(error);console.warn("Georgie cloud memory unavailable; using resilient local fallback:",lastCloudError);}}return localRead();}
-async function writeStore(userId,store){const task=async()=>{if(CLOUD_ENABLED){try{await cloudWrite(userId,store);return;}catch(error){lastCloudError=error instanceof Error?error.message:String(error);console.warn("Georgie cloud memory write unavailable; persisting fallback copy:",lastCloudError);}}await localWrite(store);};writeQueue=writeQueue.then(task,task);return writeQueue;}
+async function writeStore(userId,store){const task=async()=>{await localWrite(store);if(CLOUD_ENABLED){try{await cloudWrite(userId,store);}catch(error){lastCloudError=error instanceof Error?error.message:String(error);console.warn("Georgie cloud memory write unavailable; durable local mirror retained:",lastCloudError);}}};writeQueue=writeQueue.then(task,task);return writeQueue;}
 function tokenize(value){return new Set(String(value||"").toLowerCase().replace(/[^a-z0-9\s]/g," ").split(/\s+/).filter(word=>word.length>2));}
 function scoreMemory(memory,queryTokens){return scoreMemoryCandidate(memory,[...queryTokens].join(" "));}
-export function getMemoryStorageStatus(){const localMode=activeDataDir===PREFERRED_DATA_DIR?"local_disk":activeDataDir?"runtime_temp":"memory";return {mode:CLOUD_ENABLED?"durable_cloud":localMode,durable:CLOUD_ENABLED||activeDataDir===PREFERRED_DATA_DIR,provider:CLOUD_ENABLED?"supabase":localMode,healthy:CLOUD_ENABLED?!lastCloudError:true,lastError:lastCloudError,path:activeDataDir};}
+export function getMemoryStorageStatus(){const localMode=activeDataDir===PREFERRED_DATA_DIR?"local_disk":activeDataDir?"runtime_temp":"memory";return {mode:CLOUD_ENABLED?"durable_cloud_with_local_mirror":localMode,durable:CLOUD_ENABLED||activeDataDir===PREFERRED_DATA_DIR,provider:CLOUD_ENABLED?"supabase":localMode,healthy:CLOUD_ENABLED?!lastCloudError:true,lastError:lastCloudError,path:activeDataDir,foregroundReadBudgetMs:MEMORY_READ_TIMEOUT_MS,backgroundWriteBudgetMs:MEMORY_WRITE_TIMEOUT_MS,localMirror:true};}
 export async function getProfile(userId="primary"){const id=normalizeUserId(userId);const store=await readStore(id);return store.profiles[id]||{userId:id,createdAt:now(),updatedAt:now(),attributes:{}};}
 export async function updateProfile(userId="primary",patch={}){const id=normalizeUserId(userId);const store=await readStore(id);const current=store.profiles[id]||{userId:id,createdAt:now(),attributes:{}};const attributes={...(current.attributes||{}),...((patch&&typeof patch.attributes==="object"&&patch.attributes)||{})};store.profiles[id]={...current,...patch,userId:id,attributes,createdAt:current.createdAt||now(),updatedAt:now()};await writeStore(id,store);return store.profiles[id];}
 export async function addMemory({userId="primary",text,category="fact",importance=0.5,tags=[],source="conversation",sourceType=null,sourceRef=null,confidence=0.7,status="active",observedAt=null}){if(!text?.trim())return null;const id=normalizeUserId(userId);const store=await readStore(id);const normalized=text.trim().slice(0,2000);const duplicate=store.memories.find(memory=>memory.userId===id&&memory.text.toLowerCase()===normalized.toLowerCase());if(duplicate){duplicate.updatedAt=now();duplicate.importance=Math.max(duplicate.importance||0,Number(importance)||0);duplicate.tags=[...new Set([...(duplicate.tags||[]),...tags.map(String)])].slice(0,12);await writeStore(id,store);return duplicate;}const memory={id:crypto.randomUUID(),userId:id,text:normalized,category:String(category||"fact").slice(0,50),importance:Math.max(0,Math.min(1,Number(importance)||0.5)),tags:[...new Set(tags.map(String))].slice(0,12),source,sourceType:sourceType||source,sourceRef:sourceRef?String(sourceRef).slice(0,500):null,confidence:Math.max(0,Math.min(1,Number(confidence)||0.7)),status:["active","verified","conflicted","superseded"].includes(status)?status:"active",observedAt:observedAt||now(),createdAt:now(),updatedAt:now()};store.memories.push(memory);if(store.memories.length>5000)store.memories=store.memories.slice(-5000);await writeStore(id,store);return memory;}
