@@ -17,7 +17,7 @@ import { deploymentControlStatus } from "./integrations/deployment-control.js";
 import { seoIntegrationStatus, websiteControlStatus } from "./integrations/seo-ops.js";
 import { objectiveWorkerStatus } from "./objective-worker.js";
 import { githubEngineeringStatus } from "./integrations/github-engineering.js";
-import { RUNTIME_COMPONENTS, validateRuntimeRegistry } from "./runtime-components.js";
+import { RUNTIME_COMPONENTS, SPECIALIST_START_DELAY_MS, validateRuntimeRegistry } from "./runtime-components.js";
 
 function configured(value) {
   return value ? "configured" : "not_configured";
@@ -70,7 +70,9 @@ export function getCapabilityManifest() {
           core: RUNTIME_COMPONENTS.filter(component => component.plane === "core").map(component => component.id),
           specialist: RUNTIME_COMPONENTS.filter(component => component.plane === "specialist").map(component => component.id)
         },
-        specialistFailureIsolation: true
+        specialistFailureIsolation: true,
+        coreFirstStartup: true,
+        specialistStartDelayMs: SPECIALIST_START_DELAY_MS
       }
     },
     productArchitecture: {
