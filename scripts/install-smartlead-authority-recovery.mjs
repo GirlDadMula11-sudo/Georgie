@@ -23,7 +23,7 @@ replaceRequired(
   "authority retry timer"
 );
 
-replaceRequired(
+if (!source.includes('const retryDelays = [120_000, 180_000, 240_000, 300_000];')) replaceRequired(
 `export function startSmartleadReplyCloserWorker() {
   if (timer || !configured()) { if (!configured()) console.warn("Smartlead reply closer worker not started: Sierra/Smartlead runtime configuration missing"); return; }
   let backpressureFailures = 0;
