@@ -8,7 +8,15 @@ import { buildEmailOperatingModel } from "./email-learning.js";
 import { processSierraInboundCorrespondence } from "./client-correspondence.js";
 
 let timer=null;let running=false;let startupChecksStarted=false;const NS="email_state";const USER=()=>process.env.GEORGIE_PRIMARY_USER_ID||"primary";
-async function readState(){const s=await readCloudState(USER(),NS,{processed:{}});return{processed:s.processed&&typeof s.processed==="object"?s.processed:{}};}
+const RETRY_BASE_MS=5*60_000,RETRY_CAP_MS=6*60*60_000;
+export function neoRetryDelayMs(attempts){return Math.min(RETRY_CAP_MS,RETRY_BASE_MS*2**Math.max(0,Math.min(12,Number(attempts||1)-1)));}
+export function neoRetryDue(failure,at=Date.now()){const next=new Date(failure?.nextAttemptAt||0).getTime();return !Number.isFinite(next)||next<=at;}
+export function recordNeoFailure(failures,mailboxId,uid,error,at=Date.now()){
+  failures[mailboxId]||={};const key=String(uid),prior=failures[mailboxId][key]||{},attempts=Number(prior.attempts||0)+1;
+  failures[mailboxId][key]={attempts,lastAttemptAt:new Date(at).toISOString(),nextAttemptAt:new Date(at+neoRetryDelayMs(attempts)).toISOString(),lastError:String(error||"unknown error").slice(0,500)};
+  return failures[mailboxId][key];
+}
+async function readState(){const s=await readCloudState(USER(),NS,{processed:{},failures:{}});return{processed:s.processed&&typeof s.processed==="object"?s.processed:{},failures:s.failures&&typeof s.failures==="object"?s.failures:{}};}
 async function writeState(state){await writeCloudState(USER(),NS,state);}
 function safeDueAt(value){if(!value)return null;const date=new Date(value);return Number.isFinite(date.getTime())?date.toISOString():null;}
 function emailDomain(mailbox,triage){if(mailbox.id==="submissions"||mailbox.role==="lender_submissions"||mailbox.role==="georgie_closer"||mailbox.role==="client_correspondence")return"sierra";const proposed=String(triage.domain||"uncertain");return["personal","household","sierra","uncertain"].includes(proposed)?proposed:"uncertain";}
@@ -16,9 +24,10 @@ function correspondenceComplete(result){if(!result?.matched)return false;const c
 async function processMailbox(mailbox,state){
   const userId=USER();
   const recent=await listRecentMessages(mailbox.id,{limit:Number(process.env.GEORGIE_EMAIL_SCAN_LIMIT||20),unseenOnly:true});
-  state.processed[mailbox.id]||={};
+  state.processed[mailbox.id]||={};state.failures[mailbox.id]||={};
+  const failureBudget=Math.max(1,Math.min(10,Number(process.env.GEORGIE_EMAIL_FAILURE_BUDGET||3)));let failuresThisCycle=0;
   for(const item of recent.reverse()){
-    const key=String(item.uid);if(state.processed[mailbox.id][key])continue;
+    const key=String(item.uid);if(state.processed[mailbox.id][key]||!neoRetryDue(state.failures[mailbox.id][key]))continue;
     try{
       const preview=await readMessage(mailbox.id,item.uid,{markSeen:false});
       const triage=await analyzeOperationalEmail(preview);
@@ -53,9 +62,12 @@ async function processMailbox(mailbox,state){
       if(priority==="high"||priority==="urgent"||triage.requiresAction)await enqueueEvent({userId,type:"email.triage",title:priority==="urgent"?`Urgent email: ${preview.subject||preview.from}`:`Email needs attention: ${preview.subject||preview.from}`,body:summary,priority,dedupeKey:`neo:${mailbox.id}:${item.uid}`,data:{domain,evidence,mailboxId:mailbox.id,uid:item.uid,from:preview.from,subject:preview.subject,category:triage.category||"other",requiresAction:Boolean(triage.requiresAction&&!actionAlreadyCompleted),action,dueAt,suggestedReply,confidence:Number(triage.confidence||0),correspondenceCompleted:Boolean(correspondence?.matched&&correspondenceComplete(correspondence))}});
 
       state.processed[mailbox.id][key]={at:new Date().toISOString(),domain,priority,category:triage.category||"other",requiresAction:Boolean(triage.requiresAction&&!actionAlreadyCompleted),evidence,correspondence:correspondence?.matched?{reference:correspondence.reference,completed:correspondenceComplete(correspondence),automaticReplySent:Boolean(correspondence.outbound),documentCount:Number(correspondence.ingestion?.verification?.document_count||0)}:null};
+      delete state.failures[mailbox.id][key];
       const keys=Object.keys(state.processed[mailbox.id]);if(keys.length>2000)for(const oldKey of keys.slice(0,keys.length-1500))delete state.processed[mailbox.id][oldKey];
-    }catch(error){console.warn(`Neo processing failed for ${mailbox.id}/${item.uid}:`,error instanceof Error?error.message:error);}
+    }catch(error){recordNeoFailure(state.failures,mailbox.id,item.uid,error instanceof Error?error.message:error);failuresThisCycle+=1;if(failuresThisCycle>=failureBudget)break;}
   }
+  const failedKeys=Object.keys(state.failures[mailbox.id]);if(failedKeys.length>2000)for(const oldKey of failedKeys.slice(0,failedKeys.length-1500))delete state.failures[mailbox.id][oldKey];
+  if(failuresThisCycle)console.warn(`Neo Mail ${mailbox.id} deferred ${failuresThisCycle} message(s) with durable backoff`);
 }
 export async function sweepNeoMail(){if(running||!neoMailConfigured())return;running=true;try{const state=await readState();for(const mailbox of listNeoMailboxes()){await processMailbox(mailbox,state);await writeState(state);}}catch(error){console.warn("Neo Mail sweep failed:",error instanceof Error?error.message:error);}finally{running=false;}}
 async function runStartupIntelligence(){if(startupChecksStarted)return;startupChecksStarted=true;try{await runConnectionCertification();}catch(error){console.warn("Connection certification failed:",error instanceof Error?error.message:error);}try{await buildEmailOperatingModel();}catch(error){console.warn("Email operating-model learning failed:",error instanceof Error?error.message:error);}}
