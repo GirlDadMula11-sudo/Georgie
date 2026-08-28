@@ -1,6 +1,6 @@
 # Sierra System Intelligence Routing
 
-Georgie is the central intelligence governor for Georgie and Sierra CRM processing. Sierra callers declare the work's requirements; they do not select a model directly.
+Georgie is the central intelligence governor for Georgie and Sierra CRM processing. Sierra callers declare the work's requirements; they do not select a model directly. Terra and Sol stay available, but Luna is always the first model attempt.
 
 ## Source order
 
@@ -11,7 +11,7 @@ Georgie is the central intelligence governor for Georgie and Sierra CRM processi
 5. GPT-5.6 Terra for operational judgment, synthesis, and ordinary Sierra exceptions.
 6. GPT-5.6 Sol for material financial, underwriting, production, security, architectural, or conflicting-evidence decisions.
 
-The cheapest source is used only when it meets the task's minimum intelligence requirement. Cost pressure must never silently turn a Sol-level conclusion into a Luna-level conclusion. When the minimum tier is unavailable, Georgie may triage, collect evidence, or queue work, but it cannot claim the final conclusion.
+After zero-spend sources, Georgie attempts Luna first. If the deterministic sufficiency gate rejects that attempt, it advances to Terra; if Terra is still insufficient, it advances to Sol. Cost pressure must never silently turn a Sol-level conclusion into a Luna-level conclusion. When the minimum tier is unavailable, Georgie may triage, collect evidence, or queue work, but it cannot claim the final conclusion.
 
 ## Request contract
 
@@ -19,7 +19,7 @@ Sierra work should provide an objective and, when known: domain, risk, uncertain
 
 ## Governance
 
-- Balanced and frontier inference remain explicit runtime capabilities.
+- Luna, Terra, and Sol are available by default; Terra and Sol settings are emergency kill switches, not normal routing controls.
 - Deterministic and cached results are preferred before model spend.
 - Every decision exposes why the tier was selected and whether it meets the minimum.
 - High-impact downgraded work is restricted to triage and evidence collection.
