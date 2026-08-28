@@ -26,6 +26,7 @@ const KERNEL_COMPONENT_IDS = new Set([
   "cloud-state-recovery",
   "mobile-turn-recovery",
   "approval-dispatch",
+  "engineering-coordinator",
   "objective-worker"
 ]);
 
