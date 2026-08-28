@@ -1,0 +1,54 @@
+name: Market Readiness
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: market-readiness-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser-journey:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run market:e2e
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: market-readiness-browser-evidence
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+
+  live-production:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify public production launch contract
+        env:
+          GEORGIE_PUBLIC_ORIGIN: https://georgie-kappa.vercel.app
+        run: npm run market:readiness
