@@ -43,10 +43,12 @@ test("kernel mode starts one objective authority and no autonomous specialists",
     "cloud-state-recovery",
     "mobile-turn-recovery",
     "approval-dispatch",
+    "engineering-coordinator",
     "objective-worker"
   ]);
   assert.equal(web.filter(component => component.role === "kernel").length, 1);
   assert.equal(web.some(component => component.plane === "specialist"), false);
+  assert.equal(web.some(component => component.id === "engineering-coordinator"), true);
 });
 
 test("server delegates every background lifecycle to the runtime registry", async () => {
