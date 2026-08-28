@@ -14,6 +14,7 @@ export function buildReadinessSnapshot({
   else if(memoryStorage.healthy===false)blockers.push("durable_memory_degraded");
   if(!operationalStorage?.enabled)blockers.push("durable_operational_state_not_connected");
   else if(operationalStorage.healthy===false||operationalStorage.degraded===true||operationalStorage.providerCircuitOpen===true)blockers.push("durable_operational_state_degraded");
+  else if(!operationalStorage.lastSuccessAt)blockers.push("durable_operational_state_unverified");
   const ready=blockers.length===0;
   return{
     ready,
