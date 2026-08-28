@@ -22,6 +22,19 @@ import { startConnectorHeartbeatMonitor } from "./connector-oauth.js";
 // `authority` describes the state a component may own; `observer` components may
 // inspect and recommend but must not become competing objective authorities.
 const SPECIALIST_COMPONENT_IDS = new Set(["seo-monitor", "smartlead-reply-closer", "lender-delivery", "sierra-closing-outreach"]);
+const KERNEL_COMPONENT_IDS = new Set([
+  "cloud-state-recovery",
+  "mobile-turn-recovery",
+  "approval-dispatch",
+  "objective-worker"
+]);
+
+export const RUNTIME_MODES = Object.freeze(["kernel", "full"]);
+
+export function runtimeMode(env = process.env) {
+  const requested = String(env.GEORGIE_RUNTIME_MODE || "kernel").trim().toLowerCase();
+  return RUNTIME_MODES.includes(requested) ? requested : "kernel";
+}
 
 const COMPONENT_DEFINITIONS = [
   { id: "cloud-state-recovery", profiles: ["web", "worker"], role: "recovery", authority: "cloud-state-mirror", start: startCloudStateRecovery },
@@ -69,14 +82,16 @@ export function validateRuntimeRegistry(components = RUNTIME_COMPONENTS) {
 
 export const SPECIALIST_START_DELAY_MS = Math.max(250, Math.min(30_000, Number(process.env.GEORGIE_SPECIALIST_START_DELAY_MS || 1_500)));
 
-export function componentsForProfile(profile, components = RUNTIME_COMPONENTS, plane = null) {
-  return components.filter(component => component.profiles.includes(profile) && (!plane || component.plane === plane));
+export function componentsForProfile(profile, components = RUNTIME_COMPONENTS, plane = null, mode = runtimeMode()) {
+  return components.filter(component => component.profiles.includes(profile)
+    && (!plane || component.plane === plane)
+    && (mode === "full" || KERNEL_COMPONENT_IDS.has(component.id)));
 }
 
-export function startRuntimeProfile(profile, { logger = console, components = RUNTIME_COMPONENTS, plane = null } = {}) {
+export function startRuntimeProfile(profile, { logger = console, components = RUNTIME_COMPONENTS, plane = null, mode = runtimeMode() } = {}) {
   const validation = validateRuntimeRegistry(components);
   if (!validation.ok) throw new Error(`Invalid Georgie runtime registry: ${validation.errors.join(",")}`);
-  const selected = componentsForProfile(profile, components, plane);
+  const selected = componentsForProfile(profile, components, plane, mode);
   if (!selected.length) throw new Error(`Unknown or empty Georgie runtime profile: ${profile}${plane ? `/${plane}` : ""}`);
   const started = [];
   const degraded = [];
@@ -91,20 +106,28 @@ export function startRuntimeProfile(profile, { logger = console, components = RU
       logger.warn(`Georgie specialist isolated: ${component.id}: ${detail}`);
     }
   }
-  logger.log(`Georgie ${profile}${plane ? `/${plane}` : ""} profile online (${started.join(", ")})`);
-  return { profile, plane, started, degraded, kernel: validation.kernel };
+  logger.log(`Georgie ${webProfile(profile, plane)} online in ${mode} mode (${started.join(", ")})`);
+  return { profile, plane, mode, started, degraded, kernel: validation.kernel };
 }
 
-export function scheduleRuntimePlane(profile, plane, { delayMs = SPECIALIST_START_DELAY_MS, logger = console, components = RUNTIME_COMPONENTS, schedule = setTimeout } = {}) {
+function webProfile(profile, plane) {
+  return `${profile}${plane ? `/${plane}` : ""} profile`;
+}
+
+export function scheduleRuntimePlane(profile, plane, { delayMs = SPECIALIST_START_DELAY_MS, logger = console, components = RUNTIME_COMPONENTS, schedule = setTimeout, mode = runtimeMode() } = {}) {
+  if (mode !== "full") {
+    logger.log(`Georgie ${webProfile(profile, plane)} disabled in ${mode} mode`);
+    return { profile, plane, mode, delayMs: null, timer: null, disabled: true };
+  }
   const boundedDelayMs = Math.max(0, Math.min(30_000, Number(delayMs) || 0));
   const timer = schedule(() => {
     try {
-      startRuntimeProfile(profile, { logger, components, plane });
+      startRuntimeProfile(profile, { logger, components, plane, mode });
     } catch (error) {
       logger.warn(`Georgie ${profile}/${plane} plane failed to start: ${error instanceof Error ? error.message : String(error)}`);
     }
   }, boundedDelayMs);
   timer?.unref?.();
   logger.log(`Georgie ${profile}/${plane} plane scheduled after ${boundedDelayMs}ms`);
-  return { profile, plane, delayMs: boundedDelayMs, timer };
+  return { profile, plane, mode, delayMs: boundedDelayMs, timer, disabled: false };
 }

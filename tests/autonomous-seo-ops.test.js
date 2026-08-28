@@ -8,7 +8,7 @@ import { componentsForProfile } from "../src/runtime-components.js";
 test("production start uses unified durable runtime", () => {
   const pkg=JSON.parse(fs.readFileSync(new URL("../package.json",import.meta.url),"utf8"));
   assert.match(pkg.scripts.start,/node src\/runtime\.js$/);
-  const componentIds=new Set(componentsForProfile("web").map(component=>component.id));
+  const componentIds=new Set(componentsForProfile("web", undefined, null, "full").map(component=>component.id));
   for(const id of ["objective-worker","engineering-coordinator","reconciliation","background-operating-layer"]) assert.ok(componentIds.has(id));
 });
 
