@@ -9,7 +9,7 @@ function baseline(overrides={}){
     sierraWorkforce:true,
     macAgent:false,
     memoryStorage:{durable:true,healthy:true},
-    operationalStorage:{enabled:true,healthy:true,degraded:false,providerCircuitOpen:false},
+    operationalStorage:{enabled:true,healthy:true,degraded:false,providerCircuitOpen:false,lastSuccessAt:"2026-08-28T17:00:00.000Z"},
     macQueue:{mode:"durable"},
     runtimeMode:"kernel",
     ...overrides
@@ -36,4 +36,11 @@ test("unhealthy durable memory fails readiness",()=>{
   assert.equal(snapshot.ready,false);
   assert.equal(readinessHttpStatus(snapshot),503);
   assert.deepEqual(snapshot.blockers,["durable_memory_degraded"]);
+});
+
+test("configured operational storage remains unready until a live read succeeds",()=>{
+  const snapshot=baseline({operationalStorage:{enabled:true,healthy:true,degraded:false,providerCircuitOpen:false,lastSuccessAt:null}});
+  assert.equal(snapshot.ready,false);
+  assert.equal(readinessHttpStatus(snapshot),503);
+  assert.deepEqual(snapshot.blockers,["durable_operational_state_unverified"]);
 });
