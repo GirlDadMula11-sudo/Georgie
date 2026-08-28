@@ -1,6 +1,10 @@
 import "dotenv/config";
 import "./server.js";
-import { scheduleRuntimePlane, startRuntimeProfile } from "./runtime-components.js";
+import { runtimeOwnsBackgroundWorkers, scheduleRuntimePlane, startRuntimeProfile } from "./runtime-components.js";
 
-startRuntimeProfile("web", { plane: "core" });
-scheduleRuntimePlane("web", "specialist");
+if (runtimeOwnsBackgroundWorkers()) {
+  startRuntimeProfile("web", { plane: "core" });
+  scheduleRuntimePlane("web", "specialist");
+} else {
+  console.log("Georgie request-serving runtime online; durable workers remain owned by the long-lived worker plane.");
+}

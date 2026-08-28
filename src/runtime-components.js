@@ -31,6 +31,10 @@ const KERNEL_COMPONENT_IDS = new Set([
 
 export const RUNTIME_MODES = Object.freeze(["kernel", "full"]);
 
+export function runtimeOwnsBackgroundWorkers(env = process.env) {
+  return !env.VERCEL && !env.AWS_LAMBDA_FUNCTION_NAME && !env.LAMBDA_TASK_ROOT;
+}
+
 export function runtimeMode(env = process.env) {
   const requested = String(env.GEORGIE_RUNTIME_MODE || "kernel").trim().toLowerCase();
   return RUNTIME_MODES.includes(requested) ? requested : "kernel";
