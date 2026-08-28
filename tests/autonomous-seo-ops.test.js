@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { seoIntegrationStatus, websiteControlStatus, sameWebsiteHost } from "../src/integrations/seo-ops.js";
-import { objectiveWorkerStatus } from "../src/objective-worker.js";
+import { objectiveLane, objectiveWorkerStatus } from "../src/objective-worker.js";
 import { componentsForProfile } from "../src/runtime-components.js";
 
 test("production start uses unified durable runtime", () => {
@@ -18,6 +18,17 @@ test("durable objective worker advertises restart recovery and approval awarenes
   assert.equal(status.restartRecovery,true);
   assert.equal(status.approvalAware,true);
   assert.equal(status.evidenceCheckpointing,true);
+  assert.equal(status.independentLaneWorkers,true);
+  assert.equal(status.leaseHeartbeats,true);
+  assert.equal(status.durableCompletionReceipts,true);
+  assert.deepEqual(status.lanes,["general","engineering","seo","closing"]);
+});
+
+test("business-critical work is routed into isolated execution lanes", () => {
+  assert.equal(objectiveLane("wordpress-seo"),"seo");
+  assert.equal(objectiveLane("verified-offer-closing-outreach"),"closing");
+  assert.equal(objectiveLane("sierra-crm-repair"),"engineering");
+  assert.equal(objectiveLane("personal"),"general");
 });
 
 test("SEO integration remains fail-closed when provider credentials are absent", () => {
