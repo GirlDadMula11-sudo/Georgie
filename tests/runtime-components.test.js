@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { componentsForProfile, RUNTIME_COMPONENTS, runtimeMode, validateRuntimeRegistry } from "../src/runtime-components.js";
+import { componentsForProfile, RUNTIME_COMPONENTS, runtimeMode, runtimeOwnsBackgroundWorkers, validateRuntimeRegistry } from "../src/runtime-components.js";
 
 test("runtime registry declares exactly one objective lifecycle kernel", () => {
   const result = validateRuntimeRegistry();
@@ -28,6 +28,13 @@ test("production defaults to the controlled kernel and fails closed on invalid m
   assert.equal(runtimeMode({}), "kernel");
   assert.equal(runtimeMode({ GEORGIE_RUNTIME_MODE: "full" }), "full");
   assert.equal(runtimeMode({ GEORGIE_RUNTIME_MODE: "unexpected" }), "kernel");
+});
+
+test("serverless request instances never claim long-lived worker ownership", () => {
+  assert.equal(runtimeOwnsBackgroundWorkers({ VERCEL: "1" }), false);
+  assert.equal(runtimeOwnsBackgroundWorkers({ AWS_LAMBDA_FUNCTION_NAME: "georgie" }), false);
+  assert.equal(runtimeOwnsBackgroundWorkers({ LAMBDA_TASK_ROOT: "/var/task" }), false);
+  assert.equal(runtimeOwnsBackgroundWorkers({}), true);
 });
 
 test("kernel mode starts one objective authority and no autonomous specialists", () => {
