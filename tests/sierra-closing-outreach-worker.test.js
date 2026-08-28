@@ -37,6 +37,20 @@ test("restart deduplication verifies readback without claiming another send",asy
   assert.equal(result.status,"deduplicated_verified");
 });
 
+test("summary prefilter recognizes supported offer stages and keeps terminal stages fenced",async()=>{
+  const summaries=[
+    {reference_number:"SCA-SINGULAR",stage_status:"offer_received"},
+    {reference_number:"SCA-PLURAL",stage_status:"offers_received"},
+    {reference_number:"SCA-CLOSING",stage_status:"closing_conditions"},
+    {reference_number:"SCA-FUNDED",stage_status:"funded",available_offers:1}
+  ];
+  const inspected=[];
+  const result=await runSierraClosingOutreachCycle({portfolio:async()=>({deals:summaries}),deal:async(userId,reference)=>{inspected.push(reference);return{...deal,reference_number:reference};},offers:async()=>({offers:[verified]}),audit:async()=>[],execute:async()=>({status:"sent_verified"})});
+  assert.deepEqual(inspected,["SCA-SINGULAR","SCA-PLURAL","SCA-CLOSING"]);
+  assert.equal(result.inspected,3);
+  assert.equal(result.sent,3);
+});
+
 test("cycle independently inspects each active deal and sends eligible files once",async()=>{
   const executed=[];
   const result=await runSierraClosingOutreachCycle({portfolio:async()=>({deals:[deal,{...deal,reference_number:"SCA-101"}]}),deal:async(userId,reference)=>({...deal,reference_number:reference}),offers:async()=>({offers:[verified]}),audit:async()=>[],execute:async input=>{executed.push(input.deal.reference_number);return{status:"sent_verified"};}});
