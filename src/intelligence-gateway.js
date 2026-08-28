@@ -43,14 +43,10 @@ function minimumTier({ text, policy, highImpact, domain, context }) {
 }
 
 function admittedTier(requestedTier, env = process.env) {
-  const frontierEnabled = enabled("GEORGIE_FRONTIER_INFERENCE_ENABLED", env);
-  const balancedEnabled = enabled("GEORGIE_BALANCED_INFERENCE_ENABLED", env) || frontierEnabled;
-  const tier = requestedTier === "frontier"
-    ? (frontierEnabled ? "frontier" : balancedEnabled ? "balanced" : "fast")
-    : requestedTier === "balanced"
-      ? (balancedEnabled ? "balanced" : "fast")
-      : "fast";
-  return { tier, frontierEnabled, balancedEnabled };
+  const frontierEnabled = String(env.GEORGIE_FRONTIER_INFERENCE_ENABLED ?? "true").trim().toLowerCase() !== "false";
+  const balancedEnabled = String(env.GEORGIE_BALANCED_INFERENCE_ENABLED ?? "true").trim().toLowerCase() !== "false";
+  const availableTiers = ["fast", balancedEnabled ? "balanced" : null, frontierEnabled ? "frontier" : null].filter(Boolean);
+  return { tier: "fast", requestedTier, availableTiers, frontierEnabled, balancedEnabled };
 }
 
 function modelFor(tier, env = process.env) {
@@ -79,7 +75,14 @@ export function intelligenceRoute(input = "", context = {}, env = process.env) {
   const meetsMinimumTier = order.indexOf(admission.tier) >= order.indexOf(required.tier);
   const conclusionAuthority = zeroSpendSource ? "verified_evidence" : meetsMinimumTier ? "full" : highImpact ? "triage_and_evidence_only" : "bounded_with_disclosure";
   const requiresCurrentEvidence = highImpact || policy.allowWebTool || context.requiresCurrentEvidence === true || CURRENT_EVIDENCE.test(text);
-  const selectedSource = zeroSpendSource || INTELLIGENCE_TIERS[admission.tier].modelFamily;
+  const selectedSource = zeroSpendSource || INTELLIGENCE_TIERS.fast.modelFamily;
+  const escalationPlan = admission.availableTiers.map((tier, index) => ({
+    attempt: index + 1,
+    tier,
+    model: modelFor(tier, env),
+    spendClass: INTELLIGENCE_TIERS[tier].spendClass,
+    stopWhen: "attempt_satisfies_minimum_intelligence_and_quality_gate"
+  }));
   const reasons = [
     zeroSpendSource ? `${zeroSpendSource}_satisfies_requirement` : null,
     required.routine ? "routine_high_volume_work" : null,
@@ -90,14 +93,15 @@ export function intelligenceRoute(input = "", context = {}, env = process.env) {
   ].filter(Boolean);
 
   return {
-    version: "2026-08-28.1-intelligence-governor",
+    version: "2026-08-28.2-luna-first-escalation",
     domain,
     tier: admission.tier,
     requestedTier: required.tier,
     minimumTier: required.tier,
-    model: modelFor(admission.tier, env),
+    model: modelFor("fast", env),
     selectedSource,
     shouldInvokeModel: !zeroSpendSource,
+    escalationPlan,
     conclusionAuthority,
     meetsMinimumTier,
     reasoningEffort: admission.tier === "frontier" ? "high" : admission.tier === "balanced" ? (policy.reasoningEffort === "low" ? "medium" : policy.reasoningEffort) : "low",
@@ -115,18 +119,31 @@ export function intelligenceRoute(input = "", context = {}, env = process.env) {
     },
     costPolicy: {
       hierarchy: ["deterministic", "cached_evidence", "local_model", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"],
+      strategy: "luna_first_then_terra_then_sol_until_sufficient",
       selectedTier: admission.tier,
       requestedTier: required.tier,
       minimumTier: required.tier,
       spendClass: zeroSpendSource ? "zero" : INTELLIGENCE_TIERS[admission.tier].spendClass,
-      expensiveTierOptInRequired: true,
+      expensiveTierOptInRequired: false,
       frontierEnabled: admission.frontierEnabled,
       balancedEnabled: admission.balancedEnabled,
       frontierJustification: admission.tier === "frontier" ? (highImpact ? "high_impact_and_operator_enabled" : "complex_reasoning_and_operator_enabled") : null,
       downgradeAllowed: !highImpact,
-      downgradedForCost: admission.tier !== required.tier,
+      downgradedForCost: false,
       unsafeDowngradePrevented: highImpact && !meetsMinimumTier,
       conclusionAuthority
     }
   };
+}
+
+export function evaluateAttemptSufficiency(route, attempt = {}) {
+  const order = ["fast", "balanced", "frontier"];
+  const tier = String(attempt.tier || "fast");
+  const minimumTier = String(route?.minimumTier || "fast");
+  const text = String(attempt.text || "").trim();
+  if (attempt.error) return { sufficient: false, reason: "provider_or_runtime_failure" };
+  if (!text) return { sufficient: false, reason: "empty_result" };
+  if (attempt.qualityPassed === false) return { sufficient: false, reason: "quality_gate_failed" };
+  if (order.indexOf(tier) < order.indexOf(minimumTier)) return { sufficient: false, reason: "minimum_intelligence_not_reached" };
+  return { sufficient: true, reason: "minimum_intelligence_and_quality_satisfied" };
 }
