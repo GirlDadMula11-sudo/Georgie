@@ -15,21 +15,21 @@ function withEnv(values, fn) {
   }
 }
 
-test("high-impact language cannot silently escalate to frontier inference", () => {
+test("high-impact language begins with Luna but requires Sol authority", () => {
   withEnv({ GEORGIE_FRONTIER_INFERENCE_ENABLED: null, GEORGIE_BALANCED_INFERENCE_ENABLED: null }, () => {
     const route = intelligenceRoute("repair the production database incident");
     assert.equal(route.requestedTier, "frontier");
     assert.equal(route.tier, "fast");
-    assert.equal(route.costPolicy.downgradedForCost, true);
-    assert.equal(route.costPolicy.expensiveTierOptInRequired, true);
+    assert.deepEqual(route.escalationPlan.map(step => step.tier), ["fast", "balanced", "frontier"]);
+    assert.equal(route.costPolicy.expensiveTierOptInRequired, false);
   });
 });
 
-test("frontier inference requires explicit operator opt-in", () => {
-  withEnv({ GEORGIE_FRONTIER_INFERENCE_ENABLED: "true" }, () => {
+test("frontier inference is available unless its emergency kill switch is off", () => {
+  withEnv({ GEORGIE_FRONTIER_INFERENCE_ENABLED: "false" }, () => {
     const route = intelligenceRoute("repair the production database incident");
-    assert.equal(route.tier, "frontier");
-    assert.equal(route.costPolicy.frontierEnabled, true);
+    assert.deepEqual(route.escalationPlan.map(step => step.tier), ["fast", "balanced"]);
+    assert.equal(route.costPolicy.frontierEnabled, false);
   });
 });
 
@@ -47,12 +47,13 @@ test("ordinary Sierra judgment requests Terra", () => {
   withEnv({ GEORGIE_FRONTIER_INFERENCE_ENABLED: null, GEORGIE_BALANCED_INFERENCE_ENABLED: "true" }, () => {
     const route = intelligenceRoute("evaluate this Sierra CRM exception", { risk: "normal", uncertainty: 0.5 });
     assert.equal(route.requestedTier, "balanced");
-    assert.equal(route.tier, "balanced");
-    assert.equal(route.model, "gpt-5.6-terra");
+    assert.equal(route.tier, "fast");
+    assert.equal(route.model, "gpt-5.6-luna");
+    assert.equal(route.escalationPlan[1].model, "gpt-5.6-terra");
   });
 });
 
-test("high-impact work cannot grant full conclusion authority below its minimum tier", () => {
+test("high-impact work starts as triage until the ladder reaches its minimum tier", () => {
   withEnv({ GEORGIE_FRONTIER_INFERENCE_ENABLED: null, GEORGIE_BALANCED_INFERENCE_ENABLED: null }, () => {
     const route = intelligenceRoute("resolve conflicting lender underwriting evidence", { uncertainty: 0.9 });
     assert.equal(route.requestedTier, "frontier");
