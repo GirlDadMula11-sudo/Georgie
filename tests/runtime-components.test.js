@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { componentsForProfile, RUNTIME_COMPONENTS, validateRuntimeRegistry } from "../src/runtime-components.js";
+import { componentsForProfile, RUNTIME_COMPONENTS, runtimeMode, validateRuntimeRegistry } from "../src/runtime-components.js";
 
 test("runtime registry declares exactly one objective lifecycle kernel", () => {
   const result = validateRuntimeRegistry();
@@ -19,9 +19,27 @@ test("every runtime component has explicit ownership and profiles", () => {
 });
 
 test("worker profile cannot start a second objective authority", () => {
-  const worker = componentsForProfile("worker");
+  const worker = componentsForProfile("worker", RUNTIME_COMPONENTS, null, "full");
   assert.equal(worker.some(component => component.role === "kernel"), false);
   assert.equal(worker.some(component => component.id === "objective-worker"), false);
+});
+
+test("production defaults to the controlled kernel and fails closed on invalid mode", () => {
+  assert.equal(runtimeMode({}), "kernel");
+  assert.equal(runtimeMode({ GEORGIE_RUNTIME_MODE: "full" }), "full");
+  assert.equal(runtimeMode({ GEORGIE_RUNTIME_MODE: "unexpected" }), "kernel");
+});
+
+test("kernel mode starts one objective authority and no autonomous specialists", () => {
+  const web = componentsForProfile("web", RUNTIME_COMPONENTS, null, "kernel");
+  assert.deepEqual(web.map(component => component.id), [
+    "cloud-state-recovery",
+    "mobile-turn-recovery",
+    "approval-dispatch",
+    "objective-worker"
+  ]);
+  assert.equal(web.filter(component => component.role === "kernel").length, 1);
+  assert.equal(web.some(component => component.plane === "specialist"), false);
 });
 
 test("server delegates every background lifecycle to the runtime registry", async () => {

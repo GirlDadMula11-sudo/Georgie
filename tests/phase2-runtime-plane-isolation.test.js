@@ -9,7 +9,7 @@ test("Phase 2 isolates specialist startup failure from Georgie core", () => {
   const events = [];
   const components = [kernel(() => events.push("core")), specialist(() => { throw new Error("dependency unavailable"); })];
   const warnings = [];
-  const result = startRuntimeProfile("web", { components, logger: { log() {}, warn(message) { warnings.push(message); } } });
+  const result = startRuntimeProfile("web", { components, mode: "full", logger: { log() {}, warn(message) { warnings.push(message); } } });
   assert.deepEqual(result.started, ["objective-worker"]);
   assert.deepEqual(result.degraded, [{ id: "specialist-test", error: "dependency unavailable" }]);
   assert.equal(result.kernel, "objective-worker");
@@ -19,7 +19,7 @@ test("Phase 2 isolates specialist startup failure from Georgie core", () => {
 
 test("Phase 2 keeps core startup failure fail-closed", () => {
   const components = [kernel(() => { throw new Error("kernel unavailable"); }), specialist(() => {})];
-  assert.throws(() => startRuntimeProfile("web", { components, logger: { log() {}, warn() {} } }), /Core runtime component failed: objective-worker/);
+  assert.throws(() => startRuntimeProfile("web", { components, mode: "full", logger: { log() {}, warn() {} } }), /Core runtime component failed: objective-worker/);
 });
 
 test("Phase 2 forbids specialist objective kernels", () => {
@@ -33,10 +33,10 @@ test("Phase 2 schedules specialists only after core startup", () => {
   const events = [];
   const components = [kernel(() => events.push("core")), specialist(() => events.push("specialist"))];
   const logger = { log(message) { events.push(message); }, warn() {} };
-  startRuntimeProfile("web", { components, plane: "core", logger });
+  startRuntimeProfile("web", { components, plane: "core", mode: "full", logger });
   let deferred = null;
   const scheduled = scheduleRuntimePlane("web", "specialist", {
-    components, delayMs: 1500, logger,
+    components, delayMs: 1500, logger, mode: "full",
     schedule(fn, delay) { deferred = { fn, delay }; return { unref() {} }; }
   });
   assert.equal(scheduled.delayMs, 1500);
@@ -44,4 +44,16 @@ test("Phase 2 schedules specialists only after core startup", () => {
   assert.equal(events.includes("specialist"), false);
   deferred.fn();
   assert.equal(events.includes("specialist"), true);
+});
+
+test("kernel mode does not schedule the specialist plane", () => {
+  let scheduled = false;
+  const result = scheduleRuntimePlane("web", "specialist", {
+    mode: "kernel",
+    logger: { log() {}, warn() {} },
+    schedule() { scheduled = true; }
+  });
+  assert.equal(scheduled, false);
+  assert.equal(result.disabled, true);
+  assert.equal(result.timer, null);
 });
