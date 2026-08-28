@@ -11,6 +11,8 @@
     "dev": "node scripts/verify-runtime-baseline.mjs && node --watch src/runtime.js",
     "mac-agent": "node mac-agent/agent.js",
     "benchmark": "node scripts/run-intelligence-benchmark.mjs",
+    "market:readiness": "node scripts/check-market-readiness.mjs",
+    "market:e2e": "playwright test",
     "reliability:harness": "node scripts/run-reliability-harness.mjs",
     "reliability:gate": "node scripts/install-cloud-state-pressure.mjs && node scripts/install-cloud-state-v2.mjs && node scripts/install-operator-reliability-v2.mjs && node scripts/install-capability-orchestrator.mjs && node --test tests/capability-orchestrator.test.js tests/operator-reliability-v2.test.js tests/reliability-certification.test.js tests/reliability-round2.test.js tests/reliability-baseline.test.js tests/runtime-reliability-paper-lab.test.js",
     "test": "node --test tests/*.test.js",
@@ -32,7 +34,13 @@
     "web-push": "^3.6.7",
     "ws": "^8.18.0"
   },
+  "devDependencies": {
+    "@playwright/test": "1.62.1"
+  },
   "overrides": {
     "deepmerge-ts": "^8.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1"
   }
 }
