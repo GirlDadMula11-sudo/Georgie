@@ -20,7 +20,7 @@ export function preflightExecution(execution,availableTools=[]){
 }
 
 async function readState(userId){return readCloudState(userId,NS,{version:1,plans:[]});}
-async function saveState(userId,state){const saved=await writeCloudState(userId,NS,{...state,version:1,updatedAt:now(),plans:(state.plans||[]).slice(-500)});if(!saved)throw new Error("Durable approval-continuation storage is unavailable");}
+async function saveState(userId,state){const saved=await writeCloudState(userId,NS,{...state,version:1,updatedAt:now(),plans:(state.plans||[]).slice(-200)});if(!saved)throw new Error("Durable approval-continuation storage is unavailable");}
 
 export async function prepareApprovalPlan(userId,{sessionId="native",title,summary,steps=[],execution=null,domain="general",risk="high",reversible=false,verificationMethod="",rollbackPlan=""}={}){
   const uid=clean(userId)||"primary",state=await readState(uid),stableKey=crypto.createHash("sha256").update(`${clean(title)}\n${clean(summary)}`).digest("hex").slice(0,24);
