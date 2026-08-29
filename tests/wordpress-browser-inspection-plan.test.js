@@ -17,3 +17,12 @@ test("WordPress browser inspection request produces a complete immutable approva
   assert.match(plan.verificationMethod, /authentication state/i);
   assert.match(plan.rollbackPlan, /read-only/i);
 });
+
+
+test("WordPress browser inspection can explicitly include visible content under approval", () => {
+  const actions = deterministicToolPlan(
+    "Prepare one immutable bounded approval plan for mac.browser_inspect on sierramarketinginc.com to verify the WordPress admin session with includeContent true."
+  );
+  assert.equal(actions.length, 1);
+  assert.equal(actions[0].args.execution.args.includeContent, true);
+});
