@@ -78,6 +78,7 @@ function summarizeMacJobResult(result){
     summary.fields=Object.keys(result).slice(0,40);
     if(typeof result.mimeType==="string")summary.mimeType=result.mimeType;
     if(typeof result.base64==="string")summary.base64Evidence={omitted:true,characters:result.base64.length,sha256:crypto.createHash("sha256").update(result.base64).digest("hex")};
+    if(typeof result.text==="string"){const bytes=Buffer.from(result.text,"utf8"),header=Buffer.from(`blob ${bytes.length}\0`,"utf8");summary.textEvidence={omitted:true,characters:result.text.length,bytes:bytes.length,truncated:result.truncated===true,sha256:crypto.createHash("sha256").update(bytes).digest("hex"),gitBlobSha1:crypto.createHash("sha1").update(Buffer.concat([header,bytes])).digest("hex")};}
   }
   return summary;
 }
