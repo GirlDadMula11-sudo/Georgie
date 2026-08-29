@@ -15,7 +15,7 @@ function githubRepositoryScopeFrom(text="") {
 
 function investigationTargetFrom(text=""){
   const reference=referenceFrom(text);if(reference)return reference;
-  const quoted=String(text).match(/[â"]([^â"]{2,80})[â"]/);if(quoted)return quoted[1].trim();
+  const quoted=String(text).match(/[“"]([^”"]{2,80})[”"]/);if(quoted)return quoted[1].trim();
   const known=String(text).match(/\b(Mr\.?\s+Muffins)\b/i);
   if(known)return known[1];
   const traced=String(text).match(/\b(?:trace|inspect|investigate|target)\s+(?:the\s+)?(.{2,80}?)\s+(?:specifically|through\s+intake|file|deal)\b/i);
@@ -51,7 +51,7 @@ function parseExplicitEmailSend(text = "") {
   if(!/\b(send|email|e-mail|reply|forward)\b/.test(lower)) return null;
   const email=(raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)||[])[0];
   if(!email) return null;
-  const quoted=[...raw.matchAll(/[â\"]([^â\"]+)[â\"]/g)].map(m=>m[1]).filter(Boolean);
+  const quoted=[...raw.matchAll(/[“\"]([^”\"]+)[”\"]/g)].map(m=>m[1]).filter(Boolean);
   let body=quoted[quoted.length-1]||"";
   const saying=raw.match(/\b(?:saying|say|message|body)\s*[:,-]?\s*(.+)$/i); if(!body&&saying) body=saying[1].trim();
   if(!body) return null;
@@ -112,6 +112,11 @@ export function deterministicToolPlan(input = "") {
   const lower = text.toLowerCase();
   const affirmativeLower = lower.replace(/\b(?:do not|don't|never)\s+(?:create|prepare|update|restart|execute|install|repair|recover)\b/g,"");
   if (!text) return [];
+  const exactMacJobId=text.match(/\bidem-[0-9a-f]{40}\b/i)?.[0];
+  const exactMacJobReceipt=exactMacJobId
+    && /\b(?:receipt|result|artifact|prototype|studio|output)\b/i.test(text)
+    && /\b(?:report|show|read|return|retrieve|verify|give|what)\b/i.test(text);
+  if(exactMacJobReceipt)return[{tool:"mac.job_receipt",args:{jobId:exactMacJobId}}];
   const investigationId=text.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i)?.[0];
   const approvalPlanStatus = investigationId
     && /\b(?:plan|approval|dispatch|execution|status|receipt|mac[- ]?agent|roblox[- ]?build)\b/i.test(text)

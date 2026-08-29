@@ -85,7 +85,19 @@ function summarizeMacJobResult(result){
 function compactMacJobStatus(job){
   return {id:job?.id||null,action:job?.action||null,status:job?.status||null,error:job?.error||null,attempts:Number(job?.attempts||0),deviceId:job?.deviceId||null,planId:job?.planId||null,approvalId:job?.approvalId||null,createdAt:job?.createdAt||null,claimedAt:job?.claimedAt||null,completedAt:job?.completedAt||null,dispatchReceipt:job?.dispatchReceipt||null,result:summarizeMacJobResult(job?.result)};
 }
+function exactMacJobReceipt(job){
+  const result=job?.result&&typeof job.result==="object"?job.result:{};
+  const safeResult={};
+  for(const field of ["status","projectRoot","output","outputBytes","filesWritten","totalBytes","openedInStudio","missingPrecondition","nextAction","preserved"]){
+    const value=result[field];
+    if(typeof value==="string")safeResult[field]=value.slice(0,2000);
+    else if(typeof value==="number"||typeof value==="boolean")safeResult[field]=value;
+    else if(Array.isArray(value))safeResult[field]=value.slice(0,100).map(item=>typeof item==="string"?item.slice(0,1000):item);
+  }
+  return{id:job?.id||null,action:job?.action||null,status:job?.status||null,error:job?.error||null,attempts:Number(job?.attempts||0),deviceId:job?.deviceId||null,planId:job?.planId||null,approvalId:job?.approvalId||null,createdAt:job?.createdAt||null,claimedAt:job?.claimedAt||null,completedAt:job?.completedAt||null,dispatchReceipt:job?.dispatchReceipt||null,result:safeResult};
+}
 defineTool({name:"mac.jobs",description:"List bounded status receipts for recent jobs executed or queued for the user's Georgie Mac Agent. Result payloads are represented by fields, size, and SHA-256 evidence so status reads remain fast.",risk:"read",async run({userId,args}){return (await listMacJobs(userId,Number(args?.limit||30))).map(compactMacJobStatus)}});
+defineTool({name:"mac.job_receipt",description:"Read one exact completed Mac job receipt by job ID, including a bounded allowlist of Roblox artifact and Studio-open evidence. This is read-only and never queues or reruns a job.",risk:"read",async run({userId,args}){const jobId=String(args?.jobId||"").trim();if(!/^idem-[0-9a-f]{40}$/i.test(jobId))throw new Error("MAC_JOB_ID_INVALID");const job=(await listMacJobs(userId,500)).find(item=>item?.id===jobId);if(!job)throw new Error(`MAC_JOB_NOT_FOUND:${jobId}`);return exactMacJobReceipt(job)}});
 defineTool({name:"mac.devices",description:"Read connected Mac Agent heartbeat status and verify whether each approved Mac is currently online.",risk:"read",async run(){return getMacDeviceStatus()}});
 defineTool({name:"mac.system_info",description:"Ask the connected Mac for hostname, architecture, OS release and uptime.",risk:"read",async run({userId,args}){return queueMac(userId,args,"system.info","read","System status requested by Georgie")}});
 defineTool({name:"mac.clipboard_read",description:"Read text currently on the connected Mac clipboard.",risk:"read",async run({userId,args}){return queueMac(userId,args,"clipboard.read","read","Clipboard requested by Georgie")}});
