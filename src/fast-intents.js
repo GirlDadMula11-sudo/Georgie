@@ -141,6 +141,34 @@ export function deterministicToolPlan(input = "") {
     }
     return [];
   }
+  const wordpressBrowserInspectionPlanRequest = /\b(?:prepare|create|register)\b/.test(lower)
+    && /\b(?:immutable\s+)?(?:bounded\s+)?approval\s+plan\b/.test(lower)
+    && /\bmac\.browser_inspect\b/.test(lower)
+    && /\bsierramarketinginc\.com\b/.test(lower)
+    && /\bwordpress\b/.test(lower);
+  if (wordpressBrowserInspectionPlanRequest) return [{
+    tool:"approvals.prepare_plan",
+    args:{
+      title:"Verify Sierra WordPress admin session",
+      summary:"Read only the approved sierramarketinginc.com browser tab on primary-mac to verify that the existing WordPress admin session is available for the bounded sitemap repair.",
+      steps:[
+        "Inspect only browser tabs whose domain is sierramarketinginc.com.",
+        "Return the approved tab URL and title and whether WordPress admin authentication is active.",
+        "Stop without interaction if login, CAPTCHA, credential entry, or another domain is encountered."
+      ],
+      domain:"technical",
+      risk:"medium",
+      reversible:true,
+      verificationMethod:"The mac.browser_inspect receipt must identify only sierramarketinginc.com tabs and report URL, title, and WordPress authentication state without mutation.",
+      rollbackPlan:"No rollback is required because the execution is read-only; stop and preserve the receipt if any boundary is encountered.",
+      execution:{
+        tool:"mac.browser_inspect",
+        args:{domains:["sierramarketinginc.com"],deviceId:"primary-mac",includeContent:false},
+        verification:[]
+      }
+    }
+  }];
+
   const snapshotPlanRequest = /\b(?:prepare|create|register)\b/.test(lower)
     && /\b(?:immutable\s+)?approval\s+plan\b/.test(lower)
     && /\b(?:snapshot|reconcile|primary[- ]mac|seo phase 2)\b/.test(lower)
