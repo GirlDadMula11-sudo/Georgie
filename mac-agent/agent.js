@@ -13,7 +13,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.36";
+const AGENT_VERSION = "2.2.37";
 const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;
 const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));
 const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));
@@ -56,7 +56,7 @@ function validateRobloxProjectRequest(args = {}) {
   const projectName = String(args.projectName || "").trim();
   if (!/^[A-Za-z0-9][A-Za-z0-9 _-]{1,63}$/.test(projectName)) throw new Error("ROBLOX_PROJECT_NAME_REJECTED");
   const slug = projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  const files = Array.isArray(args.files) ? args.files : [];
+  const files = Array.isArray(args.files) && args.files.length ? args.files : defaultRobloxPrototypeFiles(args.designBrief);
   if (!files.length || files.length > 80) throw new Error("ROBLOX_PROJECT_FILES_REJECTED");
   let totalBytes = 0;
   const normalized = files.map((file) => {
@@ -69,6 +69,19 @@ function validateRobloxProjectRequest(args = {}) {
   if (totalBytes > 1_000_000) throw new Error("ROBLOX_PROJECT_SIZE_REJECTED");
   if (!normalized.some((file) => file.relative === "default.project.json")) throw new Error("ROBLOX_PROJECT_MANIFEST_REQUIRED");
   return { projectName, slug, files: normalized, totalBytes };
+}
+
+function defaultRobloxPrototypeFiles(designBrief = "") {
+  const brief = String(designBrief || "Original family-friendly suspense horror prototype designed with Makayla").slice(0, 2000);
+  const manifest = { name: "MakaylaHorrorPrototype", tree: { "$className": "DataModel", "ReplicatedStorage": { "$className": "ReplicatedStorage" }, "ServerScriptService": { "$className": "ServerScriptService", "$path": "src/server" }, "StarterPlayer": { "$className": "StarterPlayer", "StarterPlayerScripts": { "$className": "StarterPlayerScripts", "$path": "src/client" } } } };
+  const server = `-- Georgie-generated original Roblox horror prototype\nlocal Lighting=game:GetService("Lighting")\nlocal Players=game:GetService("Players")\nLighting.ClockTime=0.5 Lighting.Brightness=0.7 Lighting.FogEnd=115 Lighting.FogColor=Color3.fromRGB(24,20,18)\nlocal world=Instance.new("Folder",workspace) world.Name="MakaylaPrototype"\nlocal function part(name,size,pos,color,material) local p=Instance.new("Part",world) p.Name=name p.Anchored=true p.Size=size p.Position=pos p.Color=color p.Material=material or Enum.Material.WoodPlanks return p end\npart("Ground",Vector3.new(150,1,150),Vector3.new(0,-1,0),Color3.fromRGB(35,31,27),Enum.Material.Ground)\nfor i=-3,3 do part("HallFloor",Vector3.new(18,1,18),Vector3.new(0,0,i*18),Color3.fromRGB(62,48,37)) part("WallL",Vector3.new(1,14,18),Vector3.new(-9,7,i*18),Color3.fromRGB(45,42,38),Enum.Material.Concrete) part("WallR",Vector3.new(1,14,18),Vector3.new(9,7,i*18),Color3.fromRGB(45,42,38),Enum.Material.Concrete) end\nlocal spawn=Instance.new("SpawnLocation",world) spawn.Anchored=true spawn.Size=Vector3.new(6,1,6) spawn.Position=Vector3.new(0,1,-52) spawn.Neutral=true\nlocal keys={} for i,z in ipairs({-30,5,38}) do local k=part("Relic"..i,Vector3.new(1.4,1.4,1.4),Vector3.new(i%2==0 and 5 or -5,2,z),Color3.fromRGB(210,170,65),Enum.Material.Neon) keys[i]=k end\nlocal exit=part("ExitDoor",Vector3.new(8,12,1),Vector3.new(0,6,63),Color3.fromRGB(70,20,18),Enum.Material.Wood)\nlocal collected={} local count=0\nfor _,k in ipairs(keys) do k.Touched:Connect(function(hit) local pl=Players:GetPlayerFromCharacter(hit.Parent) if pl and not collected[k] then collected[k]=true count+=1 k:Destroy() if count==#keys then exit.Color=Color3.fromRGB(35,150,70) exit.CanCollide=false end end end) end\nlocal enemy=part("TheWatcher",Vector3.new(4,8,4),Vector3.new(0,4,28),Color3.fromRGB(12,12,12),Enum.Material.SmoothPlastic) enemy.Anchored=false enemy.CanCollide=false\ntask.spawn(function() while enemy.Parent do task.wait(.35) local target,dist=nil,80 for _,pl in ipairs(Players:GetPlayers()) do local root=pl.Character and pl.Character:FindFirstChild("HumanoidRootPart") if root then local d=(root.Position-enemy.Position).Magnitude if d<dist then target=root dist=d end end end if target then local direction=(target.Position-enemy.Position) if direction.Magnitude>1 then enemy.AssemblyLinearVelocity=direction.Unit*10 end end end end)\nprint("Georgie prototype loaded: ${brief.replaceAll("`", "'").replaceAll("${", "")}")\n`;
+  const client = `local Players=game:GetService("Players") local Lighting=game:GetService("Lighting")\nlocal player=Players.LocalPlayer local gui=Instance.new("ScreenGui",player:WaitForChild("PlayerGui")) gui.Name="MakaylaObjective"\nlocal label=Instance.new("TextLabel",gui) label.Size=UDim2.fromOffset(390,54) label.Position=UDim2.new(.5,-195,0,24) label.BackgroundTransparency=.25 label.BackgroundColor3=Color3.fromRGB(8,8,8) label.TextColor3=Color3.fromRGB(232,195,95) label.Font=Enum.Font.GothamBold label.TextScaled=true label.Text="FIND 3 RELICS. ESCAPE THE WATCHER."\nlocal light=Instance.new("PointLight") light.Range=28 light.Brightness=1.8 light.Color=Color3.fromRGB(255,225,175)\nplayer.CharacterAdded:Connect(function(char) light.Parent=char:WaitForChild("Head") end) if player.Character then light.Parent=player.Character:WaitForChild("Head") end\n`;
+  return [
+    { path: "default.project.json", content: JSON.stringify(manifest, null, 2) },
+    { path: "src/server/Main.server.luau", content: server },
+    { path: "src/client/Main.client.luau", content: client },
+    { path: "README.md", content: `# Makayla Horror Prototype\n\n${brief}\n\nGenerated by Georgie for private playtesting. Collect three relics, avoid The Watcher, and reach the exit.` }
+  ];
 }
 
 async function buildRobloxPrototype(args = {}) {
