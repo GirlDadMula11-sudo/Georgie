@@ -209,6 +209,13 @@ export function deterministicToolPlan(input = "") {
   const continuationTarget=investigationTargetFrom(text);
   if(/\b(?:continue|resume|pick up)\b/.test(lower)&&/\b(?:investigation|diagnosis|inspection|evidence)\b/.test(lower)&&continuationTarget)return [{tool:"sierra.continue_diagnostic_investigation",args:{reference:continuationTarget,scope:"deal_continuation",freshnessMs:300000}}];
   if (/\b(?:inspect|review|check)\b/.test(lower) && /\b(?:repo|repository|codebase|working tree|git status)\b/.test(lower)) return [{tool:"developer.repo_inspect",args:{repo:null}}];
+  // WordPress/SEO objectives are single-domain technical work. They must bypass the
+  // Sierra multi-system audit shortcut so the normal planner can select the governed
+  // WordPress/Mac executor and preserve the requested scope.
+  const explicitWordPressSeoObjective = /\b(?:wordpress|rank math|sitemap|seo)\b/.test(lower)
+    && /\b(?:repair|regenerate|flush|verify|submit|cache|index|canonical|noindex)\b/.test(lower);
+  if (explicitWordPressSeoObjective) return [];
+
   const multiSystemMacAudit = /\b(?:mac|desktop|browser|tabs?|safari|chrome)\b/.test(lower)
     && /\b(?:sierra|supabase|super\s*base|github|vercel|render|partner portal|capitalapply|capital apply)\b/.test(lower)
     && /\b(?:everything|all|platform|functioning|health|diagnos\w*|permanent repair|make sure)\b/.test(lower);
