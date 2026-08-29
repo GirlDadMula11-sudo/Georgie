@@ -177,6 +177,22 @@ export function deterministicToolPlan(input = "") {
       execution:{tool:"developer.run_checks",args:{repo,script,deviceId:"primary-mac"},verification:[]}
     }}];
   }
+  const governedPatchMarker = text.match(/DEVELOPER_GOVERNED_PATCH_JSON:\s*(\{[\s\S]*\})\s*$/i);
+  if (governedPatchMarker) {
+    let request;
+    try { request = JSON.parse(governedPatchMarker[1]); } catch { return []; }
+    const repo = String(request?.repo || ""), patch = String(request?.patch || ""), patchHash = String(request?.patchHash || "").toLowerCase();
+    if (repo !== "/Users/mac/Georgie" || !patch || patch.length > 100000 || !/^[0-9a-f]{64}$/.test(patchHash)) return [];
+    return [{tool:"approvals.prepare_plan",args:{
+      title:String(request?.title||"Apply exact governed Mac patch").slice(0,200),
+      summary:String(request?.summary||"Apply one patch whose full body and SHA-256 are embedded in this versioned plan.").slice(0,2000),
+      steps:["Validate the embedded patch body against its SHA-256.","Apply only that exact patch to /Users/mac/Georgie on primary-mac.","Return git diff-check and exact status evidence without committing or pushing."],
+      domain:"technical",risk:"high",reversible:true,
+      verificationMethod:"Require the developer.apply_governed_patch dispatch receipt, clean diff-check, and exact status evidence.",
+      rollbackPlan:"Reverse the exact embedded patch if verification fails; do not commit, push, or deploy.",
+      execution:{tool:"developer.apply_governed_patch",args:{repo,patch,patchHash,deviceId:"primary-mac"},verification:[]}
+    }}];
+  }
   const explicitDeveloperFileRead = /\bdeveloper\.file_read\b/i.test(text);
   if (explicitDeveloperFileRead) {
     const repoMatch = text.match(/\brepo\s*[:=]\s*([^\s,;]+)/i);
