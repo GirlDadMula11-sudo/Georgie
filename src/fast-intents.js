@@ -15,7 +15,7 @@ function githubRepositoryScopeFrom(text="") {
 
 function investigationTargetFrom(text=""){
   const reference=referenceFrom(text);if(reference)return reference;
-  const quoted=String(text).match(/[“"]([^”"]{2,80})[”"]/);if(quoted)return quoted[1].trim();
+  const quoted=String(text).match(/[â"]([^â"]{2,80})[â"]/);if(quoted)return quoted[1].trim();
   const known=String(text).match(/\b(Mr\.?\s+Muffins)\b/i);
   if(known)return known[1];
   const traced=String(text).match(/\b(?:trace|inspect|investigate|target)\s+(?:the\s+)?(.{2,80}?)\s+(?:specifically|through\s+intake|file|deal)\b/i);
@@ -51,7 +51,7 @@ function parseExplicitEmailSend(text = "") {
   if(!/\b(send|email|e-mail|reply|forward)\b/.test(lower)) return null;
   const email=(raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)||[])[0];
   if(!email) return null;
-  const quoted=[...raw.matchAll(/[“\"]([^”\"]+)[”\"]/g)].map(m=>m[1]).filter(Boolean);
+  const quoted=[...raw.matchAll(/[â\"]([^â\"]+)[â\"]/g)].map(m=>m[1]).filter(Boolean);
   let body=quoted[quoted.length-1]||"";
   const saying=raw.match(/\b(?:saying|say|message|body)\s*[:,-]?\s*(.+)$/i); if(!body&&saying) body=saying[1].trim();
   if(!body) return null;
@@ -110,6 +110,7 @@ function vercelMemberInvitePlan({email,role="DEVELOPER"}={}){
 export function deterministicToolPlan(input = "") {
   const text = String(input || "").trim();
   const lower = text.toLowerCase();
+  const affirmativeLower = lower.replace(/\b(?:do not|don't|never)\s+(?:create|prepare|update|restart|execute|install|repair|recover)\b/g,"");
   if (!text) return [];
   const investigationId=text.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i)?.[0];
   const approvalPlanStatus = investigationId
@@ -118,7 +119,8 @@ export function deterministicToolPlan(input = "") {
   if(approvalPlanStatus)return[{tool:"approvals.plans",args:{limit:100}},{tool:"mac.jobs",args:{limit:100}}];
   const macDeviceStatus = /\b(?:primary[- ]?mac|mac(?:intosh)?(?:\s+(?:agent|device))?)\b/i.test(text)
     && /\b(?:heartbeat|agent version|device status|online|offline|last seen)\b/i.test(text)
-    && /\b(?:show|list|check|read|return|report|verify|what|exact|status)\b/i.test(text);
+    && /\b(?:show|list|check|read|return|report|verify|what|exact|status)\b/i.test(text)
+    && !/\b(?:prepare|create|update|restart|execute|install|repair|recover)\b/.test(affirmativeLower);
   if(macDeviceStatus)return[{tool:"mac.devices",args:{}}];
   const vercelMemberInvite = parseExplicitVercelMemberInvite(text);
   if(vercelMemberInvite){
@@ -281,7 +283,7 @@ export function deterministicToolPlan(input = "") {
 
 
   const georgieUpdateRestartPlanRequest = /\b(?:prepare|create|register)\b/.test(lower)
-    && /\b(?:immutable\s+)?(?:bounded\s+)?approval\s+plan\b/.test(lower)
+    && /\b(?:immutable\s+)?(?:bounded\s+)?(?:approval|recovery)\s+plan\b/.test(lower)
     && lower.includes("developer.update_restart_from_main")
     && text.includes("/Users/mac/Georgie");
   if (georgieUpdateRestartPlanRequest) return [{
