@@ -7,6 +7,18 @@ const NS="approval_continuation";
 
 const clean=value=>String(value||"").trim();
 const now=()=>new Date().toISOString();
+function compactDurableValue(value,key="",depth=0){
+  if(value==null||typeof value==="number"||typeof value==="boolean")return value;
+  if(typeof value==="string"){
+    if(key==="base64")return {omitted:true,encoding:"base64",characters:value.length,digest:crypto.createHash("sha256").update(value).digest("hex")};
+    return value.length>6000?`${value.slice(0,6000)}…[truncated ${value.length-6000} chars]`:value;
+  }
+  if(depth>=8)return "[depth omitted]";
+  if(Array.isArray(value))return value.slice(0,100).map(item=>compactDurableValue(item,"",depth+1));
+  if(typeof value==="object")return Object.fromEntries(Object.entries(value).slice(0,200).map(([childKey,child])=>[childKey,compactDurableValue(child,childKey,depth+1)]));
+  return String(value).slice(0,1000);
+}
+function compactPlan(plan){return {...plan,executionResult:compactDurableValue(plan?.executionResult,"executionResult")};}
 
 export function isConversationalApproval(input){return isExplicitConversationalApproval(input);}
 
@@ -20,7 +32,7 @@ export function preflightExecution(execution,availableTools=[]){
 }
 
 async function readState(userId){return readCloudState(userId,NS,{version:1,plans:[]});}
-async function saveState(userId,state){const saved=await writeCloudState(userId,NS,{...state,version:1,updatedAt:now(),plans:(state.plans||[]).slice(-200)});if(!saved)throw new Error("Durable approval-continuation storage is unavailable");}
+async function saveState(userId,state){const saved=await writeCloudState(userId,NS,{...state,version:1,updatedAt:now(),plans:(state.plans||[]).slice(-200).map(compactPlan)});if(!saved)throw new Error("Durable approval-continuation storage is unavailable");}
 
 export async function prepareApprovalPlan(userId,{sessionId="native",title,summary,steps=[],execution=null,domain="general",risk="high",reversible=false,verificationMethod="",rollbackPlan=""}={}){
   const uid=clean(userId)||"primary",state=await readState(uid),stableKey=crypto.createHash("sha256").update(`${clean(title)}\n${clean(summary)}`).digest("hex").slice(0,24);
