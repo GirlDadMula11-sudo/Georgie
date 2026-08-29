@@ -273,6 +273,12 @@ export function deterministicToolPlan(input = "") {
   if (/\b(world state|what am i working on|what are we working on|everything pending|open commitments|unfinished work)\b/.test(lower)) return [{tool:"system.world_state",args:{context:text}}];
   if (/\b(durable objectives?|unfinished engineering|blocked actions?|resume across sessions?|continuity state)\b/.test(lower)) return [{tool:"system.continuity",args:{limit:50}}];
   if (/\b(domain packs?|speciali[sz]ation packs?|installed packs?|georgie core)\b/.test(lower)) return [{tool:"system.domain_packs",args:{}}];
+  if (/\b(?:list|show|read|return)\b/.test(lower)
+    && /\b(?:recent\s+)?(?:primary[- ]mac|mac)\s+jobs?\b/.test(lower)
+    && /\b(?:status|result|receipt|error|action|fields?)\b/.test(lower)) {
+    const requestedLimit = Number(text.match(/\b(\d{1,3})\s+most\s+recent\b/i)?.[1] || 20);
+    return [{tool:"mac.jobs",args:{limit:Math.max(1,Math.min(requestedLimit,100))}}];
+  }
   const emailSend=parseExplicitEmailSend(text); if(emailSend) return [emailSend];
   const macApp=parseMacOpen(text); if(macApp) return [{tool:"mac.devices",args:{}},{tool:"mac.open_app",args:{app:macApp}}];
   const ref = referenceFrom(text);
