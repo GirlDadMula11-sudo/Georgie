@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var store: AssistantStore
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private let gold = Color(red: 0.86, green: 0.70, blue: 0.32)
 
     var body: some View {
@@ -17,13 +18,23 @@ struct ContentView: View {
                             if !store.messages.isEmpty { conversation }
                             commandCenter
                             sierraDesk
-                            composer
                             voiceControl
                         } else {
                             activationCard
                         }
                     }
                     .padding(.horizontal, 18).padding(.bottom, 34)
+                }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if store.isEnrolled {
+                    composer
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(.ultraThinMaterial)
+                        .overlay(alignment: .top) {
+                            Rectangle().fill(gold.opacity(0.22)).frame(height: 1)
+                        }
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
@@ -47,7 +58,7 @@ struct ContentView: View {
 
     private var identity: some View {
         VStack(spacing: 10) {
-            Image("GeorgieAvatar").resizable().scaledToFill().frame(width: 188, height: 188).clipShape(Circle()).overlay(Circle().stroke(gold, lineWidth: 3)).shadow(color: gold.opacity(0.22), radius: 24)
+            Image("GeorgieAvatar").resizable().scaledToFill().frame(width: horizontalSizeClass == .compact ? 128 : 188, height: horizontalSizeClass == .compact ? 128 : 188).clipShape(Circle()).overlay(Circle().stroke(gold, lineWidth: 3)).shadow(color: gold.opacity(0.22), radius: 24)
             Text("Georgie").font(.title.bold()).foregroundStyle(gold)
             HStack(spacing: 7) {
                 Circle().fill(store.isEnrolled && store.isReady ? .green : .orange).frame(width: 8, height: 8)
@@ -70,7 +81,7 @@ struct ContentView: View {
     }
 
     private var capabilityGrid: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: horizontalSizeClass == .compact ? 2 : 4), spacing: 8) {
             CapabilityTile(icon: "brain.head.profile", title: "Memory", value: "Active")
             CapabilityTile(icon: "checkmark.circle", title: "Tasks", value: "\(store.tasks.count) Open")
             CapabilityTile(icon: "building.2", title: "Sierra", value: store.sierraHealthStatus)
@@ -79,7 +90,7 @@ struct ContentView: View {
     }
 
     private var conversation: some View {
-        VStack(spacing: 9) { ForEach(store.messages.suffix(8)) { message in HStack { if message.role == "user" { Spacer(minLength: 40) }; Text(message.content).font(.subheadline).padding(12).background(message.role == "user" ? gold.opacity(0.16) : Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(message.role == "user" ? gold.opacity(0.35) : .white.opacity(0.08))); if message.role != "user" { Spacer(minLength: 40) } } } }
+        VStack(spacing: 9) { ForEach(store.messages.suffix(8)) { message in HStack { if message.role == "user" { Spacer(minLength: 40) }; Text(message.content).font(.body).fixedSize(horizontal: false, vertical: true).textSelection(.enabled).padding(12).background(message.role == "user" ? gold.opacity(0.16) : Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(message.role == "user" ? gold.opacity(0.35) : .white.opacity(0.08))); if message.role != "user" { Spacer(minLength: 40) } } } }
     }
 
     private var commandCenter: some View {
@@ -156,9 +167,10 @@ struct ContentView: View {
 
     private var composer: some View {
         HStack(spacing: 10) {
-            TextField("Ask Georgie anything…", text: $store.textInput, axis: .vertical).textFieldStyle(.plain).padding(13).background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 15)).submitLabel(.send).onSubmit { Task { await store.sendText() } }
-            Button { Task { await store.sendText() } } label: { Image(systemName: "arrow.up").font(.headline).frame(width: 44, height: 44).background(gold, in: Circle()).foregroundStyle(.black) }.disabled(store.isBusy)
+            TextField("Ask Georgie anything…", text: $store.textInput, axis: .vertical).textFieldStyle(.plain).font(.body).lineLimit(1...5).padding(13).background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 15)).submitLabel(.send).onSubmit { Task { await store.sendText() } }
+            Button { Task { await store.sendText() } } label: { Image(systemName: "arrow.up").font(.headline).frame(width: 44, height: 44).background(gold, in: Circle()).foregroundStyle(.black) }.disabled(store.isBusy || store.textInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
+        .accessibilityElement(children: .contain)
     }
 
     private var voiceControl: some View {
