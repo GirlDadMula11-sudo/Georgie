@@ -12,4 +12,7 @@ test("Georgie exposes a durable Roblox prototype builder instead of screenshot c
   assert.match(agent, /default\.project\.json/);
   assert.match(agent, /Prototype\.rbxlx/);
   assert.match(agent, /missingPrecondition: "Rojo CLI"/);
+  assert.match(agent, /AGENT_VERSION = "2\.2\.37"/);
+  assert.match(agent, /defaultRobloxPrototypeFiles/);
+  assert.match(tools, /name:"roblox\.update_agent_and_build"/);
 });

@@ -299,6 +299,22 @@ export function deterministicToolPlan(input = "") {
     }
   }];
 
+  const makaylaRobloxContinuation = /\b(?:makayla|roblox)\b/.test(lower)
+    && /\b(?:prototype|game)\b/.test(lower)
+    && /\b(?:update|restart|resume|build|develop|continue)\b/.test(lower);
+  if (makaylaRobloxContinuation) return [{
+    tool:"approvals.prepare_plan",
+    args:{
+      title:"Build Makayla Roblox horror prototype",
+      summary:"Update Georgie's primary Mac agent, verify the update receipt, generate the playable private horror prototype from the retained Jason and Makayla design direction, build the Roblox place, and open it in Roblox Studio.",
+      steps:["Update and restart only /Users/mac/Georgie from origin/main.","Require the completed Mac-agent update receipt.","Generate an original suspense-horror prototype from the retained Makayla design brief.","Build a durable Prototype.rbxlx and open it in Roblox Studio.","Return the exact artifact and receipts; never delegate Studio operation back to Jason."],
+      domain:"technical",risk:"high",reversible:true,
+      verificationMethod:"Require both the Mac update receipt and Roblox build receipt, plus a non-empty Prototype.rbxlx artifact path.",
+      rollbackPlan:"Preserve the generated project directory; close the prototype without publishing and revert only the dedicated project files if Jason rejects the result.",
+      execution:{tool:"roblox.update_agent_and_build",args:{deviceId:"primary-mac",projectName:"Makayla Horror Prototype",designBrief:"Original suspense-horror game inspired by the tension and atmosphere Jason and Makayla liked in House of Locust, without copying protected characters or assets. Makayla contributes design ideas and playtesting. First milestone is a polished private prototype with an explorable dark environment, collectible objectives, a pursuing creature, an escape condition, readable objective UI, and room for iterative art and story refinement.",openInStudio:true},verification:[]}
+    }
+  }];
+
   const snapshotPlanRequest = /\b(?:prepare|create|register)\b/.test(lower)
     && /\b(?:immutable\s+)?approval\s+plan\b/.test(lower)
     && /\b(?:snapshot|reconcile|primary[- ]mac|seo phase 2)\b/.test(lower)
