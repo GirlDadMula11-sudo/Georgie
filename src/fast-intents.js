@@ -116,6 +116,10 @@ export function deterministicToolPlan(input = "") {
     && /\b(?:plan|approval|dispatch|execution|status|receipt|mac[- ]?agent|roblox[- ]?build)\b/i.test(text)
     && /\b(?:check|show|report|retrieve|read|verify|what|current|status)\b/i.test(text);
   if(approvalPlanStatus)return[{tool:"approvals.plans",args:{limit:100}},{tool:"mac.jobs",args:{limit:100}}];
+  const macDeviceStatus = /\b(?:primary[- ]?mac|mac(?:intosh)?(?:\s+(?:agent|device))?)\b/i.test(text)
+    && /\b(?:heartbeat|agent version|device status|online|offline|last seen)\b/i.test(text)
+    && /\b(?:show|list|check|read|return|report|verify|what|exact|status)\b/i.test(text);
+  if(macDeviceStatus)return[{tool:"mac.devices",args:{}}];
   const vercelMemberInvite = parseExplicitVercelMemberInvite(text);
   if(vercelMemberInvite){
     const plan=vercelMemberInvitePlan(vercelMemberInvite);
