@@ -151,7 +151,15 @@ export function deterministicToolPlan(input = "") {
     try { request = JSON.parse(developerApplyMarker[1]); } catch { return []; }
     const approvalId = String(request?.approvalId || "");
     if (!/^[0-9a-f-]{36}$/i.test(approvalId)) return [];
-    return [{tool:"developer.apply_approved_patch",args:{approvalId,deviceId:"primary-mac"}}];
+    return [{tool:"approvals.prepare_plan",args:{
+      title:"Apply exact approved Mac recovery patch",
+      summary:"Execute only the classic developer patch approval bound to the supplied approval ID on primary-mac, then require a durable git-apply receipt.",
+      steps:["Validate the classic developer patch approval and its stored SHA-256 hash.","Apply only that stored patch to /Users/mac/Georgie.","Return git diff-check and exact status evidence without committing or pushing."],
+      domain:"technical",risk:"high",reversible:true,
+      verificationMethod:"Require the developer.apply_approved_patch dispatch receipt, clean diff-check output, and the exact resulting worktree status.",
+      rollbackPlan:"Reverse the exact stored patch if verification fails; do not commit, push, or deploy.",
+      execution:{tool:"developer.apply_approved_patch",args:{approvalId,deviceId:"primary-mac"},verification:[]}
+    }}];
   }
   const explicitDeveloperFileRead = /\bdeveloper\.file_read\b/i.test(text);
   if (explicitDeveloperFileRead) {
