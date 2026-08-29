@@ -110,12 +110,13 @@ function vercelMemberInvitePlan({email,role="DEVELOPER"}={}){
 export function deterministicToolPlan(input = "") {
   const text = String(input || "").trim();
   const lower = text.toLowerCase();
-  const affirmativeLower = lower.replace(/\b(?:do not|don't|never)\s+(?:create|prepare|update|restart|execute|install|repair|recover)\b/g,"");
+  const affirmativeLower = lower.replace(/\b(?:do not|don't|never)\s+(?:create|prepare|update|restart|execute|install|repair|recover)(?:\s+(?:or|and)\s+(?:create|prepare|update|restart|execute|install|repair|recover))*\b/g,"");
   if (!text) return [];
   const exactMacJobId=text.match(/\bidem-[0-9a-f]{40}\b/i)?.[0];
   const exactMacJobReceipt=exactMacJobId
     && /\b(?:receipt|result|artifact|prototype|studio|output)\b/i.test(text)
-    && /\b(?:report|show|read|return|retrieve|verify|give|what)\b/i.test(text);
+    && /\b(?:report|show|read|return|retrieve|verify|give|what)\b/i.test(text)
+    && !/\b(?:install|resume|build|develop|continue|update|restart|execute|repair)\b/i.test(affirmativeLower);
   if(exactMacJobReceipt)return[{tool:"mac.job_receipt",args:{jobId:exactMacJobId}}];
   const investigationId=text.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i)?.[0];
   const approvalPlanStatus = investigationId
@@ -322,12 +323,12 @@ export function deterministicToolPlan(input = "") {
     tool:"approvals.prepare_plan",
     args:{
       title:"Build Makayla Roblox horror prototype",
-      summary:"Update Georgie's primary Mac agent, verify the update receipt, generate the playable private horror prototype from the retained Jason and Makayla design direction, build the Roblox place, and open it in Roblox Studio.",
-      steps:["Update and restart only /Users/mac/Georgie from origin/main.","Require the completed Mac-agent update receipt.","Generate an original suspense-horror prototype from the retained Makayla design brief.","Build a durable Prototype.rbxlx and open it in Roblox Studio.","Return the exact artifact and receipts; never delegate Studio operation back to Jason."],
+      summary:"Update Georgie's primary Mac agent, permanently install and verify Rojo when missing, resume the preserved playable horror prototype, build the Roblox place, and open it in Roblox Studio.",
+      steps:["Update and restart only /Users/mac/Georgie from origin/main.","Install the official Homebrew Rojo formula only when Rojo is missing and verify its version.","Resume the preserved original suspense-horror prototype from the retained Makayla design brief.","Build a durable Prototype.rbxlx and open it in Roblox Studio.","Return the exact artifact and receipts; never delegate Studio operation back to Jason."],
       domain:"technical",risk:"high",reversible:true,
       verificationMethod:"Require both the Mac update receipt and Roblox build receipt, plus a non-empty Prototype.rbxlx artifact path.",
       rollbackPlan:"Preserve the generated project directory; close the prototype without publishing and revert only the dedicated project files if Jason rejects the result.",
-      execution:{tool:"roblox.update_agent_and_build",args:{deviceId:"primary-mac",projectName:"Makayla Horror Prototype",designBrief:"Original suspense-horror game inspired by the tension and atmosphere Jason and Makayla liked in House of Locust, without copying protected characters or assets. Makayla contributes design ideas and playtesting. First milestone is a polished private prototype with an explorable dark environment, collectible objectives, a pursuing creature, an escape condition, readable objective UI, and room for iterative art and story refinement.",openInStudio:true},verification:[]}
+      execution:{tool:"roblox.update_agent_install_and_build",args:{deviceId:"primary-mac",projectName:"Makayla Horror Prototype",designBrief:"Original suspense-horror game inspired by the tension and atmosphere Jason and Makayla liked in House of Locust, without copying protected characters or assets. Makayla contributes design ideas and playtesting. First milestone is a polished private prototype with an explorable dark environment, collectible objectives, a pursuing creature, an escape condition, readable objective UI, and room for iterative art and story refinement.",openInStudio:true},verification:[]}
     }
   }];
 
