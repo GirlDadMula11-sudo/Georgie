@@ -12,10 +12,11 @@ test("hash-bound developer patch marker routes directly", () => {
 
 test("approved developer patch marker routes to primary Mac", () => {
   const approvalId = "11111111-2222-3333-4444-555555555555";
-  assert.deepEqual(
-    deterministicToolPlan("DEVELOPER_APPLY_JSON:" + JSON.stringify({approvalId})),
-    [{tool:"developer.apply_approved_patch",args:{approvalId,deviceId:"primary-mac"}}]
-  );
+  const actions = deterministicToolPlan("DEVELOPER_APPLY_JSON:" + JSON.stringify({approvalId}));
+  assert.equal(actions[0].tool, "approvals.prepare_plan");
+  assert.equal(actions[0].args.execution.tool, "developer.apply_approved_patch");
+  assert.deepEqual(actions[0].args.execution.args, {approvalId,deviceId:"primary-mac"});
+  assert.match(actions[0].args.verificationMethod, /dispatch receipt/i);
 });
 
 test("developer patch markers reject other repositories", () => {
