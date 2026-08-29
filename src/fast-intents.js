@@ -201,7 +201,7 @@ export function deterministicToolPlan(input = "") {
       rollbackPlan:"No rollback is required because the execution is read-only; stop and preserve the receipt if any boundary is encountered.",
       execution:{
         tool:"mac.browser_inspect",
-        args:{domains:["sierramarketinginc.com"],deviceId:"primary-mac",includeContent:false},
+        args:{domains:["sierramarketinginc.com"],deviceId:"primary-mac",includeContent:/\bincludecontent\s*(?:=|to)?\s*true\b/i.test(text)},
         verification:[]
       }
     }
