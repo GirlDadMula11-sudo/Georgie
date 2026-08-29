@@ -45,7 +45,8 @@ async function readList(userId, namespace, key) {
   return Array.isArray(state[key]) ? state[key] : [];
 }
 async function writeList(userId, namespace, key, items) {
-  return writeCloudState(userId, namespace, { [key]: items.slice(-5000), updatedAt: now() });
+  const limit = namespace === APPROVALS_NS ? 500 : 1000;
+  return writeCloudState(userId, namespace, { [key]: items.slice(-limit), updatedAt: now() });
 }
 
 export async function recordDecision(userId, input = {}) {
