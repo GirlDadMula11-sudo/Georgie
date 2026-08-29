@@ -181,7 +181,7 @@ export function deterministicToolPlan(input = "") {
 
   const wordpressBrowserInspectionPlanRequest = /\b(?:prepare|create|register)\b/.test(lower)
     && /\b(?:immutable\s+)?(?:bounded\s+)?approval\s+plan\b/.test(lower)
-    && //\\bmac\\.(?:wordpress_hostinger_inspect|browser_inspect)\\b/.test(lower)
+    && /\\bmac\\.(?:wordpress_hostinger_inspect|browser_inspect)\\b/.test(lower)
     && /\bsierramarketinginc\.com\b/.test(lower)
     && /\bwordpress\b/.test(lower);
   if (wordpressBrowserInspectionPlanRequest) return [{
