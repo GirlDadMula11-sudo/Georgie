@@ -161,6 +161,22 @@ export function deterministicToolPlan(input = "") {
       execution:{tool:"developer.apply_approved_patch",args:{approvalId,deviceId:"primary-mac"},verification:[]}
     }}];
   }
+  const developerRunChecksMarker = text.match(/DEVELOPER_RUN_CHECKS_JSON:\s*(\{[\s\S]*\})\s*$/i);
+  if (developerRunChecksMarker) {
+    let request;
+    try { request = JSON.parse(developerRunChecksMarker[1]); } catch { return []; }
+    const repo = String(request?.repo || ""), script = String(request?.script || "");
+    if (repo !== "/Users/mac/Georgie" || !["check","test","benchmark"].includes(script)) return [];
+    return [{tool:"approvals.prepare_plan",args:{
+      title:"Run exact approved Georgie check",
+      summary:"Execute one allowlisted npm script on primary-mac with immutable repository and script arguments, then preserve its durable receipt.",
+      steps:[`Run developer.run_checks once for npm script ${script} in /Users/mac/Georgie.`,"Return the bounded command receipt and resulting primary-mac heartbeat."],
+      domain:"technical",risk:"high",reversible:true,
+      verificationMethod:"Require the developer.run_checks dispatch receipt and a fresh primary-mac heartbeat.",
+      rollbackPlan:"The invoked script must be self-restoring; stop without retry if its receipt is ambiguous.",
+      execution:{tool:"developer.run_checks",args:{repo,script,deviceId:"primary-mac"},verification:[]}
+    }}];
+  }
   const explicitDeveloperFileRead = /\bdeveloper\.file_read\b/i.test(text);
   if (explicitDeveloperFileRead) {
     const repoMatch = text.match(/\brepo\s*[:=]\s*([^\s,;]+)/i);
