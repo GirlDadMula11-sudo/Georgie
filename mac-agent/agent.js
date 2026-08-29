@@ -43,13 +43,59 @@ function safeErrorDetail(error) {
   };
 }
 
-const SAFE_APPS = ["Safari","Google Chrome","Notes","Mail","Finder","Calendar","Messages","Preview","System Settings","Microsoft Excel","Microsoft Word","Adobe Acrobat Reader"];
+const SAFE_APPS = ["Safari","Google Chrome","Notes","Mail","Finder","Calendar","Messages","Preview","System Settings","Microsoft Excel","Microsoft Word","Adobe Acrobat Reader","RobloxStudio"];
 const SAFE_KEYS = new Set(["return","tab","escape","space","delete","up arrow","down arrow","left arrow","right arrow"]);
 function canonicalApp(value) {
   const requested = String(value || "").trim().toLowerCase();
   const app = SAFE_APPS.find(name => name.toLowerCase() === requested);
   if (!app) throw new Error("Application is not allowlisted");
   return app;
+}
+
+function validateRobloxProjectRequest(args = {}) {
+  const projectName = String(args.projectName || "").trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9 _-]{1,63}$/.test(projectName)) throw new Error("ROBLOX_PROJECT_NAME_REJECTED");
+  const slug = projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const files = Array.isArray(args.files) ? args.files : [];
+  if (!files.length || files.length > 80) throw new Error("ROBLOX_PROJECT_FILES_REJECTED");
+  let totalBytes = 0;
+  const normalized = files.map((file) => {
+    const relative = String(file?.path || "").replaceAll("\\", "/");
+    if (!/^[A-Za-z0-9_. -]+(?:\/[A-Za-z0-9_. -]+)*$/.test(relative) || relative.split("/").includes("..") || !/\.(?:lua|luau|json|md)$/i.test(relative)) throw new Error("ROBLOX_PROJECT_PATH_REJECTED");
+    const content = String(file?.content || "");
+    totalBytes += Buffer.byteLength(content);
+    return { relative, content };
+  });
+  if (totalBytes > 1_000_000) throw new Error("ROBLOX_PROJECT_SIZE_REJECTED");
+  if (!normalized.some((file) => file.relative === "default.project.json")) throw new Error("ROBLOX_PROJECT_MANIFEST_REQUIRED");
+  return { projectName, slug, files: normalized, totalBytes };
+}
+
+async function buildRobloxPrototype(args = {}) {
+  const request = validateRobloxProjectRequest(args);
+  const projectsRoot = path.join(os.homedir(), "Documents", "Georgie Roblox Projects");
+  const projectRoot = path.join(projectsRoot, request.slug);
+  await fs.mkdir(projectRoot, { recursive: true, mode: 0o700 });
+  for (const file of request.files) {
+    const target = path.resolve(projectRoot, file.relative);
+    if (!target.startsWith(projectRoot + path.sep)) throw new Error("ROBLOX_PROJECT_PATH_ESCAPE_REJECTED");
+    await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+    const temp = `${target}.${process.pid}.tmp`;
+    await fs.writeFile(temp, file.content, { mode: 0o600 });
+    await fs.rename(temp, target);
+  }
+  JSON.parse(await fs.readFile(path.join(projectRoot, "default.project.json"), "utf8"));
+  const output = path.join(projectRoot, "Prototype.rbxlx");
+  let rojo = null;
+  for (const candidate of ["/opt/homebrew/bin/rojo", "/usr/local/bin/rojo"]) {
+    try { await fs.access(candidate); rojo = candidate; break; } catch {}
+  }
+  if (!rojo) return { status: "blocked_tooling", projectRoot, filesWritten: request.files.length, totalBytes: request.totalBytes, missingPrecondition: "Rojo CLI", nextAction: "Install Rojo once, then resume this same prototype build.", preserved: true };
+  const built = await execFileAsync(rojo, ["build", path.join(projectRoot, "default.project.json"), "-o", output], { timeout: 120000, maxBuffer: 4 * 1024 * 1024 });
+  const stat = await fs.stat(output);
+  if (stat.size < 100) throw new Error("ROBLOX_PROTOTYPE_BUILD_EMPTY");
+  if (args.openInStudio !== false) await execFileAsync("open", ["-a", "RobloxStudio", output], { timeout: 30000 });
+  return { status: "completed", projectRoot, output, outputBytes: stat.size, filesWritten: request.files.length, totalBytes: request.totalBytes, openedInStudio: args.openInStudio !== false, buildOutput: String(built.stdout || "").slice(0, 2000) };
 }
 
 async function api(route, options = {}) {
@@ -746,6 +792,8 @@ async function execute(job) {
         await fs.unlink(target).catch(() => {});
       }
     }
+    case "roblox.prototype_build":
+      return buildRobloxPrototype(a);
     case "screen.capture": {
       const target = path.join(os.tmpdir(), `georgie-screen-${Date.now()}.png`);
       await execFileAsync("screencapture", ["-x", target], { timeout: 15000 });
