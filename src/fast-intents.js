@@ -130,6 +130,12 @@ export function deterministicToolPlan(input = "") {
       {tool:"github.source.search",args:{repository,query:"referrals"}}
     ];
   }
+  const explicitApprovalPlanLedger = /\bapprovals\.plans\b/i.test(text);
+  if (explicitApprovalPlanLedger) {
+    const limitMatch = text.match(/\blimit\s*[:=]?\s*(\d{1,3})\b/i);
+    const limit = Math.max(1, Math.min(100, Number(limitMatch?.[1] || 25)));
+    return [{tool:"approvals.plans",args:{limit}}];
+  }
   const explicitDeveloperFileRead = /\bdeveloper\.file_read\b/i.test(text);
   if (explicitDeveloperFileRead) {
     const repoMatch = text.match(/\brepo\s*[:=]\s*([^\s,;]+)/i);
