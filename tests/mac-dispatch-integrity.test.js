@@ -5,6 +5,14 @@ import os from "node:os";
 import path from "node:path";
 import { enqueueMacJob, claimMacJobs, completeMacJob, importRecoveredMacJob, listMacJobs, reconcileMacDispatches, repairRecoveredMailboxPayload, resumeFailedMacJob, versionRecoverableMailboxJob } from "../src/mac/queue.js";
 
+test("Rojo install-and-build receives a long-running claim lease",async()=>{
+  const userId=`rojo-lease-${Date.now()}`;
+  const job=await enqueueMacJob({userId,deviceId:"lease-test-mac",action:"roblox.install_rojo_and_build",args:{},risk:"sensitive_write",reason:"test",idempotencyKey:`rojo-${Date.now()}`});
+  const [claimed]=await claimMacJobs("lease-test-mac",1,{agentVersion:"2.2.38"});
+  assert.equal(claimed.id,job.id);
+  assert.ok(new Date(claimed.claimLeaseExpiresAt)-new Date(claimed.claimedAt)>=14*60_000);
+});
+
 // Node runs test files concurrently. Give this file a private physical queue so
 // another suite cannot claim its jobs from the shared on-disk `primary` queue.
 process.env.GEORGIE_DATA_DIR = path.join(os.tmpdir(), `georgie-mac-dispatch-integrity-${process.pid}`);
