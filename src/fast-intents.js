@@ -136,6 +136,23 @@ export function deterministicToolPlan(input = "") {
     const limit = Math.max(1, Math.min(100, Number(limitMatch?.[1] || 25)));
     return [{tool:"approvals.plans",args:{limit}}];
   }
+  const developerPatchMarker = text.match(/DEVELOPER_PATCH_JSON:\s*(\{[\s\S]*\})\s*$/i);
+  if (developerPatchMarker) {
+    let request;
+    try { request = JSON.parse(developerPatchMarker[1]); } catch { return []; }
+    const repo = String(request?.repo || "");
+    const patch = String(request?.patch || "");
+    if (repo !== "/Users/mac/Georgie" || !patch || patch.length > 100000) return [];
+    return [{tool:"developer.prepare_patch",args:{repo,patch,title:String(request?.title||"Apply prepared Mac recovery patch").slice(0,200),summary:String(request?.summary||"Exact governed Mac recovery patch.").slice(0,2000),verificationMethod:String(request?.verificationMethod||"Run git apply --check and inspect the exact status receipt.").slice(0,2000)}}];
+  }
+  const developerApplyMarker = text.match(/DEVELOPER_APPLY_JSON:\s*(\{[\s\S]*\})\s*$/i);
+  if (developerApplyMarker) {
+    let request;
+    try { request = JSON.parse(developerApplyMarker[1]); } catch { return []; }
+    const approvalId = String(request?.approvalId || "");
+    if (!/^[0-9a-f-]{36}$/i.test(approvalId)) return [];
+    return [{tool:"developer.apply_approved_patch",args:{approvalId,deviceId:"primary-mac"}}];
+  }
   const explicitDeveloperFileRead = /\bdeveloper\.file_read\b/i.test(text);
   if (explicitDeveloperFileRead) {
     const repoMatch = text.match(/\brepo\s*[:=]\s*([^\s,;]+)/i);
