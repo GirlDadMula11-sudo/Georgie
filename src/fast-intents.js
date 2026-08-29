@@ -111,6 +111,11 @@ export function deterministicToolPlan(input = "") {
   const text = String(input || "").trim();
   const lower = text.toLowerCase();
   if (!text) return [];
+  const investigationId=text.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i)?.[0];
+  const approvalPlanStatus = investigationId
+    && /\b(?:plan|approval|dispatch|execution|status|receipt|mac[- ]?agent|roblox[- ]?build)\b/i.test(text)
+    && /\b(?:check|show|report|retrieve|read|verify|what|current|status)\b/i.test(text);
+  if(approvalPlanStatus)return[{tool:"approvals.plans",args:{limit:100}},{tool:"mac.jobs",args:{limit:100}}];
   const vercelMemberInvite = parseExplicitVercelMemberInvite(text);
   if(vercelMemberInvite){
     const plan=vercelMemberInvitePlan(vercelMemberInvite);
@@ -348,11 +353,6 @@ export function deterministicToolPlan(input = "") {
   if (/\bapproved phase 1\b/.test(lower) || (/\b(?:activate|enable|start)\b/.test(lower) && /\bbackground (?:operating|operations|monitor|work)\b/.test(lower))) return [{tool:"system.background_operations_activate",args:{}}];
   if (/\b(?:self[- ]?(?:evol|improv|teach|learn)|continuous improvement|deep research)\w*\b/.test(lower) && /\b(?:georgie|him|yourself|capab|activate|enable|make|become|status|check)\w*\b/.test(lower)) return [{tool:"system.self_evolution_check",args:{}}];
   if(/\bactivate\b/.test(lower)&&/\bprogressive(?:ly)?\b/.test(lower))return[{tool:"system.revenue_controller_activate",args:{phase:1}}];
-  const investigationId=text.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i)?.[0];
-  const approvalPlanStatus = investigationId
-    && /\b(?:plan|approval|dispatch|execution|status|receipt|mac[- ]?agent|roblox[- ]?build)\b/i.test(text)
-    && /\b(?:check|show|report|retrieve|read|verify|what|current|status)\b/i.test(text);
-  if(approvalPlanStatus)return[{tool:"approvals.plans",args:{limit:100}},{tool:"mac.jobs",args:{limit:100}}];
   if(investigationId&&/\b(?:open|show|build|generate|render|resume|continue|retrieve|read)\b/i.test(text)&&/\b(?:investigation|control brief|report|artifact)\b/i.test(text))return[{tool:"sierra.investigation_open",args:{investigationId}}];
   const integrityControlBrief = /\b(?:sierra\s+)?(?:deep[- ]system\s+)?integrity\s+program\b/.test(lower)
     || (/\bcontrol brief\b/.test(lower) && /\b(?:sierra|system|integrity|health|evidence coverage)\b/.test(lower));

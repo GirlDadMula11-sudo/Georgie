@@ -10,6 +10,11 @@ test("exact approval plan status never routes to investigation retrieval",()=>{
   assert.deepEqual(actions.map(item=>item.tool),["approvals.plans","mac.jobs"]);
 });
 
+test("artifact wording cannot turn an exact Roblox plan status read into a new plan",()=>{
+  const actions=deterministicToolPlan(`Check the current status of plan ${planId} and report its Mac-agent update receipt, Roblox-build receipt, and Prototype.rbxlx artifact path. Do not retrieve an investigation and do not create a new plan.`);
+  assert.deepEqual(actions.map(item=>item.tool),["approvals.plans","mac.jobs"]);
+});
+
 test("exact approval plan status reports the durable plan and build receipt",()=>{
   const response=verifiedDirectResponse(`Check status of plan ${planId} and report receipts.`,[
     {ok:true,tool:"approvals.plans",result:[{id:planId,approvalId:"approval-1",status:"verification_pending",executionResult:{requiredAgentVersion:"2.2.37",update:{status:"completed"},build:{status:"queued"}}}]},
