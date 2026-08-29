@@ -15,4 +15,5 @@ test("Georgie exposes a durable Roblox prototype builder instead of screenshot c
   assert.match(agent, /AGENT_VERSION = "2\.2\.37"/);
   assert.match(agent, /defaultRobloxPrototypeFiles/);
   assert.match(tools, /name:"roblox\.update_agent_and_build"/);
+  assert.match(tools, /requiredAgentVersion:"2\.2\.37"/);
 });
