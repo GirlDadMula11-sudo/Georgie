@@ -132,12 +132,48 @@ function governedWordpressHost(rawUrl) {
 async function inspectGovernedWordpressSession(args = {}) {
   if (args.authority !== "read_only" || args.operation !== "inspect_session") throw new Error("GOVERNED_BROWSER_AUTHORIZATION_REJECTED");
   if (String(args.siteOrigin || "").replace(/\/$/, "") !== "https://sierramarketinginc.com") throw new Error("GOVERNED_BROWSER_SITE_REJECTED");
-  const observed = await inspectBrowserTabs({ includeContent: true });
-  const tabs = (observed.tabs || []).filter(tab => governedWordpressHost(tab.url)).map(tab => ({
-    browser: tab.browser, window: tab.window, tab: tab.tab, active: tab.active,
-    title: tab.title, url: tab.url, contentApproved: tab.contentApproved,
-    content: tab.content, contentError: tab.contentError
-  }));
+  const script = `
+const approved = ${JSON.stringify(GOVERNED_WORDPRESS_BROWSER_HOSTS)};
+const maxPerTab = 12000;
+const result = { observedAt: new Date().toISOString(), tabs: [], browserErrors: [] };
+function clean(value, max) { return String(value || '').replace(/\\u0000/g, '').slice(0, max); }
+function approvedUrl(raw) {
+  const match = String(raw || '').match(/^https?:\\/\\/([^\\/?#]+)/i);
+  if (!match) return false;
+  const host = match[1].split(':')[0].toLowerCase();
+  return approved.some(domain => host === domain || host.endsWith('.' + domain));
+}
+function safeUrl(raw) { return clean(String(raw || '').replace(/([?&#](?:api[_-]?key|token|secret|password|code|session|auth)=)[^&#]*/ig, '$1[REDACTED]').replace(/#.*$/, ''), 4000); }
+function redact(value) { return clean(String(value || '').replace(/(?:api[_ -]?key|password|secret|access[_ -]?token|refresh[_ -]?token|authorization)\\s*[:=]?\\s*[^\\n]{1,240}/ig, '[REDACTED SENSITIVE VALUE]').replace(/\\b(?:sk|sb_secret|rnd|ghp|github_pat)_[A-Za-z0-9_-]{8,}\\b/g, '[REDACTED CREDENTIAL]'), maxPerTab); }
+function pageObservationScript() {
+  return "(() => { const body = document.body ? document.body.innerText : ''; const admin = /\\/wp-admin\\//.test(location.pathname) && !/wp-login\\.php/.test(location.pathname); return JSON.stringify({ text: String(body || '').slice(0," + maxPerTab + "), wordpressAdminAuthenticated: admin, pathname: location.pathname }); })()";
+}
+try {
+  const chrome = Application('Google Chrome');
+  if (chrome.running()) chrome.windows().forEach((win, wi) => {
+    const active = Number(win.activeTabIndex());
+    win.tabs().forEach((tab, ti) => {
+      let rawUrl = '';
+      try { rawUrl = clean(tab.url(), 4000); } catch (error) { return; }
+      if (!approvedUrl(rawUrl)) return;
+      const item = { browser: 'Google Chrome', window: wi + 1, tab: ti + 1, active: (ti + 1) === active, title: '', url: safeUrl(rawUrl), contentApproved: true, content: null, contentError: null, wordpressAdminAuthenticated: false, pathname: null };
+      try { item.title = clean(tab.title(), 1000); } catch (error) { item.contentError = clean(error.message || error, 1000); }
+      try {
+        const observed = JSON.parse(String(tab.execute({ javascript: pageObservationScript() }) || '{}'));
+        item.content = redact(observed.text);
+        item.wordpressAdminAuthenticated = observed.wordpressAdminAuthenticated === true;
+        item.pathname = clean(observed.pathname, 1000);
+      } catch (error) { item.contentError = clean(error.message || error, 1000); }
+      result.tabs.push(item);
+    });
+  });
+} catch (error) { result.browserErrors.push({ browser: 'Google Chrome', error: clean(error.message || error, 1000) }); }
+result.tabCount = result.tabs.length;
+result.contentInspectedCount = result.tabs.filter(tab => tab.content !== null).length;
+JSON.stringify(result);
+`;
+  const observed = JSON.parse(await runJxa(script) || "{}");
+  const tabs = Array.isArray(observed.tabs) ? observed.tabs : [];
   if (!tabs.length) throw new Error("GOVERNED_BROWSER_APPROVED_TAB_NOT_FOUND");
   return {
     governedBrowserInspection: {
@@ -146,6 +182,7 @@ async function inspectGovernedWordpressSession(args = {}) {
       tabs,
       tabCount: tabs.length,
       contentInspectedCount: tabs.filter(tab => tab.content !== null).length,
+      wordpressAdminAuthenticated: tabs.some(tab => tab.wordpressAdminAuthenticated === true),
       browserErrors: observed.browserErrors || []
     },
     authority: "read_only",
