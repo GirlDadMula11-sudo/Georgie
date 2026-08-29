@@ -181,7 +181,7 @@ export function deterministicToolPlan(input = "") {
 
   const wordpressBrowserInspectionPlanRequest = /\b(?:prepare|create|register)\b/.test(lower)
     && /\b(?:immutable\s+)?(?:bounded\s+)?approval\s+plan\b/.test(lower)
-    && /\bmac\.browser_inspect\b/.test(lower)
+    && //\\bmac\\.(?:wordpress_hostinger_inspect|browser_inspect)\\b/.test(lower)
     && /\bsierramarketinginc\.com\b/.test(lower)
     && /\bwordpress\b/.test(lower);
   if (wordpressBrowserInspectionPlanRequest) return [{
@@ -197,11 +197,40 @@ export function deterministicToolPlan(input = "") {
       domain:"technical",
       risk:"medium",
       reversible:true,
-      verificationMethod:"The mac.browser_inspect receipt must identify only sierramarketinginc.com tabs and report URL, title, and WordPress authentication state without mutation.",
+      verificationMethod:"The mac.wordpress_hostinger_inspect receipt must identify only approved Sierra or Hostinger Chrome tabs and explicitly report WordPress authentication state without mutation.",
       rollbackPlan:"No rollback is required because the execution is read-only; stop and preserve the receipt if any boundary is encountered.",
       execution:{
-        tool:"mac.browser_inspect",
-        args:{domains:["sierramarketinginc.com"],deviceId:"primary-mac",includeContent:/\bincludecontent\s*(?:=|to)?\s*true\b/i.test(text)},
+        tool:"mac.wordpress_hostinger_inspect",
+        args:{siteOrigin:"https://sierramarketinginc.com",deviceId:"primary-mac",authority:"read_only",operation:"inspect_session"},
+        verification:[]
+      }
+    }
+  }];
+
+
+  const georgieUpdateRestartPlanRequest = /\b(?:prepare|create|register)\b/.test(lower)
+    && /\b(?:immutable\s+)?(?:bounded\s+)?approval\s+plan\b/.test(lower)
+    && lower.includes("developer.update_restart_from_main")
+    && text.includes("/Users/mac/Georgie");
+  if (georgieUpdateRestartPlanRequest) return [{
+    tool:"approvals.prepare_plan",
+    args:{
+      title:"Update and restart Georgie Mac agent",
+      summary:"Fast-forward only the allowlisted Georgie checkout to origin/main, reconcile only remote-identical dirty paths, and restart the Mac agent so the targeted WordPress inspector becomes active.",
+      steps:[
+        "Fetch origin/main and inspect the exact /Users/mac/Georgie worktree.",
+        "Reconcile only dirty paths that are byte-identical to origin/main; stop on any genuine local modification.",
+        "Fast-forward to origin/main and restart the Mac agent.",
+        "Verify the new agent heartbeat before any WordPress operation."
+      ],
+      domain:"technical",
+      risk:"high",
+      reversible:true,
+      verificationMethod:"Require a completed developer.update_restart_from_main receipt followed by an online primary-mac heartbeat from the updated agent.",
+      rollbackPlan:"If the fast-forward or restart fails, preserve the checkout unchanged and keep the existing Mac agent process available for recovery.",
+      execution:{
+        tool:"developer.update_restart_from_main",
+        args:{repo:"/Users/mac/Georgie",deviceId:"primary-mac"},
         verification:[]
       }
     }
