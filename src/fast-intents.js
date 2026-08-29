@@ -141,6 +141,44 @@ export function deterministicToolPlan(input = "") {
     }
     return [];
   }
+  const macUiSequencePlanRequest = /\b(?:prepare|create|register)\b/.test(lower)
+    && /\b(?:immutable\s+)?(?:bounded\s+)?approval\s+plan\b/.test(lower)
+    && /\bmac\.ui_sequence\b/.test(lower)
+    && /\b(?:sierramarketinginc\.com|hostinger)\b/.test(lower);
+  if (macUiSequencePlanRequest) {
+    const marker = raw.match(/UI_SEQUENCE_JSON:\s*(\[[\s\S]*\])\s*$/i);
+    if (!marker) return [];
+    let steps;
+    try { steps = JSON.parse(marker[1]); } catch { return []; }
+    const allowed = new Set(["activate_app","open_url","click","type_text","key","wait","screen_capture"]);
+    if (!Array.isArray(steps) || !steps.length || steps.length > 30 || steps.some(step => !step || !allowed.has(String(step.action || "")))) return [];
+    for (const step of steps) {
+      if (step.action === "open_url") {
+        try {
+          const url = new URL(String(step.url || ""));
+          const host = url.hostname.toLowerCase();
+          if (url.protocol !== "https:" || !["sierramarketinginc.com","hpanel.hostinger.com"].some(domain => host === domain || host.endsWith("." + domain))) return [];
+        } catch { return []; }
+      }
+      if (step.action === "activate_app" && String(step.app || "") !== "Google Chrome") return [];
+      if (step.action === "type_text" && (!String(step.text || "") || String(step.text || "").length > 5000)) return [];
+    }
+    return [{
+      tool:"approvals.prepare_plan",
+      args:{
+        title:"Run bounded Sierra sitemap browser sequence",
+        summary:"Execute only the supplied, ordered Google Chrome UI actions on primary-mac within sierramarketinginc.com and Hostinger for the Rank Math sitemap repair, stopping on any unexpected state.",
+        steps:steps.map((step,index)=>`${index+1}. ${step.action}`),
+        domain:"technical",
+        risk:"high",
+        reversible:true,
+        verificationMethod:"Require a durable receipt for every step and finish with a screenshot or public sitemap verification.",
+        rollbackPlan:"Stop immediately on ambiguity; use Hostinger recovery or restore only the specifically changed cache artifact if a mutation must be reversed.",
+        execution:{tool:"mac.ui_sequence",args:{deviceId:"primary-mac",steps},verification:[]}
+      }
+    }];
+  }
+
   const wordpressBrowserInspectionPlanRequest = /\b(?:prepare|create|register)\b/.test(lower)
     && /\b(?:immutable\s+)?(?:bounded\s+)?approval\s+plan\b/.test(lower)
     && /\bmac\.browser_inspect\b/.test(lower)
