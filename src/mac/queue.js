@@ -4,7 +4,7 @@ import os from "os";
 import path from "path";
 import { readCloudState, writeCloudState, cloudStateStatus } from "../cloud-state.js";
 
-const NS = "mac_jobs";
+const NS = "mac_jobs_v2";
 const PRIMARY = () => process.env.GEORGIE_PRIMARY_USER_ID || "primary";
 const memoryStores = new Map();
 const cloudRefreshes = new Map();
@@ -20,13 +20,25 @@ const RECEIPT_DEADLINE_MS = Math.max(2_000, Math.min(60_000, Number(process.env.
 const CLAIM_LEASE_MS = Math.max(5_000, Math.min(300_000, Number(process.env.GEORGIE_MAC_CLAIM_LEASE_MS || 45_000)));
 
 function safeUserId(userId) { return String(userId || PRIMARY()).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120) || "primary"; }
+function compactJobStore(store){
+  const jobs=Array.isArray(store?.jobs)?store.jobs.slice(-500):[];
+  const newestCapture=[...jobs].reverse().find(job=>job?.action==="screen.capture"&&typeof job?.result?.base64==="string")?.id||null;
+  return {jobs:jobs.map(job=>{
+    const next={...job,error:typeof job?.error==="string"?job.error.slice(0,4000):job?.error};
+    if(job?.action==="screen.capture"&&typeof job?.result?.base64==="string"&&job.id!==newestCapture){
+      const base64=job.result.base64;
+      next.result={...job.result,base64:null,base64Omitted:{characters:base64.length,digest:crypto.createHash("sha256").update(base64).digest("hex")}};
+    }
+    return next;
+  })};
+}
 function candidateDataDirs() { const configured=String(process.env.GEORGIE_DATA_DIR||"").trim(); const candidates=[configured?path.resolve(configured,"mac-jobs"):null,path.resolve(process.cwd(),"data","mac-jobs"),path.resolve(os.tmpdir(),"georgie-data","mac-jobs")].filter(Boolean); return [...new Set(candidates)]; }
 async function ensureWritableDir(){if(resolvedDataDir)return resolvedDataDir;for(const dir of candidateDataDirs()){try{await fs.mkdir(dir,{recursive:true,mode:0o700});const probe=path.join(dir,`.write-probe-${process.pid}-${Date.now()}`);await fs.writeFile(probe,"ok",{mode:0o600});await fs.unlink(probe).catch(()=>{});resolvedDataDir=dir;storageMode=dir.includes(os.tmpdir())?"runtime_temp":"local_disk";return resolvedDataDir}catch(error){console.warn(`Mac queue storage candidate unavailable (${dir}):`,error instanceof Error?error.message:error)}}storageMode="memory";return null}
 async function localPath(userId){const dir=await ensureWritableDir();return dir?path.join(dir,`${safeUserId(userId)}.json`):null}
 function readMemoryStore(userId){const value=memoryStores.get(safeUserId(userId));return{jobs:Array.isArray(value?.jobs)?structuredClone(value.jobs):[]}}
-function writeMemoryStore(userId,store){memoryStores.set(safeUserId(userId),{jobs:structuredClone(Array.isArray(store?.jobs)?store.jobs:[])})}
+function writeMemoryStore(userId,store){memoryStores.set(safeUserId(userId),structuredClone(compactJobStore(store)))}
 async function readLocalStore(userId){const target=await localPath(userId);if(!target)return readMemoryStore(userId);try{const parsed=JSON.parse(await fs.readFile(target,"utf8"));return{jobs:Array.isArray(parsed?.jobs)?parsed.jobs:[]}}catch(error){if(error?.code!=="ENOENT")console.warn("Mac job local read failed:",error instanceof Error?error.message:error);const memory=readMemoryStore(userId);return memory.jobs.length?memory:{jobs:[]}}}
-async function writeLocalStore(userId,store){writeMemoryStore(userId,store);const target=await localPath(userId);if(!target)return false;try{const temp=`${target}.${process.pid}.${Date.now()}.tmp`;await fs.writeFile(temp,JSON.stringify({jobs:Array.isArray(store?.jobs)?store.jobs:[]}),{mode:0o600});await fs.rename(temp,target);return true}catch(error){console.warn("Mac job disk write failed; in-memory queue remains active:",error instanceof Error?error.message:error);resolvedDataDir=null;storageMode="memory";return false}}
+async function writeLocalStore(userId,store){store=compactJobStore(store);writeMemoryStore(userId,store);const target=await localPath(userId);if(!target)return false;try{const temp=`${target}.${process.pid}.${Date.now()}.tmp`;await fs.writeFile(temp,JSON.stringify({jobs:Array.isArray(store?.jobs)?store.jobs:[]}),{mode:0o600});await fs.rename(temp,target);return true}catch(error){console.warn("Mac job disk write failed; in-memory queue remains active:",error instanceof Error?error.message:error);resolvedDataDir=null;storageMode="memory";return false}}
 function macJobLifecycleMs(job){
   const timestamps=[job?.createdAt,job?.availableAt,job?.claimedAt,job?.dispatchReceipt?.claimedAt,job?.completedAt];
   if(job?.status==="dead_letter")timestamps.push(job?.alert?.raisedAt);
@@ -62,7 +74,7 @@ function scheduleCloudRefresh(uid,local){
   cloudRefreshes.set(uid,refresh);
 }
 async function readStore(userId=PRIMARY()){const uid=safeUserId(userId);const local=await readLocalStore(uid);scheduleCloudRefresh(uid,local);return local}
-function scheduleCloudMirror(uid,store){if(!cloudStateStatus().enabled)return;cloudMirrorStates.set(uid,structuredClone(store));if(cloudMirrorTimers.has(uid)||cloudMirrorInFlight.has(uid))return;const delay=cloudStateStatus().degraded?CLOUD_REFRESH_INTERVAL_MS:0;const timer=setTimeout(()=>{cloudMirrorTimers.delete(uid);const latest=cloudMirrorStates.get(uid);const work=writeCloudState(uid,NS,latest).then(mirrored=>{if(!mirrored)console.warn("Mac job cloud mirror unavailable; local/runtime queue remains active.")}).catch(error=>console.warn("Mac job cloud mirror deferred:",error instanceof Error?error.message:error)).finally(()=>{cloudMirrorInFlight.delete(uid);if(JSON.stringify(cloudMirrorStates.get(uid))!==JSON.stringify(latest))scheduleCloudMirror(uid,cloudMirrorStates.get(uid));});cloudMirrorInFlight.set(uid,work);},delay);timer.unref?.();cloudMirrorTimers.set(uid,timer)}
+function scheduleCloudMirror(uid,store){if(!cloudStateStatus().enabled||cloudStateStatus().providerCircuitOpen)return;store=compactJobStore(store);cloudMirrorStates.set(uid,structuredClone(store));if(cloudMirrorTimers.has(uid)||cloudMirrorInFlight.has(uid))return;const delay=cloudStateStatus().degraded?CLOUD_REFRESH_INTERVAL_MS:0;const timer=setTimeout(()=>{cloudMirrorTimers.delete(uid);const latest=cloudMirrorStates.get(uid);const work=writeCloudState(uid,NS,latest).then(mirrored=>{if(!mirrored)console.warn("Mac job cloud mirror unavailable; local/runtime queue remains active.")}).catch(error=>console.warn("Mac job cloud mirror deferred:",error instanceof Error?error.message:error)).finally(()=>{cloudMirrorInFlight.delete(uid);if(JSON.stringify(cloudMirrorStates.get(uid))!==JSON.stringify(latest))scheduleCloudMirror(uid,cloudMirrorStates.get(uid));});cloudMirrorInFlight.set(uid,work);},delay);timer.unref?.();cloudMirrorTimers.set(uid,timer)}
 async function writeStore(userId,store){const uid=safeUserId(userId);await writeLocalStore(uid,store);scheduleCloudMirror(uid,store)}
 async function mutateStore(userId,mutation,{durableClaimBoundary=false}={}){
   const uid=safeUserId(userId);const prior=mutationLocks.get(uid)||Promise.resolve();
