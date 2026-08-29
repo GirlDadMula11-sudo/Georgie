@@ -7,7 +7,7 @@ import { evaluationScorecard } from "./evaluation.js";
 import { maintenanceControlBrief, maintenanceStatus } from "./maintenance-sentinel.js";
 
 const DECISIONS_NS = "decision_journal";
-const APPROVALS_NS = "approval_control";
+const APPROVALS_NS = "approval_control_v2";
 const SNAPSHOT_NS = "command_center_snapshot";
 const PRIORITY_WEIGHT = { urgent: 100, high: 70, normal: 40, low: 10 };
 
