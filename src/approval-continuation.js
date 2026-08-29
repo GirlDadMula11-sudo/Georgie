@@ -32,6 +32,7 @@ export async function prepareApprovalPlan(userId,{sessionId="native",title,summa
 
 export async function resolveConversationalApproval(userId,input,{sessionId="native"}={}){
   if(!isConversationalApproval(input))return null;
+  const exact=String(input||"").match(/approve\s+plan\s+([0-9a-f-]{36})\s+under\s+approval\s+([0-9a-f-]{36})/i);if(exact)return approvePlanById(userId,{planId:exact[1],approvalId:exact[2],note:"Explicit exact-ID conversational approval"});
   const uid=clean(userId)||"primary",pending=await listApprovals(uid,{status:"pending",limit:25});
   const eligible=pending.filter(item=>item.actionType==="execute_versioned_plan"&&item.evidence?.planId);
   if(!eligible.length)return{ok:false,status:"no_eligible_plan",missingTool:null,error:"No pending versioned repair plan is eligible for conversational approval. Ask Georgie to prepare the repair first."};
@@ -54,7 +55,7 @@ export async function listRecoverableApprovalDispatches(userId,{limit=10}={}){
 
 export async function approvePlanById(userId,{planId,approvalId,note="Explicit exact-ID plan approval"}={}){
   const uid=clean(userId)||"primary",state=await readState(uid),plan=(state.plans||[]).find(item=>item.id===clean(planId));if(!plan)throw new Error("Exact approval plan was not found");if(plan.approvalId!==clean(approvalId))throw new Error("Approval ID is not bound to the requested plan");
-  const pending=await listApprovals(uid,{status:"pending",limit:100}),request=pending.find(item=>item.id===plan.approvalId&&item.evidence?.planId===plan.id);if(!request)throw new Error("Bound approval is not pending or is no longer eligible");
+  const pending=await listApprovals(uid,{status:"pending",limit:100}),request=pending.find(item=>item.id===plan.approvalId&&item.evidence?.planId===plan.id);if(!request){const approved=(await listApprovals(uid,{status:"approved",limit:100})).find(item=>item.id===plan.approvalId&&item.evidence?.planId===plan.id);if(approved&&plan.dispatch)return{ok:true,status:plan.status,plan,approval:approved,execution:plan.execution,idempotentReplay:true};throw new Error("Bound approval is not pending or is no longer eligible");}
   const idempotencyKey=`approval:${request.id}:plan:${plan.id}`;plan.dispatch=plan.dispatch||{idempotencyKey,status:"pending_authorization",createdAt:now(),attempts:0,nextAttemptAt:null,receipt:null,lastError:null};await saveState(uid,state);
   const approval=await decideApproval(uid,request.id,{decision:"approved",note:clean(note).slice(0,1000)});plan.status="approved_dispatch_pending";plan.dispatch={...plan.dispatch,status:"pending",authorizedAt:approval.decidedAt||now(),nextAttemptAt:now()};plan.updatedAt=now();await saveState(uid,state);return{ok:true,status:"approved_dispatch_pending",plan,approval,execution:plan.execution};
 }
