@@ -240,7 +240,7 @@ async function localInspectionFastPath({userId,sessionId,input,history,startedAt
 }
 async function robloxPlanFastPath({userId,sessionId,input,history,startedAt,progress,shouldFinalize}){
   const [action]=deterministicToolPlanWithHistory(input,history);
-  if(action?.tool!=="approvals.prepare_plan"||action?.args?.execution?.tool!=="roblox.update_agent_and_build")return null;
+  if(action?.tool!=="approvals.prepare_plan"||!/^roblox\.update_agent_(?:install_and_)?build$/.test(String(action?.args?.execution?.tool||"")))return null;
   progress({type:"status",stage:"plan_ready",message:"Binding Makayla's Roblox prototype to the Mac update-and-build workflow.",tools:["roblox.update_agent_and_build"]});
   const execution=await executeTool({name:"approvals.prepare_plan",args:{...(action.args||{}),sessionId},userId,policy:"low_risk_write"});
   const toolResults=[execution],response=humanizeResponse(verifiedDirectResponse(input,toolResults));

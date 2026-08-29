@@ -9,6 +9,12 @@ test("exact completed receipt request is read-only and never reruns the job",()=
   assert.deepEqual(deterministicToolPlan(`Report the completed receipt for Mac job ${jobId}, including its Prototype.rbxlx artifact path and Roblox Studio open result. Do not create or execute anything.`),[{tool:"mac.job_receipt",args:{jobId}}]);
 });
 
+test("Rojo installation and resume command cannot be swallowed by receipt lookup",()=>{
+  const [action]=deterministicToolPlan(`Permanently install and verify Rojo CLI, then resume the preserved Roblox prototype from job ${jobId} and return the artifact receipt.`);
+  assert.equal(action.tool,"approvals.prepare_plan");
+  assert.equal(action.args.execution.tool,"roblox.update_agent_install_and_build");
+});
+
 test("exact Roblox receipt reports artifact and Studio evidence",()=>{
   const response=verifiedDirectResponse("report receipt",[{ok:true,tool:"mac.job_receipt",result:{id:jobId,action:"roblox.prototype_build",status:"completed",result:{status:"completed",output:"/Users/mac/GeorgieRoblox/Makayla/Prototype.rbxlx",outputBytes:12345,openedInStudio:true}}}]);
   assert.match(response.text,/Prototype: \/Users\/mac\/GeorgieRoblox\/Makayla\/Prototype\.rbxlx/);

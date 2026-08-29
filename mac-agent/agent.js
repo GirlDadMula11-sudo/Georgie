@@ -13,7 +13,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.37";
+const AGENT_VERSION = "2.2.38";
 const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;
 const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));
 const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));
@@ -100,7 +100,7 @@ async function buildRobloxPrototype(args = {}) {
   JSON.parse(await fs.readFile(path.join(projectRoot, "default.project.json"), "utf8"));
   const output = path.join(projectRoot, "Prototype.rbxlx");
   let rojo = null;
-  for (const candidate of ["/opt/homebrew/bin/rojo", "/usr/local/bin/rojo"]) {
+  for (const candidate of ["/opt/homebrew/bin/rojo", "/usr/local/bin/rojo", path.join(os.homedir(), ".cargo", "bin", "rojo")]) {
     try { await fs.access(candidate); rojo = candidate; break; } catch {}
   }
   if (!rojo) return { status: "blocked_tooling", projectRoot, filesWritten: request.files.length, totalBytes: request.totalBytes, missingPrecondition: "Rojo CLI", nextAction: "Install Rojo once, then resume this same prototype build.", preserved: true };
@@ -804,6 +804,23 @@ async function execute(job) {
       } finally {
         await fs.unlink(target).catch(() => {});
       }
+    }
+    case "roblox.install_rojo_and_build": {
+      let rojo=null;
+      for(const candidate of ["/opt/homebrew/bin/rojo","/usr/local/bin/rojo",path.join(os.homedir(),".cargo","bin","rojo")]){try{await fs.access(candidate);rojo=candidate;break}catch{}}
+      let installed=false;
+      if(!rojo){
+        let brew=null;
+        for(const candidate of ["/opt/homebrew/bin/brew","/usr/local/bin/brew"]){try{await fs.access(candidate);brew=candidate;break}catch{}}
+        if(!brew)throw new Error("HOMEBREW_REQUIRED_FOR_ROJO_INSTALL");
+        await execFileAsync(brew,["install","rojo"],{timeout:600000,maxBuffer:4*1024*1024});
+        installed=true;
+        rojo=brew.startsWith("/opt/homebrew")?"/opt/homebrew/bin/rojo":"/usr/local/bin/rojo";
+      }
+      const version=(await execFileAsync(rojo,["--version"],{timeout:30000,maxBuffer:1024*1024})).stdout.trim();
+      if(!/^Rojo 7\./i.test(version))throw new Error(`ROJO_VERSION_NOT_VERIFIED:${version.slice(0,100)}`);
+      const result=await buildRobloxPrototype(a);
+      return{...result,rojoInstalled:installed,rojoPath:rojo,rojoVersion:version};
     }
     case "roblox.prototype_build":
       return buildRobloxPrototype(a);
