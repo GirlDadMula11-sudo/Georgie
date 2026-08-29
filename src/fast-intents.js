@@ -146,7 +146,7 @@ export function deterministicToolPlan(input = "") {
     && /\bmac\.ui_sequence\b/.test(lower)
     && /\b(?:sierramarketinginc\.com|hostinger)\b/.test(lower);
   if (macUiSequencePlanRequest) {
-    const marker = raw.match(/UI_SEQUENCE_JSON:\s*(\[[\s\S]*\])\s*$/i);
+    const marker = text.match(/UI_SEQUENCE_JSON:\s*(\[[\s\S]*\])\s*$/i);
     if (!marker) return [];
     let steps;
     try { steps = JSON.parse(marker[1]); } catch { return []; }
