@@ -70,19 +70,21 @@ defineTool({name:"seo.phase2_before_state",description:"Capture immutable public
 defineTool({name:"seo.phase2_batch_execute",description:"Execute exactly one compiled allowlisted Sierra SEO Phase 2 batch through primary-mac. The Mac independently validates command, batch, page scope, plan fingerprint, protected surfaces, and duplicate replay before any WordPress write.",risk:"low_risk_write",async run({userId,args}){if(String(args?.siteOrigin||"").replace(/\/$/,"")!=="https://sierramarketinginc.com"||args?.authority!=="reversible_write")throw new Error("SEO_PHASE2_EXECUTION_SCOPE_REJECTED");return queueMacAndWait(userId,args,"browser.wordpress_phase2_batch","low_risk_write","Execute exact compiled Sierra SEO Phase 2 WordPress batch",{siteOrigin:"https://sierramarketinginc.com",authority:"reversible_write",operation:"execute_phase2_batch",commandId:args?.commandId,batch:args?.batch,planHash:args?.planHash,pages:args?.pages||[],changeClasses:args?.changeClasses||[],protectedSurfaces:args?.protectedSurfaces||[]},45000)}});
 defineTool({name:"seo.phase2_batch_verify",description:"Semantically verify one Sierra SEO Phase 2 batch against fresh public HTML. A failed public predicate triggers bounded primary-mac rollback of that exact command/plan before returning failure.",risk:"read",async run({userId,args}){const verification=await verifySeoPhase2PublicState({batch:args?.batch,pages:args?.pages||[],planHash:args?.planHash});if(verification.verified===true)return verification;let rollback=null;try{rollback=await queueMacAndWait(userId,args,"browser.wordpress_phase2_rollback","low_risk_write","Rollback exact Sierra SEO Phase 2 batch after failed public semantic verification",{siteOrigin:"https://sierramarketinginc.com",authority:"reversible_write",operation:"rollback_phase2_batch",commandId:args?.commandId,batch:args?.batch,planHash:args?.planHash},45000)}catch(error){rollback={status:"failed",error:error instanceof Error?error.message:String(error)}}return{...verification,rollbackAttempted:true,rollback}}});
 defineTool({name:"seo.phase2_after_state",description:"Capture immutable public after-state for one allowlisted Sierra SEO Phase 2 batch.",risk:"read",async run({args}){if(String(args?.siteOrigin||"").replace(/\/$/,"")!=="https://sierramarketinginc.com")throw new Error("SEO_PHASE2_AFTER_SITE_REJECTED");const state=await readSeoPhase2PublicState({pages:args?.pages||[]});return{commandId:args?.commandId||null,batch:args?.batch||null,planHash:args?.planHash||null,publicReadbackVerified:true,productionMutation:false,observedAt:state.observedAt,pages:state.pages.map(page=>({pathname:page.pathname,status:page.status,title:page.title,h1:page.h1,h1Count:page.h1Count,structuredDataCount:page.structuredDataCount,htmlHash:page.htmlHash,bodyTextHash:page.bodyTextHash}))}}});
-const MAC_JOB_INLINE_BASE64_LIMIT=32768;
-function compactMacJobEvidence(value){
-  if(Array.isArray(value))return value.map(item=>compactMacJobEvidence(item));
-  if(!value||typeof value!=="object")return value;
-  const compact={};
-  for(const [entryKey,entryValue] of Object.entries(value)){
-    if(entryKey==="base64"&&typeof entryValue==="string"&&entryValue.length>MAC_JOB_INLINE_BASE64_LIMIT){
-      compact[entryKey]={omitted:true,characters:entryValue.length,sha256:crypto.createHash("sha256").update(entryValue).digest("hex")};
-    }else compact[entryKey]=compactMacJobEvidence(entryValue);
+function summarizeMacJobResult(result){
+  if(result===null||result===undefined)return null;
+  const serialized=JSON.stringify(result);
+  const summary={present:true,type:Array.isArray(result)?"array":typeof result,characters:serialized.length,sha256:crypto.createHash("sha256").update(serialized).digest("hex")};
+  if(result&&typeof result==="object"){
+    summary.fields=Object.keys(result).slice(0,40);
+    if(typeof result.mimeType==="string")summary.mimeType=result.mimeType;
+    if(typeof result.base64==="string")summary.base64Evidence={omitted:true,characters:result.base64.length,sha256:crypto.createHash("sha256").update(result.base64).digest("hex")};
   }
-  return compact;
+  return summary;
 }
-defineTool({name:"mac.jobs",description:"List recent jobs executed or queued for the user's Georgie Mac Agent. Large base64 evidence is represented by a durable hash and size so status reads remain bounded.",risk:"read",async run({userId,args}){return compactMacJobEvidence(await listMacJobs(userId,Number(args?.limit||30)))}});
+function compactMacJobStatus(job){
+  return {id:job?.id||null,action:job?.action||null,status:job?.status||null,error:job?.error||null,attempts:Number(job?.attempts||0),deviceId:job?.deviceId||null,planId:job?.planId||null,approvalId:job?.approvalId||null,createdAt:job?.createdAt||null,claimedAt:job?.claimedAt||null,completedAt:job?.completedAt||null,dispatchReceipt:job?.dispatchReceipt||null,result:summarizeMacJobResult(job?.result)};
+}
+defineTool({name:"mac.jobs",description:"List bounded status receipts for recent jobs executed or queued for the user's Georgie Mac Agent. Result payloads are represented by fields, size, and SHA-256 evidence so status reads remain fast.",risk:"read",async run({userId,args}){return (await listMacJobs(userId,Number(args?.limit||30))).map(compactMacJobStatus)}});
 defineTool({name:"mac.devices",description:"Read connected Mac Agent heartbeat status and verify whether each approved Mac is currently online.",risk:"read",async run(){return getMacDeviceStatus()}});
 defineTool({name:"mac.system_info",description:"Ask the connected Mac for hostname, architecture, OS release and uptime.",risk:"read",async run({userId,args}){return queueMac(userId,args,"system.info","read","System status requested by Georgie")}});
 defineTool({name:"mac.clipboard_read",description:"Read text currently on the connected Mac clipboard.",risk:"read",async run({userId,args}){return queueMac(userId,args,"clipboard.read","read","Clipboard requested by Georgie")}});
