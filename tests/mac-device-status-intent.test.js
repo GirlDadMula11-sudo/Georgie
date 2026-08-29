@@ -8,6 +8,12 @@ test("primary Mac heartbeat routes directly to mac.devices",()=>{
   assert.deepEqual(actions.map(item=>item.tool),["mac.devices"]);
 });
 
+test("Mac recovery plan cannot be swallowed by heartbeat status",()=>{
+  const actions=deterministicToolPlan("Prepare one bounded recovery plan for developer.update_restart_from_main at /Users/mac/Georgie. Update primary-mac to agent 2.2.37 and verify a fresh heartbeat. Do not create or duplicate any Roblox build job.");
+  assert.equal(actions[0]?.tool,"approvals.prepare_plan");
+  assert.equal(actions[0]?.args?.execution?.tool,"developer.update_restart_from_main");
+});
+
 test("standalone Mac heartbeat reports agent version deterministically",()=>{
   const response=verifiedDirectResponse("Show primary Mac heartbeat",[{ok:true,tool:"mac.devices",result:[{deviceId:"primary-mac",online:true,agentVersion:"2.2.37",lastSeenAt:"2026-08-29T23:00:00.000Z",hostname:"Jason-Mac"}]}]);
   assert.match(response.text,/Agent version: 2\.2\.37/);
