@@ -571,7 +571,7 @@ diff --git a/package-lock.json b/package-lock.json
   return { terminalState: "in_progress", completed: false, route, job: { id: job.id, status: job.status, deviceId: route.target_device, claimedByDeviceId: job.dispatchReceipt?.deviceId || null, action: job.action, authority: route.authority, dispatchReceipt: job.dispatchReceipt } };
 }
 
-export function createGovernedConnector({ executeCommand, emitStatus = async () => {}, readState, writeState, retainObjective, transitionObjective, leaseTtlMs = 30_000, recoveryBaseDelayMs = 1_000, recoveryMaxDelayMs = 60_000, recoveryMaxAttempts = 8, ownerId = null } = {}) {
+export function createGovernedConnector({ executeCommand, emitStatus = async () => {}, readState, writeState, retainObjective, transitionObjective, leaseTtlMs = 120_000, recoveryBaseDelayMs = 1_000, recoveryMaxDelayMs = 60_000, recoveryMaxAttempts = 8, ownerId = null } = {}) {
   if (typeof executeCommand !== "function") throw new Error("Connector requires an executeCommand function");
   const readStore = readState || ((userId) => readCloudState(String(userId), NS, baseState()));
   const writeStore = writeState || ((userId, state) => writeCloudState(String(userId), NS, state));
