@@ -3,7 +3,7 @@ import { createApprovalRequest, decideApproval, listApprovals } from "./command-
 import { readCloudState, writeCloudState } from "./cloud-state.js";
 import { isExplicitConversationalApproval } from "./approval-language.js";
 
-const NS="approval_continuation_v2";
+const NS="approval_continuation_v3";
 
 const clean=value=>String(value||"").trim();
 const now=()=>new Date().toISOString();
