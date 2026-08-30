@@ -121,8 +121,8 @@ test("Georgie can return a bounded durable receipt to the same handoff issue", a
   try {
     let posted=null;
     await withFetch(async (url,options)=>{
-      assert.match(String(url),/\/issues\/7\/comments$/);
-      assert.equal(options.method,"POST");
+      assert.match(String(url),/\/issues\/7\/comments/);
+      if(options.method==="GET")return jsonResponse(200,[]);
       posted=JSON.parse(options.body);
       return jsonResponse(201,{id:99,html_url:"https://github.test/issues/7#comment-99"});
     },async()=>{
@@ -132,4 +132,12 @@ test("Georgie can return a bounded durable receipt to the same handoff issue", a
       assert.match(posted.body,/georgie-receipt:handoff-1:completed/);
     });
   } finally { if (old === undefined) delete process.env.GEORGIE_GITHUB_TOKEN; else process.env.GEORGIE_GITHUB_TOKEN = old; }
+});
+
+test("Georgie receipt replay returns the existing marker with zero duplicate post",async()=>{
+  const old=process.env.GEORGIE_GITHUB_TOKEN;process.env.GEORGIE_GITHUB_TOKEN="test-token";let posts=0;
+  try{await withFetch(async(_url,options)=>{if(options.method==="POST")posts+=1;return jsonResponse(200,[{id:99,html_url:"https://github.test/issues/7#comment-99",body:"<!-- georgie-receipt:handoff-1:completed -->"}]);},async()=>{
+    const result=await commentHandoffIssue("GirlDadMula11-sudo/Georgie",7,{body:"Verified queue recovery.",receiptKey:"handoff-1:completed"});
+    assert.equal(result.ok,true);assert.equal(result.duplicate,true);assert.equal(posts,0);
+  });}finally{if(old===undefined)delete process.env.GEORGIE_GITHUB_TOKEN;else process.env.GEORGIE_GITHUB_TOKEN=old;}
 });

@@ -113,9 +113,15 @@ export async function commentHandoffIssue(repository,issueNumber,{body,receiptKe
   if(!Number.isInteger(number)||number<1)return{ok:false,error:{code:"malformed_request",message:"valid issueNumber is required"}};
   if(!text)return{ok:false,error:{code:"malformed_request",message:"handoff receipt body is required"}};
   const marker=receiptKey?`\n\n<!-- georgie-receipt:${String(receiptKey).replace(/[^a-zA-Z0-9._:-]/g,"").slice(0,160)} -->`:"";
+  if(marker){
+    const existing=await request("GET",`/repos/${repo}/issues/${number}/comments?per_page=100`);
+    if(!existing.ok)return existing;
+    const duplicate=(Array.isArray(existing.data)?existing.data:[]).find(comment=>String(comment?.body||"").includes(marker.trim()));
+    if(duplicate)return{ok:true,duplicate:true,comment:{id:duplicate.id||null,url:duplicate.html_url||null,receiptKey:receiptKey||null}};
+  }
   const result=await request("POST",`/repos/${repo}/issues/${number}/comments`,{body:{body:`${text.slice(0,12000)}${marker}`},expected:[201]});
   if(!result.ok)return result;
-  return{ok:true,comment:{id:result.data?.id||null,url:result.data?.html_url||null,receiptKey:receiptKey||null}};
+  return{ok:true,duplicate:false,comment:{id:result.data?.id||null,url:result.data?.html_url||null,receiptKey:receiptKey||null}};
 }
 export async function createBranch(repository, branch, baseRef = "main") {
   const repo = assertRepository(repository);

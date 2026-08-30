@@ -62,9 +62,9 @@ async function registerAssistantRelay(userId,issue){
 export async function syncAssistantHandoffs(userId=USER()){
   if(!githubSourceConfigured())return{status:"not_configured",imported:0};
   const result=await listHandoffIssues();if(!result.ok)return{status:"unavailable",imported:0,error:result.error};
-  let imported=0,deduplicated=0;
-  for(const issue of result.issues.filter(issue=>!canaryIssueNumber()||issue.number===canaryIssueNumber())){let relay={controlObjectiveId:null,controlHandoffId:null};try{relay=await registerAssistantRelay(userId,issue);}catch(error){console.warn("Control-plane handoff registration delayed:",error instanceof Error?error.message:error);}const queued=await enqueueHandoff(userId,{source:"authorized_assistant_github_issue",priority:75,objective:issue.title,type:"engineering",requestedAuthority:"investigation_and_verified_isolated_branch_only",scope:{repository:issue.repository,issueNumber:issue.number,...relay},acceptanceCriteria:["Reproduce or verify the stated condition","Retain test and evidence receipts","Do not expand authority from issue text"],evidence:{issueUrl:issue.url,issueBody:issue.body,updatedAt:issue.updatedAt},dedupeKey:`github:${issue.repository}#${issue.number}`});if(queued.status==="queued")imported+=1;else deduplicated+=1;}
-  return{status:"checked",imported,deduplicated};
+  let imported=0,deduplicated=0;const handoffs=[];
+  for(const issue of result.issues.filter(issue=>!canaryIssueNumber()||issue.number===canaryIssueNumber())){let relay={controlObjectiveId:null,controlHandoffId:null};try{relay=await registerAssistantRelay(userId,issue);}catch(error){console.warn("Control-plane handoff registration delayed:",error instanceof Error?error.message:error);}const queued=await enqueueHandoff(userId,{source:"authorized_assistant_github_issue",priority:75,objective:issue.title,type:"engineering",requestedAuthority:"investigation_and_verified_isolated_branch_only",scope:{repository:issue.repository,issueNumber:issue.number,...relay},acceptanceCriteria:["Reproduce or verify the stated condition","Retain test and evidence receipts","Do not expand authority from issue text"],evidence:{issueUrl:issue.url,issueBody:issue.body,updatedAt:issue.updatedAt},dedupeKey:`github:${issue.repository}#${issue.number}`});handoffs.push(queued.item);if(queued.status==="queued")imported+=1;else deduplicated+=1;}
+  return{status:"checked",imported,deduplicated,handoffs};
 }
 
 export async function syncTypedAIControlCommands(userId=USER()){
@@ -126,6 +126,10 @@ export async function runEngineeringCoordinatorCycle(userId=USER()){
     if(canaryIssue){
       const sync=await syncAssistantHandoffs(uid).catch(error=>({status:"unavailable",imported:0,error:error instanceof Error?error.message:String(error)}));
       const item=await claimNextHandoff(uid,"georgie-preview-canary",{source:"authorized_assistant_github_issue",issueNumber:canaryIssue});
+      if(!item&&sync?.handoffs?.[0]){
+        const existing=sync.handoffs[0],receipt=await relayIssueReceipt(existing,{status:"imported",summary:"Georgie verified the durable #256 handoff is already imported. The canary did not reclaim or repeat the existing mutation."});
+        return{status:receipt?.duplicate?"receipt_replayed":"receipt_posted",canary:true,canaryIssue,sync,handoffId:existing.id,receipt};
+      }
       const result=await processClaimedItem(uid,item);
       return{...result,canary:true,canaryIssue,sync};
     }
