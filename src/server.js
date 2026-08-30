@@ -16,7 +16,7 @@ import { sierraWorkforceConfigured } from "./integrations/sierra-workforce.js";
 import { createMacRouter, getMacDeviceStatus } from "./mac/router.js";
 import { enqueueMacJob, listMacJobs, macQueueStorageStatus } from "./mac/queue.js";
 import { executeTool, listToolDefinitions, startApprovalDispatchWorker } from "./tools.js";
-import { cloudStateStatus, probeCloudState, startCloudStateRecovery } from "./cloud-state.js";
+import { cloudStateStatus, probeCloudState, readCloudState, startCloudStateRecovery, writeCloudState } from "./cloud-state.js";
 import { createMobileRouter, startMobileTurnRecovery } from "./mobile-router.js";
 import { createSierraRouter } from "./sierra-router.js";
 import { createCommandRouter } from "./command-router.js";
@@ -81,3 +81,11 @@ app.post("/api/transcribe",upload.single("audio"),async(req,res)=>{try{if(!req.f
 const PORT=Number(process.env.PORT||10000);
 const server=app.listen(PORT,()=>console.log(`Georgie listening on port ${PORT}`));
 attachRealtimeRelay(server);
+async function runPreviewModelProof(){
+  if(process.env.IS_PULL_REQUEST!=="true"||process.env.GEORGIE_MODEL_CANARY_PROBE!=="true")return;
+  const key="pr257-model-proof-v1",state=await readCloudState("primary","model_canary_proof",{});
+  if(state?.[key])return;
+  await writeCloudState("primary","model_canary_proof",{...state,[key]:{status:"started",at:new Date().toISOString()}});
+  try{const result=await askGeorgie("Reply with exactly CANARY_OK. No tools or explanation.",[],"PR #257 governed model telemetry proof.",{objectiveId:"PR-257-CANARY-MODEL-PROOF",escalationReason:"explicit_canary_telemetry_proof"});await writeCloudState("primary","model_canary_proof",{...state,[key]:{status:"completed",at:new Date().toISOString(),model:result.model||null}});console.log("Georgie model canary proof",JSON.stringify({status:"completed",model:result.model||null}));}catch(error){await writeCloudState("primary","model_canary_proof",{...state,[key]:{status:"failed",at:new Date().toISOString(),error:String(error?.message||error).slice(0,300)}});console.warn("Georgie model canary proof failed:",error instanceof Error?error.message:error);}
+}
+setTimeout(()=>runPreviewModelProof().catch(error=>console.warn("Georgie model canary proof delayed:",error instanceof Error?error.message:error)),10_000).unref?.();
