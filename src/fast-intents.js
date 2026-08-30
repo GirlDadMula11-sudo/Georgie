@@ -128,6 +128,28 @@ export function deterministicToolPlan(input = "") {
     && /\b(?:show|list|check|read|return|report|verify|what|exact|status)\b/i.test(text)
     && !/\b(?:prepare|create|update|restart|execute|install|repair|recover)\b/.test(affirmativeLower);
   if(macDeviceStatus)return[{tool:"mac.devices",args:{}}];
+  const longRunningMacRecoveryMarker = text.match(/MAC_LONG_RUNNING_RECOVERY_JSON:\s*(\{[\s\S]*\})\s*$/i);
+  if (longRunningMacRecoveryMarker) {
+    let request;
+    try { request = JSON.parse(longRunningMacRecoveryMarker[1]); } catch { return []; }
+    const jobId = String(request?.jobId || "").toLowerCase();
+    const deviceId = String(request?.deviceId || "");
+    const expectedAction = String(request?.expectedAction || "");
+    const requiredAgentVersion = String(request?.requiredAgentVersion || "");
+    if (!/^idem-[0-9a-f]{40}$/.test(jobId)
+      || deviceId !== "primary-mac"
+      || expectedAction !== "roblox.install_rojo_and_build"
+      || requiredAgentVersion !== "2.2.39") return [];
+    return [{tool:"approvals.prepare_plan",args:{
+      title:"Resume exact preserved Roblox prototype job",
+      summary:`Recover ${jobId} in place on primary-mac after the deployed checkpoint transport repair. Preserve its identity and never enqueue another Roblox job.`,
+      steps:["Validate the exact preserved job, action, device, and required agent version.","Requeue only the same durable job identity with its existing checkpoint receipts.","Read back the exact job receipt and primary-mac heartbeat."],
+      domain:"technical",risk:"high",reversible:true,
+      verificationMethod:"Require the same job ID, roblox.install_rojo_and_build action, queued or completed recovery state, agent 2.2.39 binding, and a fresh primary-mac heartbeat.",
+      rollbackPlan:"Stop the preserved job without creating a replacement if its exact identity, action, checkpoint, or agent binding cannot be verified.",
+      execution:{tool:"mac.long_running_job_recover",args:{jobId,deviceId,expectedAction,requiredAgentVersion},verification:[{tool:"mac.job_receipt",args:{jobId}},{tool:"mac.devices",args:{}}]}
+    }}];
+  }
   const vercelMemberInvite = parseExplicitVercelMemberInvite(text);
   if(vercelMemberInvite){
     const plan=vercelMemberInvitePlan(vercelMemberInvite);
