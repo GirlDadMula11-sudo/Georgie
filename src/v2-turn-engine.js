@@ -240,8 +240,11 @@ async function localInspectionFastPath({userId,sessionId,input,history,startedAt
 }
 async function robloxPlanFastPath({userId,sessionId,input,history,startedAt,progress,shouldFinalize}){
   const [action]=deterministicToolPlanWithHistory(input,history);
-  if(action?.tool!=="approvals.prepare_plan"||!/^roblox\.update_agent_(?:install_and_)?build$/.test(String(action?.args?.execution?.tool||"")))return null;
-  progress({type:"status",stage:"plan_ready",message:"Binding Makayla's Roblox prototype to the Mac update-and-build workflow.",tools:["roblox.update_agent_and_build"]});
+  const executionTool=String(action?.args?.execution?.tool||"");
+  const deterministicRobloxMarker=/^\s*(?:ROBLOX_[A-Z_]+|MAC_LONG_RUNNING_RECOVERY)_JSON\s*:/i.test(String(input||""));
+  const boundedRobloxExecution=/^roblox\./.test(executionTool)||executionTool==="mac.long_running_job_recover";
+  if(action?.tool!=="approvals.prepare_plan"||!deterministicRobloxMarker||!boundedRobloxExecution)return null;
+  progress({type:"status",stage:"plan_ready",message:"Binding Makayla's Roblox continuation to its exact governed workflow.",tools:[executionTool]});
   const execution=await executeTool({name:"approvals.prepare_plan",args:{...(action.args||{}),sessionId},userId,policy:"low_risk_write"});
   const toolResults=[execution],response=humanizeResponse(verifiedDirectResponse(input,toolResults));
   const latencyMs=Date.now()-startedAt,evidence=[{source:"approvals.prepare_plan",observedAt:new Date().toISOString(),status:execution?.ok===false?"failed":"observed"}];
