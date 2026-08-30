@@ -32,7 +32,14 @@ const KERNEL_COMPONENT_IDS = new Set([
 
 export const RUNTIME_MODES = Object.freeze(["kernel", "full"]);
 
+function previewWorkerIds(env = process.env) {
+  return new Set(String(env.GEORGIE_PREVIEW_WORKER_ALLOWLIST || "").split(",").map(value => value.trim()).filter(Boolean));
+}
+
 export function runtimeOwnsBackgroundWorkers(env = process.env) {
+  if (String(env.IS_PULL_REQUEST || "").toLowerCase() === "true") {
+    return String(env.GEORGIE_PREVIEW_WORKERS_ENABLED || "").toLowerCase() === "true" && previewWorkerIds(env).size > 0;
+  }
   return !env.VERCEL && !env.AWS_LAMBDA_FUNCTION_NAME && !env.LAMBDA_TASK_ROOT;
 }
 
@@ -87,10 +94,13 @@ export function validateRuntimeRegistry(components = RUNTIME_COMPONENTS) {
 
 export const SPECIALIST_START_DELAY_MS = Math.max(250, Math.min(30_000, Number(process.env.GEORGIE_SPECIALIST_START_DELAY_MS || 1_500)));
 
-export function componentsForProfile(profile, components = RUNTIME_COMPONENTS, plane = null, mode = runtimeMode()) {
+export function componentsForProfile(profile, components = RUNTIME_COMPONENTS, plane = null, mode = runtimeMode(), env = process.env) {
+  const preview = String(env.IS_PULL_REQUEST || "").toLowerCase() === "true";
+  const allowedPreviewWorkers = previewWorkerIds(env);
   return components.filter(component => component.profiles.includes(profile)
     && (!plane || component.plane === plane)
-    && (mode === "full" || KERNEL_COMPONENT_IDS.has(component.id)));
+    && (mode === "full" || KERNEL_COMPONENT_IDS.has(component.id))
+    && (!preview || allowedPreviewWorkers.has(component.id)));
 }
 
 export function startRuntimeProfile(profile, { logger = console, components = RUNTIME_COMPONENTS, plane = null, mode = runtimeMode() } = {}) {

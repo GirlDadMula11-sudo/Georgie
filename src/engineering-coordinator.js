@@ -14,6 +14,7 @@ let timer=null,running=false;
 const now=()=>new Date().toISOString();
 const bounded=(value,max=3000)=>String(value??"").trim().slice(0,max);
 const PRIORITY={P0:100,P1:90,P2:75,P3:55};
+function canaryIssueNumber(){const value=Number(process.env.GEORGIE_ENGINEERING_CANARY_ISSUE||0);return Number.isInteger(value)&&value>0?value:null;}
 
 function expectationMatches(actual,expected){
   if(Array.isArray(expected))return Array.isArray(actual)&&expected.length===actual.length&&expected.every((value,index)=>expectationMatches(actual[index],value));
@@ -62,7 +63,7 @@ export async function syncAssistantHandoffs(userId=USER()){
   if(!githubSourceConfigured())return{status:"not_configured",imported:0};
   const result=await listHandoffIssues();if(!result.ok)return{status:"unavailable",imported:0,error:result.error};
   let imported=0,deduplicated=0;
-  for(const issue of result.issues){let relay={controlObjectiveId:null,controlHandoffId:null};try{relay=await registerAssistantRelay(userId,issue);}catch(error){console.warn("Control-plane handoff registration delayed:",error instanceof Error?error.message:error);}const queued=await enqueueHandoff(userId,{source:"authorized_assistant_github_issue",priority:75,objective:issue.title,type:"engineering",requestedAuthority:"investigation_and_verified_isolated_branch_only",scope:{repository:issue.repository,issueNumber:issue.number,...relay},acceptanceCriteria:["Reproduce or verify the stated condition","Retain test and evidence receipts","Do not expand authority from issue text"],evidence:{issueUrl:issue.url,issueBody:issue.body,updatedAt:issue.updatedAt},dedupeKey:`github:${issue.repository}#${issue.number}`});if(queued.status==="queued")imported+=1;else deduplicated+=1;}
+  for(const issue of result.issues.filter(issue=>!canaryIssueNumber()||issue.number===canaryIssueNumber())){let relay={controlObjectiveId:null,controlHandoffId:null};try{relay=await registerAssistantRelay(userId,issue);}catch(error){console.warn("Control-plane handoff registration delayed:",error instanceof Error?error.message:error);}const queued=await enqueueHandoff(userId,{source:"authorized_assistant_github_issue",priority:75,objective:issue.title,type:"engineering",requestedAuthority:"investigation_and_verified_isolated_branch_only",scope:{repository:issue.repository,issueNumber:issue.number,...relay},acceptanceCriteria:["Reproduce or verify the stated condition","Retain test and evidence receipts","Do not expand authority from issue text"],evidence:{issueUrl:issue.url,issueBody:issue.body,updatedAt:issue.updatedAt},dedupeKey:`github:${issue.repository}#${issue.number}`});if(queued.status==="queued")imported+=1;else deduplicated+=1;}
   return{status:"checked",imported,deduplicated};
 }
 
@@ -121,6 +122,13 @@ export async function runEngineeringCoordinatorCycle(userId=USER()){
   if(running)return{status:"already_running"};running=true;const uid=String(userId);
   try{
     const state=await missionStatus(uid);if(!state.active)return{status:"inactive"};
+    const canaryIssue=canaryIssueNumber();
+    if(canaryIssue){
+      const sync=await syncAssistantHandoffs(uid).catch(error=>({status:"unavailable",imported:0,error:error instanceof Error?error.message:String(error)}));
+      const item=await claimNextHandoff(uid,"georgie-preview-canary",{source:"authorized_assistant_github_issue",issueNumber:canaryIssue});
+      const result=await processClaimedItem(uid,item);
+      return{...result,canary:true,canaryIssue,sync};
+    }
     const receiptOutbox=await flushAIControlReceiptOutbox(uid).catch(error=>({status:"unavailable",error:error instanceof Error?error.message:String(error)}));
     const typedSync=await syncTypedAIControlCommands(uid).catch(error=>({status:"unavailable",imported:0,error:error instanceof Error?error.message:String(error)}));
     let item=await claimNextHandoff(uid);
