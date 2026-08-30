@@ -3,14 +3,24 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
-import { enqueueMacJob, claimMacJobs, completeMacJob, importRecoveredMacJob, listMacJobs, reconcileMacDispatches, repairRecoveredMailboxPayload, resumeFailedMacJob, versionRecoverableMailboxJob } from "../src/mac/queue.js";
+import { enqueueMacJob, claimMacJobs, checkpointMacJob, completeMacJob, importRecoveredMacJob, listMacJobs, reconcileMacDispatches, repairRecoveredMailboxPayload, resumeFailedMacJob, versionRecoverableMailboxJob } from "../src/mac/queue.js";
 
 test("Rojo install-and-build receives a long-running claim lease",async()=>{
-  const userId=`rojo-lease-${Date.now()}`;
-  const job=await enqueueMacJob({userId,deviceId:"lease-test-mac",action:"roblox.install_rojo_and_build",args:{},risk:"sensitive_write",reason:"test",idempotencyKey:`rojo-${Date.now()}`});
-  const [claimed]=await claimMacJobs("lease-test-mac",1,{agentVersion:"2.2.38"});
+  const nonce=`${Date.now()}-${Math.random()}`,userId=`rojo-lease-${nonce}`,deviceId=`lease-test-mac-${nonce}`;
+  const job=await enqueueMacJob({userId,deviceId,action:"roblox.install_rojo_and_build",args:{},risk:"sensitive_write",reason:"test",idempotencyKey:`rojo-${nonce}`});
+  const claimed=(await claimMacJobs(deviceId,50,{agentVersion:"2.2.39"})).find(item=>item.id===job.id);
   assert.equal(claimed.id,job.id);
   assert.ok(new Date(claimed.claimLeaseExpiresAt)-new Date(claimed.claimedAt)>=14*60_000);
+});
+
+test("long-running checkpoints renew the durable lease and exhausted replay keeps one identity",async()=>{
+  const nonce=`${Date.now()}-${Math.random()}`,key=`rojo-resume-${nonce}`,deviceId=`rojo-mac-${nonce}`;
+  const job=await enqueueMacJob({userId:`rojo-user-${nonce}`,deviceId,action:"roblox.install_rojo_and_build",args:{requiredAgentVersion:"2.2.39"},risk:"sensitive_write",idempotencyKey:key,maxAttempts:1});
+  const claimed=(await claimMacJobs(deviceId,50,{agentVersion:"2.2.39"})).find(item=>item.id===job.id),before=claimed.claimLeaseExpiresAt;
+  const renewed=await checkpointMacJob(deviceId,job.id,{nextStep:0,stepId:"install",receipt:{stepId:"install",status:"running"}});assert.ok(new Date(renewed.claimLeaseExpiresAt)>=new Date(before));
+  await reconcileMacDispatches({nowMs:new Date(renewed.claimLeaseExpiresAt).getTime()+1});
+  const replay=await enqueueMacJob({userId:`rojo-user-${nonce}`,deviceId,action:"roblox.install_rojo_and_build",args:{requiredAgentVersion:"2.2.39"},risk:"sensitive_write",idempotencyKey:key,maxAttempts:5});
+  assert.equal(replay.id,job.id);assert.equal(replay.status,"queued");assert.equal(replay.args.requiredAgentVersion,"2.2.39");assert.equal(replay.resumeHistory.at(-1).reason,"long_running_checkpoint_transport_repaired");
 });
 
 // Node runs test files concurrently. Give this file a private physical queue so
