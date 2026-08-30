@@ -62,6 +62,7 @@ function modelFor(tier, env = process.env) {
  */
 export function intelligenceRoute(input = "", context = {}, env = process.env) {
   const text = String(input || "").trim();
+  const exactMatch=text.match(/\breply\s+(?:with\s+)?exactly\s+["'`]?([A-Za-z0-9_:-]+(?:\.[A-Za-z0-9_:-]+)*)["'`]?/i);
   const policy = runtimePolicy(text);
   const highImpact = context.highImpact === true || HIGH_IMPACT.test(text);
   const domain = context.domain || domainFor(text);
@@ -114,6 +115,7 @@ export function intelligenceRoute(input = "", context = {}, env = process.env) {
     highImpact,
     allowWebTool: policy.allowWebTool || context.allowWebTool === true,
     latencyClass: policy.latencyClass,
+    qualityContract:{minimumCharacters:Number(context.minimumCharacters||40),exactText:exactMatch?.[1]||null},
     selectionEvidence: {
       uncertainty: required.uncertainty,
       businessImpact: required.impact,
@@ -157,6 +159,7 @@ export function evaluateDeterministicQuality(route, attempt = {}) {
   const text = String(attempt.text || "").trim();
   if (!text) return { passed: false, reason: "empty_result" };
   if (attempt.completed === false || attempt.terminalReason) return { passed: false, reason: "incomplete_or_terminal_result" };
+  if(route?.qualityContract?.exactText){const normalized=text.replace(/^["'`]|["'`]$/g,"").trim();return normalized===route.qualityContract.exactText?{passed:true,reason:"exact_output_contract_satisfied"}:{passed:false,reason:"exact_output_contract_mismatch"};}
   if (text.length < Math.max(24, Number(route?.qualityContract?.minimumCharacters || 40))) return { passed: false, reason: "result_below_minimum_content" };
   if (/\b(?:I (?:cannot|can't) verify|unverified|partial result|stream was interrupted|no evidence)\b/i.test(text)) return { passed: false, reason: "result_disclosed_insufficient_evidence" };
   if (route?.requiresCurrentEvidence && route?.allowWebTool && Number(attempt.webSearches || 0) < 1) return { passed: false, reason: "current_evidence_not_observed" };

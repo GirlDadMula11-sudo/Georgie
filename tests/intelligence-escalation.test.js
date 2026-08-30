@@ -36,3 +36,9 @@ test("a failed deterministic quality gate blocks rather than spending above the 
   }),/No available intelligence tier/);
   assert.deepEqual(called, ["fast"]);
 });
+
+test("an explicit exact short-answer contract passes without wasteful escalation",async()=>{
+  const route=intelligenceRoute("Reply with exactly CANARY_OK. No explanation."),called=[];
+  const value=await runIntelligenceEscalation({route,execute:async step=>{called.push(step.tier);return{text:"CANARY_OK"};}});
+  assert.deepEqual(called,["fast"]);assert.equal(value.result.text,"CANARY_OK");
+});
