@@ -42,7 +42,7 @@ test("Mac agent performs a bounded Studio play test with six gameplay checks", (
   assert.match(agent, /studioFileOpenErrorCode/);
   assert.match(agent, /studioFileOpenTopology/);
   assert.match(agent, /entire contents of diagnosticPanel/);
-  assert.match(agent, /error\\?\\.stderr/);
+  assert.match(agent, /error\?\.stderr/);
   assert.match(agent, /open_panel_wait/);
   assert.match(agent, /path_field_wait/);
   assert.match(agent, /studioWindowReady/);
@@ -54,7 +54,7 @@ test("Mac agent performs a bounded Studio play test with six gameplay checks", (
   assert.match(queue, /play_test_file_dialog_diagnostics_repaired/);
   assert.match(queue, /play_test_screenshot_evidence_repaired/);
   assert.match(tools, /name:"roblox\.play_test_validate"/);
-  assert.match(tools, /requiredAgentVersion:"2\.2\.48"/);
+  assert.match(tools, /requiredAgentVersion:"2\.2\.49"/);
   assert.match(tools, /runtimeMarkerObserved/);
   assert.match(tools, /safeResult\.checks/);
   const activation = agent.slice(agent.indexOf("async function activateRobloxStudioPlayMode"), agent.indexOf("async function playTestRobloxPrototype"));
