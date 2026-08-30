@@ -13,7 +13,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.41";
+const AGENT_VERSION = "2.2.42";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -190,7 +190,7 @@ function inspectRobloxPrototypeSources(projectRoot) {
   });
 }
 
-async function newestRobloxStudioLog(sinceMs) {
+async function recentRobloxStudioLogs(sinceMs) {
   const logRoot = path.join(os.homedir(), "Library", "Logs", "Roblox");
   const entries = await fs.readdir(logRoot, { withFileTypes: true }).catch(() => []);
   const candidates = [];
@@ -201,22 +201,22 @@ async function newestRobloxStudioLog(sinceMs) {
     if (stat && stat.mtimeMs >= sinceMs - 10_000) candidates.push({ target, mtimeMs: stat.mtimeMs, size: stat.size });
   }
   candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
-  return candidates[0] || null;
+  return candidates;
 }
 
 async function waitForRobloxRuntimeMarker(sinceMs, marker, timeoutMs = 25000) {
   const deadline = Date.now() + timeoutMs;
-  let latest = null;
+  let candidates = [];
   while (Date.now() < deadline) {
-    latest = await newestRobloxStudioLog(sinceMs);
-    if (latest) {
-      const log = await fs.readFile(latest.target, "utf8").catch(() => "");
+    candidates = await recentRobloxStudioLogs(sinceMs);
+    for (const candidate of candidates) {
+      const log = await fs.readFile(candidate.target, "utf8").catch(() => "");
       const markerIndex = log.lastIndexOf(marker);
-      if (markerIndex >= 0) return { observed: true, logPath: latest.target, logBytes: latest.size, excerpt: log.slice(markerIndex, markerIndex + 500) };
+      if (markerIndex >= 0) return { observed: true, logPath: candidate.target, logBytes: candidate.size, excerpt: log.slice(markerIndex, markerIndex + 500), searchedLogCount: candidates.length };
     }
     await delay(500);
   }
-  return { observed: false, logPath: latest?.target || null, logBytes: latest?.size || 0, excerpt: "" };
+  return { observed: false, logPath: candidates[0]?.target || null, logBytes: candidates[0]?.size || 0, excerpt: "", searchedLogCount: candidates.length };
 }
 
 async function playTestRobloxPrototype(args = {}) {
@@ -254,6 +254,7 @@ async function playTestRobloxPrototype(args = {}) {
       runtimeMarkerObserved: runtime.observed,
       runtimeLogPath: runtime.logPath,
       runtimeLogBytes: runtime.logBytes,
+      runtimeSearchedLogCount: runtime.searchedLogCount,
       runtimeExcerpt: runtime.excerpt,
       screenshotSha256,
       testedAt: new Date().toISOString()
@@ -1024,7 +1025,7 @@ async function cycle() {
     for (const job of payload.jobs || []) {
       let keepalive=null;
       try {
-        if(job.action==="roblox.install_rojo_and_build")keepalive=setInterval(()=>api(`/api/mac/${encodeURIComponent(DEVICE_ID)}/jobs/${encodeURIComponent(job.id)}/checkpoint`,{method:"POST",body:JSON.stringify({nextStep:Number(job.workflowCheckpoint?.nextStep||0),stepId:"long-running-keepalive",receipt:{stepId:"long-running-keepalive",at:new Date().toISOString()}})}).catch(()=>{}),30_000);
+        if(["roblox.install_rojo_and_build","roblox.play_test_validate"].includes(job.action))keepalive=setInterval(()=>api(`/api/mac/${encodeURIComponent(DEVICE_ID)}/jobs/${encodeURIComponent(job.id)}/checkpoint`,{method:"POST",body:JSON.stringify({nextStep:Number(job.workflowCheckpoint?.nextStep||0),stepId:"long-running-keepalive",receipt:{stepId:"long-running-keepalive",at:new Date().toISOString()}})}).catch(()=>{}),30_000);
         const result = await execute(job);
         await api(`/api/mac/${encodeURIComponent(DEVICE_ID)}/jobs/${job.id}/complete`, { method: "POST", body: JSON.stringify({ result }) });
       } catch (error) {
