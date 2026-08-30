@@ -13,7 +13,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.45";
+const AGENT_VERSION = "2.2.46";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -219,44 +219,68 @@ async function waitForRobloxRuntimeMarker(sinceMs, marker, timeoutMs = 25000) {
   return { observed: false, logPath: candidates[0]?.target || null, logBytes: candidates[0]?.size || 0, excerpt: "", searchedLogCount: candidates.length };
 }
 
-async function waitForRobloxStudioWindow(timeoutMs = 20000) {
+async function waitForRobloxStudioArtifactWindow(artifact, timeoutMs = 30000) {
+  const expectedArtifact = path.resolve(String(artifact || ""));
+  if (!expectedArtifact.endsWith(`${path.sep}Prototype.rbxlx`)) throw new Error("ROBLOX_STUDIO_ARTIFACT_WINDOW_REJECTED");
   const deadline = Date.now() + timeoutMs;
   let windowNames = "";
+  let windowTitle = "";
+  let documentPath = "";
   while (Date.now() < deadline) {
-    windowNames = await runAppleScript(`tell application "System Events"
+    const observation = await runAppleScript(`set expectedArtifact to ${JSON.stringify(expectedArtifact)}
+tell application "System Events"
 if not (exists process "RobloxStudio") then return ""
 tell process "RobloxStudio"
 set frontmost to true
 set studioWindowNames to {}
 repeat with studioWindow in windows
-set end of studioWindowNames to name of studioWindow
+set studioWindowTitle to name of studioWindow as string
+set end of studioWindowNames to studioWindowTitle
+set studioDocument to ""
+try
+set studioDocument to value of attribute "AXDocument" of studioWindow as string
+end try
+if studioDocument contains expectedArtifact or studioWindowTitle contains "Prototype.rbxlx" then
+try
+perform action "AXRaise" of studioWindow
+end try
+try
+set value of attribute "AXMain" of studioWindow to true
+end try
+return "MATCHED" & linefeed & studioWindowTitle & linefeed & studioDocument & linefeed & (studioWindowNames as string)
+end if
 end repeat
-return studioWindowNames as string
+return "WAITING" & linefeed & linefeed & linefeed & (studioWindowNames as string)
 end tell
 end tell`).catch(() => "");
-    if (String(windowNames).trim()) return { ready: true, windowNames };
+    const [state = "", observedTitle = "", observedDocument = "", ...observedNames] = String(observation).split("\n");
+    windowNames = observedNames.join("\n");
+    windowTitle = observedTitle;
+    documentPath = observedDocument;
+    if (state === "MATCHED") return { ready: true, matched: true, windowNames, windowTitle, documentPath };
     await delay(500);
   }
-  return { ready: false, windowNames };
+  return { ready: false, matched: false, windowNames, windowTitle, documentPath };
 }
 
-async function activateRobloxStudioPlayMode(startedAtMs) {
-  const studioWindow = await waitForRobloxStudioWindow();
-  if (!studioWindow.ready) return { observed: false, logPath: null, logBytes: 0, excerpt: "", searchedLogCount: 0, activationAttempts: 0, artifactOpenRequested: true, studioWindowReady: false, studioWindowNames: studioWindow.windowNames };
-  await delay(4000);
+async function activateRobloxStudioPlayMode(startedAtMs, artifact) {
+  let studioWindow = await waitForRobloxStudioArtifactWindow(artifact);
+  if (!studioWindow.ready) return { observed: false, logPath: null, logBytes: 0, excerpt: "", searchedLogCount: 0, activationAttempts: 0, artifactOpenRequested: true, studioWindowReady: false, studioWindowMatched: false, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
+  await delay(1500);
   let runtime = { observed: false, logPath: null, logBytes: 0, excerpt: "", searchedLogCount: 0 };
   for (let activationAttempts = 1; activationAttempts <= 2; activationAttempts += 1) {
     await runAppleScript('tell application "RobloxStudio" to activate');
-    await runAppleScript('tell application "System Events" to tell process "RobloxStudio" to set frontmost to true');
-    await runAppleScript('tell application "System Events" to key code 96');
+    studioWindow = await waitForRobloxStudioArtifactWindow(artifact, 5000);
+    if (!studioWindow.ready) break;
+    await runAppleScript('tell application "System Events" to tell process "RobloxStudio" to key code 96');
     runtime = await waitForRobloxRuntimeMarker(startedAtMs, "Georgie prototype loaded:", 20000);
-    if (runtime.observed) return { ...runtime, activationAttempts, artifactOpenRequested: true, studioWindowReady: true, studioWindowNames: studioWindow.windowNames };
+    if (runtime.observed) return { ...runtime, activationAttempts, artifactOpenRequested: true, studioWindowReady: true, studioWindowMatched: true, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
     if (activationAttempts < 2) {
-      await runAppleScript('tell application "System Events" to key code 96 using {shift down}').catch(() => {});
+      await runAppleScript('tell application "System Events" to tell process "RobloxStudio" to key code 96 using {shift down}').catch(() => {});
       await delay(1500);
     }
   }
-  return { ...runtime, activationAttempts: 2, artifactOpenRequested: true, studioWindowReady: true, studioWindowNames: studioWindow.windowNames };
+  return { ...runtime, activationAttempts: 2, artifactOpenRequested: true, studioWindowReady: studioWindow.ready, studioWindowMatched: studioWindow.matched, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
 }
 
 async function playTestRobloxPrototype(args = {}) {
@@ -274,7 +298,7 @@ async function playTestRobloxPrototype(args = {}) {
   try {
     await execFileAsync("open", ["-a", "RobloxStudio", artifact], { timeout: 30000 });
     if (!await waitForAppProcess("RobloxStudio", 15000)) throw new Error("ROBLOX_STUDIO_NOT_RUNNING");
-    const runtime = await activateRobloxStudioPlayMode(startedAtMs);
+    const runtime = await activateRobloxStudioPlayMode(startedAtMs, artifact);
     let screenshotSha256 = null;
     let screenshotError = null;
     try {
@@ -285,7 +309,7 @@ async function playTestRobloxPrototype(args = {}) {
     }
     await runAppleScript('tell application "System Events" to key code 96 using {shift down}');
     playStopped = true;
-    const defects = runtime.observed ? [] : ["RUNTIME_PROTOTYPE_MARKER_NOT_OBSERVED"];
+    const defects = runtime.observed ? [] : [runtime.studioWindowMatched ? "RUNTIME_PROTOTYPE_MARKER_NOT_OBSERVED" : "ROBLOX_PROTOTYPE_WINDOW_NOT_READY"];
     return {
       status: defects.length ? "blocked" : "completed",
       artifact,
@@ -296,7 +320,10 @@ async function playTestRobloxPrototype(args = {}) {
       playStopped,
       artifactOpenRequested: runtime.artifactOpenRequested,
       studioWindowReady: runtime.studioWindowReady,
+      studioWindowMatched: runtime.studioWindowMatched,
       studioWindowNames: runtime.studioWindowNames,
+      studioWindowTitle: runtime.studioWindowTitle,
+      studioDocumentPath: runtime.studioDocumentPath,
       activationAttempts: runtime.activationAttempts,
       runtimeMarkerObserved: runtime.observed,
       runtimeLogPath: runtime.logPath,
