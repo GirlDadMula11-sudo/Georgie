@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import { deterministicToolPlan } from "../src/fast-intents.js";
+import { completeTurnV2 } from "../src/v2-turn-engine.js";
 
 const agent = await fs.readFile(new URL("../mac-agent/agent.js", import.meta.url), "utf8");
 const tools = await fs.readFile(new URL("../src/tools.js", import.meta.url), "utf8");
@@ -39,6 +40,24 @@ test("exact play-test recovery marker preserves the completed job identity", () 
   assert.equal(action.args.execution.tool, "mac.long_running_job_recover");
   assert.equal(action.args.execution.args.jobId, playTestJobId);
   assert.match(action.args.summary, /do not enqueue another play-test or Roblox build job/i);
+});
+
+test("exact play-test recovery prepares through the bounded Roblox fast path", async () => {
+  const request = {jobId:playTestJobId,deviceId:"primary-mac",expectedAction:"roblox.play_test_validate",projectRoot,requiredAgentVersion:"2.2.44"};
+  const started = Date.now();
+  const result = await completeTurnV2({
+    userId:`roblox-play-test-fast-path-${Date.now()}`,
+    sessionId:"connector:openai:objective:roblox-makayla-playtest-gate",
+    input:`ROBLOX_PLAY_TEST_RECOVERY_JSON: ${JSON.stringify(request)}`,
+    history:[],
+    shouldFinalize:()=>false
+  });
+  assert.equal(result.engine,"unified-georgie-runtime-v1-roblox-fast-path");
+  assert.equal(result.actions.length,1);
+  assert.equal(result.actions[0].tool,"approvals.prepare_plan");
+  if(result.actions[0].ok)assert.equal(result.actions[0].result.plan.execution.tool,"mac.long_running_job_recover");
+  else assert.equal(result.actions[0].blockedBy,"runtime_execution_failure");
+  assert.ok(Date.now()-started<1000,"deterministic recovery plan registration must remain sub-second");
 });
 
 test("play-test recovery marker rejects identity, path, action, or version expansion", () => {
