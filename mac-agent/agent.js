@@ -13,7 +13,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.48";
+const AGENT_VERSION = "2.2.49";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -266,13 +266,19 @@ end tell`).catch(() => "");
 async function openRobloxStudioArtifactThroughFileDialog(artifact) {
   const expectedArtifact = path.resolve(String(artifact || ""));
   if (!expectedArtifact.endsWith(`${path.sep}Prototype.rbxlx`)) throw new Error("ROBLOX_STUDIO_FILE_OPEN_REJECTED");
-  const evidence = await runAppleScript(`set expectedArtifact to ${JSON.stringify(expectedArtifact)}
+  let rawEvidence = "";
+  try {
+    rawEvidence = await runAppleScript(`set expectedArtifact to ${JSON.stringify(expectedArtifact)}
+set currentStage to "activate_studio"
+try
 tell application "RobloxStudio" to activate
 tell application "System Events"
 if not (exists process "RobloxStudio") then error "ROBLOX_STUDIO_NOT_RUNNING"
 tell process "RobloxStudio"
 set frontmost to true
+set currentStage to "open_panel_requested"
 keystroke "o" using {command down}
+set currentStage to "open_panel_wait"
 set openPanel to missing value
 repeat 50 times
 repeat with candidateWindow in windows
@@ -284,7 +290,9 @@ if openPanel is not missing value then exit repeat
 delay 0.1
 end repeat
 if openPanel is missing value then error "ROBLOX_STUDIO_OPEN_PANEL_NOT_FOUND"
+set currentStage to "go_to_folder_requested"
 keystroke "g" using {command down, shift down}
+set currentStage to "go_to_folder_wait"
 set goSheet to missing value
 repeat 50 times
 try
@@ -294,6 +302,7 @@ if goSheet is not missing value then exit repeat
 delay 0.1
 end repeat
 if goSheet is missing value then error "ROBLOX_STUDIO_GO_TO_FOLDER_SHEET_NOT_FOUND"
+set currentStage to "path_field_wait"
 set pathField to missing value
 repeat 30 times
 try
@@ -303,12 +312,15 @@ if pathField is not missing value then exit repeat
 delay 0.1
 end repeat
 if pathField is missing value then error "ROBLOX_STUDIO_GO_TO_FOLDER_FIELD_NOT_FOUND"
+set currentStage to "path_set"
 set value of attribute "AXValue" of pathField to expectedArtifact
+set currentStage to "path_confirm"
 try
 perform action "AXConfirm" of pathField
 on error
 key code 36
 end try
+set currentStage to "go_to_folder_dismiss_wait"
 repeat 50 times
 try
 if (count of sheets of openPanel) is 0 then exit repeat
@@ -318,6 +330,7 @@ end repeat
 try
 if (count of sheets of openPanel) > 0 then error "ROBLOX_STUDIO_GO_TO_FOLDER_SHEET_STUCK"
 end try
+set currentStage to "open_button_wait"
 set openButton to missing value
 repeat 50 times
 try
@@ -328,7 +341,9 @@ if openButton is not missing value then exit repeat
 delay 0.1
 end repeat
 if openButton is missing value then error "ROBLOX_STUDIO_OPEN_BUTTON_NOT_READY"
+set currentStage to "open_button_press"
 perform action "AXPress" of openButton
+set currentStage to "open_panel_close_wait"
 repeat 100 times
 set panelStillOpen to false
 repeat with candidateWindow in windows
@@ -336,32 +351,95 @@ try
 if (name of candidateWindow as string) contains "Open Roblox File" then set panelStillOpen to true
 end try
 end repeat
-if panelStillOpen is false then return "DIALOG_CLOSED"
+if panelStillOpen is false then return "SUCCESS" & linefeed & "dialog_closed"
 delay 0.1
 end repeat
 error "ROBLOX_STUDIO_OPEN_PANEL_STUCK"
 end tell
-end tell`);
-  if (String(evidence).trim() !== "DIALOG_CLOSED") throw new Error("ROBLOX_STUDIO_FILE_OPEN_UNVERIFIED");
-  return { stage: "dialog_closed" };
+end tell
+on error errorMessage number errorNumber
+set diagnosticText to ""
+try
+tell application "System Events"
+if exists process "RobloxStudio" then
+tell process "RobloxStudio"
+set diagnosticPanel to missing value
+repeat with candidateWindow in windows
+try
+if (name of candidateWindow as string) contains "Open Roblox File" then set diagnosticPanel to candidateWindow
+end try
+end repeat
+if diagnosticPanel is not missing value then
+set diagnosticCount to 0
+repeat with diagnosticElement in (entire contents of diagnosticPanel)
+if diagnosticCount is greater than or equal to 80 then exit repeat
+set elementRole to ""
+set elementSubrole to ""
+set elementTitle to ""
+set elementDescription to ""
+set elementIdentifier to ""
+try
+set elementRole to value of attribute "AXRole" of diagnosticElement as string
+end try
+try
+set elementSubrole to value of attribute "AXSubrole" of diagnosticElement as string
+end try
+try
+set elementTitle to value of attribute "AXTitle" of diagnosticElement as string
+end try
+try
+set elementDescription to value of attribute "AXDescription" of diagnosticElement as string
+end try
+try
+set elementIdentifier to value of attribute "AXIdentifier" of diagnosticElement as string
+end try
+set diagnosticText to diagnosticText & elementRole & "|" & elementSubrole & "|" & elementTitle & "|" & elementDescription & "|" & elementIdentifier & linefeed
+set diagnosticCount to diagnosticCount + 1
+end repeat
+end if
+end tell
+end if
+end tell
+end try
+return "ERROR" & linefeed & currentStage & linefeed & (errorNumber as string) & linefeed & errorMessage & linefeed & diagnosticText
+end try`, { timeout: 45000 });
+  } catch (error) {
+    const stderr = String(error?.stderr || error?.cause?.stderr || "").trim();
+    const fallback = String(error instanceof Error ? error.message : error).trim().split("\n").at(-1) || "ROBLOX_STUDIO_FILE_OPEN_FAILED";
+    return { stage: "applescript_process", error: (stderr || fallback).slice(-1000), errorCode: error?.code ? String(error.code).slice(0, 100) : null, topology: "" };
+  }
+  const [status = "", stage = "", errorCode = "", errorLine = "", ...topologyLines] = String(rawEvidence).split("\n");
+  if (status === "SUCCESS" && stage === "dialog_closed") return { stage, error: null, errorCode: null, topology: "" };
+  return {
+    stage: stage || "unclassified",
+    error: (errorLine || "ROBLOX_STUDIO_FILE_OPEN_UNVERIFIED").slice(0, 1000),
+    errorCode: errorCode || null,
+    topology: topologyLines.join("\n").slice(0, 6000)
+  };
 }
-
 async function activateRobloxStudioPlayMode(startedAtMs, artifact) {
   let studioWindow = await waitForRobloxStudioArtifactWindow(artifact, 8000);
   let studioFileOpenAttempted = false;
   let studioFileOpenError = null;
   let studioFileOpenStage = null;
+  let studioFileOpenErrorCode = null;
+  let studioFileOpenTopology = "";
   if (!studioWindow.ready) {
     studioFileOpenAttempted = true;
     try {
       const fileOpen = await openRobloxStudioArtifactThroughFileDialog(artifact);
       studioFileOpenStage = fileOpen.stage;
+      studioFileOpenError = fileOpen.error;
+      studioFileOpenErrorCode = fileOpen.errorCode;
+      studioFileOpenTopology = fileOpen.topology;
     } catch (error) {
-      studioFileOpenError = String(error instanceof Error ? error.message : error).slice(0, 1000);
+      studioFileOpenStage = "unhandled";
+      studioFileOpenError = String(error instanceof Error ? error.message : error).trim().split("\n").at(-1).slice(0, 1000);
+      studioFileOpenErrorCode = error?.code ? String(error.code).slice(0, 100) : null;
     }
     studioWindow = await waitForRobloxStudioArtifactWindow(artifact, 15000);
   }
-  if (!studioWindow.ready) return { observed: false, logPath: null, logBytes: 0, excerpt: "", searchedLogCount: 0, activationAttempts: 0, artifactOpenRequested: true, studioFileOpenAttempted, studioFileOpenError, studioFileOpenStage, studioWindowReady: false, studioWindowMatched: false, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
+  if (!studioWindow.ready) return { observed: false, logPath: null, logBytes: 0, excerpt: "", searchedLogCount: 0, activationAttempts: 0, artifactOpenRequested: true, studioFileOpenAttempted, studioFileOpenError, studioFileOpenErrorCode, studioFileOpenStage, studioFileOpenTopology, studioWindowReady: false, studioWindowMatched: false, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
   await delay(1500);
   let runtime = { observed: false, logPath: null, logBytes: 0, excerpt: "", searchedLogCount: 0 };
   for (let activationAttempts = 1; activationAttempts <= 2; activationAttempts += 1) {
@@ -370,13 +448,13 @@ async function activateRobloxStudioPlayMode(startedAtMs, artifact) {
     if (!studioWindow.ready) break;
     await runAppleScript('tell application "System Events" to tell process "RobloxStudio" to key code 96');
     runtime = await waitForRobloxRuntimeMarker(startedAtMs, "Georgie prototype loaded:", 20000);
-    if (runtime.observed) return { ...runtime, activationAttempts, artifactOpenRequested: true, studioFileOpenAttempted, studioFileOpenError, studioFileOpenStage, studioWindowReady: true, studioWindowMatched: true, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
+    if (runtime.observed) return { ...runtime, activationAttempts, artifactOpenRequested: true, studioFileOpenAttempted, studioFileOpenError, studioFileOpenErrorCode, studioFileOpenStage, studioFileOpenTopology, studioWindowReady: true, studioWindowMatched: true, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
     if (activationAttempts < 2) {
       await runAppleScript('tell application "System Events" to tell process "RobloxStudio" to key code 96 using {shift down}').catch(() => {});
       await delay(1500);
     }
   }
-  return { ...runtime, activationAttempts: 2, artifactOpenRequested: true, studioFileOpenAttempted, studioFileOpenError, studioFileOpenStage, studioWindowReady: studioWindow.ready, studioWindowMatched: studioWindow.matched, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
+  return { ...runtime, activationAttempts: 2, artifactOpenRequested: true, studioFileOpenAttempted, studioFileOpenError, studioFileOpenErrorCode, studioFileOpenStage, studioFileOpenTopology, studioWindowReady: studioWindow.ready, studioWindowMatched: studioWindow.matched, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
 }
 
 async function playTestRobloxPrototype(args = {}) {
@@ -417,7 +495,9 @@ async function playTestRobloxPrototype(args = {}) {
       artifactOpenRequested: runtime.artifactOpenRequested,
       studioFileOpenAttempted: runtime.studioFileOpenAttempted,
       studioFileOpenError: runtime.studioFileOpenError,
+      studioFileOpenErrorCode: runtime.studioFileOpenErrorCode,
       studioFileOpenStage: runtime.studioFileOpenStage,
+      studioFileOpenTopology: runtime.studioFileOpenTopology,
       studioWindowReady: runtime.studioWindowReady,
       studioWindowMatched: runtime.studioWindowMatched,
       studioWindowNames: runtime.studioWindowNames,
@@ -449,8 +529,8 @@ async function api(route, options = {}) {
   return response.json();
 }
 
-async function runAppleScript(script) {
-  const { stdout } = await execFileAsync("osascript", ["-e", script], { timeout: 30000, maxBuffer: 1024 * 1024 });
+async function runAppleScript(script, { timeout = 30000, maxBuffer = 1024 * 1024 } = {}) {
+  const { stdout } = await execFileAsync("osascript", ["-e", script], { timeout, maxBuffer });
   return stdout.trim();
 }
 
