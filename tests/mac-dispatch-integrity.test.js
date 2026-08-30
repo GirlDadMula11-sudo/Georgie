@@ -33,6 +33,19 @@ test("lease-expired queued Rojo recovery rebinds the same identity to the repair
   const reclaimed=(await claimMacJobs(deviceId,50,{agentVersion:"2.2.39"})).find(item=>item.id===job.id);assert.equal(reclaimed.id,job.id);
 });
 
+test("screenshot-only Roblox play-test failure recovers the same identity",async()=>{
+  const nonce=`${Date.now()}-${Math.random()}`,key=`playtest-screenshot-${nonce}`,deviceId=`playtest-mac-${nonce}`;
+  const job=await enqueueMacJob({userId:`playtest-user-${nonce}`,deviceId,action:"roblox.play_test_validate",args:{requiredAgentVersion:"2.2.44"},risk:"sensitive_write",idempotencyKey:key,maxAttempts:5});
+  await claimMacJobs(deviceId,50,{agentVersion:"2.2.44"});
+  await completeMacJob(deviceId,job.id,{error:"Command failed: screencapture -x /tmp/georgie-roblox-playtest.png"});
+  const recovered=await recoverLongRunningMacJob(deviceId,job.id,{expectedAction:"roblox.play_test_validate",requiredAgentVersion:"2.2.45"});
+  assert.equal(recovered.id,job.id);
+  assert.equal(recovered.status,"queued");
+  assert.equal(recovered.resumeCount,1);
+  assert.equal(recovered.args.requiredAgentVersion,"2.2.45");
+  assert.equal(recovered.resumeHistory.at(-1).reason,"play_test_screenshot_evidence_repaired");
+});
+
 // Node runs test files concurrently. Give this file a private physical queue so
 // another suite cannot claim its jobs from the shared on-disk `primary` queue.
 process.env.GEORGIE_DATA_DIR = path.join(os.tmpdir(), `georgie-mac-dispatch-integrity-${process.pid}`);
