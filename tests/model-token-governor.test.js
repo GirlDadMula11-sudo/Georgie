@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { createMemoryTokenLedger, estimateModelTokens, modelTokenLimits } from "../src/model-cost-governor.js";
 
 test("token limits are configurable and ordered",()=>{
@@ -38,4 +39,13 @@ test("token estimation reserves bounded output before provider execution",()=>{
   assert.equal(value.outputTokens,20);
   assert.ok(value.inputTokens>=1);
   assert.equal(value.totalTokens,value.inputTokens+20);
+});
+
+test("production ledger RPCs use caller privileges and are service-role only",()=>{
+  const sql=fs.readFileSync(new URL("../scripts/model-spend-ledger.sql",import.meta.url),"utf8");
+  assert.doesNotMatch(sql,/security\s+definer/i);
+  assert.equal((sql.match(/security\s+invoker/gi)||[]).length,2);
+  assert.match(sql,/revoke all on public\.georgie_model_spend_ledger from public, anon, authenticated/i);
+  assert.match(sql,/grant select, insert, update on public\.georgie_model_spend_ledger to service_role/i);
+  assert.equal((sql.match(/grant execute on function public\.georgie_model_spend_/gi)||[]).length,2);
 });

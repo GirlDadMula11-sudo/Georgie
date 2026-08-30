@@ -20,13 +20,14 @@ create table if not exists public.georgie_model_spend_ledger (
 );
 create index if not exists georgie_model_spend_created_idx on public.georgie_model_spend_ledger(created_at);
 alter table public.georgie_model_spend_ledger enable row level security;
-revoke all on public.georgie_model_spend_ledger from anon, authenticated;
+revoke all on public.georgie_model_spend_ledger from public, anon, authenticated;
+grant select, insert, update on public.georgie_model_spend_ledger to service_role;
 
 create or replace function public.georgie_model_spend_reserve(
   p_reservation_id uuid,p_objective_id text,p_model text,p_tier text,p_escalation_reason text,
   p_reserved_tokens bigint,p_estimated_input_tokens bigint,p_estimated_output_tokens bigint,
   p_idempotency_key text,p_request_limit bigint,p_hour_limit bigint,p_day_limit bigint
-) returns jsonb language plpgsql security definer set search_path=public as $$
+) returns jsonb language plpgsql security invoker set search_path=public as $$
 declare hour_used bigint; day_used bigint; existing public.georgie_model_spend_ledger;
 begin
   perform pg_advisory_xact_lock(hashtextextended('georgie-model-spend-ledger',0));
@@ -45,7 +46,7 @@ end $$;
 create or replace function public.georgie_model_spend_reconcile(
   p_reservation_id uuid,p_actual_tokens bigint,p_input_tokens bigint,p_output_tokens bigint,
   p_latency_ms bigint,p_quality_result text,p_outcome text,p_error_code text
-) returns jsonb language plpgsql security definer set search_path=public as $$
+) returns jsonb language plpgsql security invoker set search_path=public as $$
 declare changed public.georgie_model_spend_ledger;
 begin
   update public.georgie_model_spend_ledger set
