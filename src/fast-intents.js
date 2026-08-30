@@ -110,14 +110,14 @@ function vercelMemberInvitePlan({email,role="DEVELOPER"}={}){
 export function deterministicToolPlan(input = "") {
   const text = String(input || "").trim();
   const lower = text.toLowerCase();
-  const affirmativeLower = lower.replace(/\b(?:do not|don't|never)\s+(?:create|prepare|update|restart|execute|install|repair|recover)(?:\s+(?:or|and)\s+(?:create|prepare|update|restart|execute|install|repair|recover))*\b/g,"");
+  const affirmativeLower = lower.replace(/\b(?:do not|don't|never)\b[^.!?;\n]*/g,"");
   if (!text) return [];
-  const exactMacJobId=text.match(/\bidem-[0-9a-f]{40}\b/i)?.[0];
-  const exactMacJobReceipt=exactMacJobId
-    && /\b(?:receipt|result|artifact|prototype|studio|output)\b/i.test(text)
-    && /\b(?:report|show|read|return|retrieve|verify|give|what)\b/i.test(text)
+  const exactMacJobIds=[...new Set([...text.matchAll(/\bidem-[0-9a-f]{40}\b/ig)].map(match=>match[0].toLowerCase()))];
+  const exactMacJobReceipt=exactMacJobIds.length>0
+    && /\b(?:receipt|result|artifact|prototype|studio|output|status|checkpoint|lease|attempt|error|log|heartbeat|agent version|online|offline|last seen)\b/i.test(text)
+    && /\b(?:inspect|lookup|check|report|show|read|return|retrieve|verify|give|what|current|reconcile)\b/i.test(text)
     && !/\b(?:install|resume|build|develop|continue|update|restart|execute|repair)\b/i.test(affirmativeLower);
-  if(exactMacJobReceipt)return[{tool:"mac.job_receipt",args:{jobId:exactMacJobId}}];
+  if(exactMacJobReceipt){const reads=exactMacJobIds.map(jobId=>({tool:"mac.job_receipt",args:{jobId}}));if(/\b(?:heartbeat|agent version|online|offline|last seen)\b/i.test(text))reads.push({tool:"mac.devices",args:{}});return reads;}
   const investigationId=text.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i)?.[0];
   const approvalPlanStatus = investigationId
     && /\b(?:plan|approval|dispatch|execution|status|receipt|mac[- ]?agent|roblox[- ]?build)\b/i.test(text)
