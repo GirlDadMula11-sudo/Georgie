@@ -247,8 +247,16 @@ jobs:
             return 0
           }
 
-          ingest_control
-          publish_command_status
+          control_ok=true
+          if ingest_control; then
+            if ! publish_command_status; then
+              control_ok=false
+              echo "Control status publication failed; continuing to drain independent durable receipts." >&2
+            fi
+          else
+            control_ok=false
+            echo "Control ingestion failed; continuing to drain independent durable receipts." >&2
+          fi
 
           attempts=1
           if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then attempts=8; fi
@@ -269,3 +277,5 @@ jobs:
           else
             echo "Control was accepted; no relay-eligible receipt is pending yet."
           fi
+
+          [[ "$control_ok" == "true" ]]
