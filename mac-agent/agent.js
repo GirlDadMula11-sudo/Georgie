@@ -13,7 +13,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.42";
+const AGENT_VERSION = "2.2.43";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -219,6 +219,46 @@ async function waitForRobloxRuntimeMarker(sinceMs, marker, timeoutMs = 25000) {
   return { observed: false, logPath: candidates[0]?.target || null, logBytes: candidates[0]?.size || 0, excerpt: "", searchedLogCount: candidates.length };
 }
 
+async function waitForRobloxStudioArtifactWindow(timeoutMs = 20000) {
+  const deadline = Date.now() + timeoutMs;
+  let windowNames = "";
+  while (Date.now() < deadline) {
+    windowNames = await runAppleScript(`tell application "System Events"
+if not (exists process "RobloxStudio") then return ""
+tell process "RobloxStudio"
+set frontmost to true
+set studioWindowNames to {}
+repeat with studioWindow in windows
+set end of studioWindowNames to name of studioWindow
+end repeat
+return studioWindowNames as string
+end tell
+end tell`).catch(() => "");
+    if (/Prototype/i.test(windowNames)) return { ready: true, windowNames };
+    await delay(500);
+  }
+  return { ready: false, windowNames };
+}
+
+async function activateRobloxStudioPlayMode(startedAtMs) {
+  const studioWindow = await waitForRobloxStudioArtifactWindow();
+  if (!studioWindow.ready) return { observed: false, logPath: null, logBytes: 0, excerpt: "", searchedLogCount: 0, activationAttempts: 0, studioWindowReady: false, studioWindowNames: studioWindow.windowNames };
+  await delay(4000);
+  let runtime = { observed: false, logPath: null, logBytes: 0, excerpt: "", searchedLogCount: 0 };
+  for (let activationAttempts = 1; activationAttempts <= 2; activationAttempts += 1) {
+    await runAppleScript('tell application "RobloxStudio" to activate');
+    await runAppleScript('tell application "System Events" to tell process "RobloxStudio" to set frontmost to true');
+    await runAppleScript('tell application "System Events" to key code 96');
+    runtime = await waitForRobloxRuntimeMarker(startedAtMs, "Georgie prototype loaded:", 20000);
+    if (runtime.observed) return { ...runtime, activationAttempts, studioWindowReady: true, studioWindowNames: studioWindow.windowNames };
+    if (activationAttempts < 2) {
+      await runAppleScript('tell application "System Events" to key code 96 using {shift down}').catch(() => {});
+      await delay(1500);
+    }
+  }
+  return { ...runtime, activationAttempts: 2, studioWindowReady: true, studioWindowNames: studioWindow.windowNames };
+}
+
 async function playTestRobloxPrototype(args = {}) {
   const projectRoot = String(args.projectRoot || "");
   const artifact = path.join(projectRoot, "Prototype.rbxlx");
@@ -234,10 +274,7 @@ async function playTestRobloxPrototype(args = {}) {
   try {
     await execFileAsync("open", ["-a", "RobloxStudio", artifact], { timeout: 30000 });
     if (!await waitForAppProcess("RobloxStudio", 15000)) throw new Error("ROBLOX_STUDIO_NOT_RUNNING");
-    await runAppleScript('tell application "RobloxStudio" to activate');
-    await delay(3000);
-    await runAppleScript('tell application "System Events" to key code 96');
-    const runtime = await waitForRobloxRuntimeMarker(startedAtMs, "Georgie prototype loaded:");
+    const runtime = await activateRobloxStudioPlayMode(startedAtMs);
     await execFileAsync("screencapture", ["-x", captureTarget], { timeout: 15000 });
     const screenshotSha256 = await sha256File(captureTarget);
     await runAppleScript('tell application "System Events" to key code 96 using {shift down}');
@@ -249,8 +286,11 @@ async function playTestRobloxPrototype(args = {}) {
       artifactBytes: artifactStat.size,
       checks: sourceInspection.checks,
       defects,
-      playStarted: true,
+      playStarted: runtime.observed,
       playStopped,
+      studioWindowReady: runtime.studioWindowReady,
+      studioWindowNames: runtime.studioWindowNames,
+      activationAttempts: runtime.activationAttempts,
       runtimeMarkerObserved: runtime.observed,
       runtimeLogPath: runtime.logPath,
       runtimeLogBytes: runtime.logBytes,
