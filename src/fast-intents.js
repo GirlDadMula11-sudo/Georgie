@@ -139,13 +139,13 @@ export function deterministicToolPlan(input = "") {
     if (!/^idem-[0-9a-f]{40}$/.test(jobId)
       || deviceId !== "primary-mac"
       || expectedAction !== "roblox.install_rojo_and_build"
-      || requiredAgentVersion !== "2.2.39") return [];
+      || requiredAgentVersion !== "2.2.40") return [];
     return [{tool:"approvals.prepare_plan",args:{
       title:"Resume exact preserved Roblox prototype job",
       summary:`Recover ${jobId} in place on primary-mac after the deployed checkpoint transport repair. Preserve its identity and never enqueue another Roblox job.`,
       steps:["Validate the exact preserved job, action, device, and required agent version.","Requeue only the same durable job identity with its existing checkpoint receipts.","Read back the exact job receipt and primary-mac heartbeat."],
       domain:"technical",risk:"high",reversible:true,
-      verificationMethod:"Require the same job ID, roblox.install_rojo_and_build action, queued or completed recovery state, agent 2.2.39 binding, and a fresh primary-mac heartbeat.",
+      verificationMethod:"Require the same job ID, roblox.install_rojo_and_build action, queued or completed recovery state, agent 2.2.40 binding, and a fresh primary-mac heartbeat.",
       rollbackPlan:"Stop the preserved job without creating a replacement if its exact identity, action, checkpoint, or agent binding cannot be verified.",
       execution:{tool:"mac.long_running_job_recover",args:{jobId,deviceId,expectedAction,requiredAgentVersion},verification:[{tool:"mac.job_receipt",args:{jobId}},{tool:"mac.devices",args:{}}]}
     }}];
@@ -346,7 +346,7 @@ export function deterministicToolPlan(input = "") {
     args:{
       title:"Build Makayla Roblox horror prototype",
       summary:"Update Georgie's primary Mac agent, permanently install and verify Rojo when missing, resume the preserved playable horror prototype, build the Roblox place, and open it in Roblox Studio.",
-      steps:["Update and restart only /Users/mac/Georgie from origin/main.","Install the official Homebrew Rojo formula only when Rojo is missing and verify its version.","Resume the preserved original suspense-horror prototype from the retained Makayla design brief.","Build a durable Prototype.rbxlx and open it in Roblox Studio.","Return the exact artifact and receipts; never delegate Studio operation back to Jason."],
+      steps:["Update and restart only /Users/mac/Georgie from origin/main.","Install the pinned official Rojo release binary and verify its archive checksum, binary checksum, and exact version.","Resume the preserved original suspense-horror prototype from the retained Makayla design brief.","Build a durable Prototype.rbxlx and open it in Roblox Studio.","Return the exact artifact and receipts; never delegate Studio operation back to Jason."],
       domain:"technical",risk:"high",reversible:true,
       verificationMethod:"Require both the Mac update receipt and Roblox build receipt, plus a non-empty Prototype.rbxlx artifact path.",
       rollbackPlan:"Preserve the generated project directory; close the prototype without publishing and revert only the dedicated project files if Jason rejects the result.",
