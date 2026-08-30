@@ -13,7 +13,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.46";
+const AGENT_VERSION = "2.2.47";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -263,9 +263,41 @@ end tell`).catch(() => "");
   return { ready: false, matched: false, windowNames, windowTitle, documentPath };
 }
 
+async function openRobloxStudioArtifactThroughFileDialog(artifact) {
+  const expectedArtifact = path.resolve(String(artifact || ""));
+  if (!expectedArtifact.endsWith(`${path.sep}Prototype.rbxlx`)) throw new Error("ROBLOX_STUDIO_FILE_OPEN_REJECTED");
+  await runAppleScript(`set expectedArtifact to ${JSON.stringify(expectedArtifact)}
+tell application "RobloxStudio" to activate
+tell application "System Events"
+if not (exists process "RobloxStudio") then error "ROBLOX_STUDIO_NOT_RUNNING"
+tell process "RobloxStudio"
+set frontmost to true
+keystroke "o" using {command down}
+delay 1
+keystroke "g" using {command down, shift down}
+delay 0.5
+keystroke expectedArtifact
+key code 36
+delay 0.75
+key code 36
+end tell
+end tell`);
+}
+
 async function activateRobloxStudioPlayMode(startedAtMs, artifact) {
-  let studioWindow = await waitForRobloxStudioArtifactWindow(artifact);
-  if (!studioWindow.ready) return { observed: false, logPath: null, logBytes: 0, excerpt: "", searchedLogCount: 0, activationAttempts: 0, artifactOpenRequested: true, studioWindowReady: false, studioWindowMatched: false, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
+  let studioWindow = await waitForRobloxStudioArtifactWindow(artifact, 8000);
+  let studioFileOpenAttempted = false;
+  let studioFileOpenError = null;
+  if (!studioWindow.ready) {
+    studioFileOpenAttempted = true;
+    try {
+      await openRobloxStudioArtifactThroughFileDialog(artifact);
+    } catch (error) {
+      studioFileOpenError = String(error instanceof Error ? error.message : error).slice(0, 1000);
+    }
+    studioWindow = await waitForRobloxStudioArtifactWindow(artifact, 15000);
+  }
+  if (!studioWindow.ready) return { observed: false, logPath: null, logBytes: 0, excerpt: "", searchedLogCount: 0, activationAttempts: 0, artifactOpenRequested: true, studioFileOpenAttempted, studioFileOpenError, studioWindowReady: false, studioWindowMatched: false, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
   await delay(1500);
   let runtime = { observed: false, logPath: null, logBytes: 0, excerpt: "", searchedLogCount: 0 };
   for (let activationAttempts = 1; activationAttempts <= 2; activationAttempts += 1) {
@@ -274,13 +306,13 @@ async function activateRobloxStudioPlayMode(startedAtMs, artifact) {
     if (!studioWindow.ready) break;
     await runAppleScript('tell application "System Events" to tell process "RobloxStudio" to key code 96');
     runtime = await waitForRobloxRuntimeMarker(startedAtMs, "Georgie prototype loaded:", 20000);
-    if (runtime.observed) return { ...runtime, activationAttempts, artifactOpenRequested: true, studioWindowReady: true, studioWindowMatched: true, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
+    if (runtime.observed) return { ...runtime, activationAttempts, artifactOpenRequested: true, studioFileOpenAttempted, studioFileOpenError, studioWindowReady: true, studioWindowMatched: true, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
     if (activationAttempts < 2) {
       await runAppleScript('tell application "System Events" to tell process "RobloxStudio" to key code 96 using {shift down}').catch(() => {});
       await delay(1500);
     }
   }
-  return { ...runtime, activationAttempts: 2, artifactOpenRequested: true, studioWindowReady: studioWindow.ready, studioWindowMatched: studioWindow.matched, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
+  return { ...runtime, activationAttempts: 2, artifactOpenRequested: true, studioFileOpenAttempted, studioFileOpenError, studioWindowReady: studioWindow.ready, studioWindowMatched: studioWindow.matched, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
 }
 
 async function playTestRobloxPrototype(args = {}) {
@@ -319,6 +351,8 @@ async function playTestRobloxPrototype(args = {}) {
       playStarted: runtime.observed,
       playStopped,
       artifactOpenRequested: runtime.artifactOpenRequested,
+      studioFileOpenAttempted: runtime.studioFileOpenAttempted,
+      studioFileOpenError: runtime.studioFileOpenError,
       studioWindowReady: runtime.studioWindowReady,
       studioWindowMatched: runtime.studioWindowMatched,
       studioWindowNames: runtime.studioWindowNames,

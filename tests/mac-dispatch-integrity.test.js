@@ -38,11 +38,11 @@ test("screenshot-only Roblox play-test failure recovers the same identity",async
   const job=await enqueueMacJob({userId:`playtest-user-${nonce}`,deviceId,action:"roblox.play_test_validate",args:{requiredAgentVersion:"2.2.44"},risk:"sensitive_write",idempotencyKey:key,maxAttempts:5});
   await claimMacJobs(deviceId,50,{agentVersion:"2.2.44"});
   await completeMacJob(deviceId,job.id,{error:"Command failed: screencapture -x /tmp/georgie-roblox-playtest.png"});
-  const recovered=await recoverLongRunningMacJob(deviceId,job.id,{expectedAction:"roblox.play_test_validate",requiredAgentVersion:"2.2.46"});
+  const recovered=await recoverLongRunningMacJob(deviceId,job.id,{expectedAction:"roblox.play_test_validate",requiredAgentVersion:"2.2.47"});
   assert.equal(recovered.id,job.id);
   assert.equal(recovered.status,"queued");
   assert.equal(recovered.resumeCount,1);
-  assert.equal(recovered.args.requiredAgentVersion,"2.2.46");
+  assert.equal(recovered.args.requiredAgentVersion,"2.2.47");
   assert.equal(recovered.resumeHistory.at(-1).reason,"play_test_screenshot_evidence_repaired");
 });
 
@@ -51,12 +51,25 @@ test("runtime-marker-only Roblox play-test block recovers for exact artifact-win
   const job=await enqueueMacJob({userId:`playtest-window-user-${nonce}`,deviceId,action:"roblox.play_test_validate",args:{requiredAgentVersion:"2.2.45"},risk:"sensitive_write",idempotencyKey:key,maxAttempts:5});
   await claimMacJobs(deviceId,50,{agentVersion:"2.2.45"});
   await completeMacJob(deviceId,job.id,{result:{status:"blocked",defects:["RUNTIME_PROTOTYPE_MARKER_NOT_OBSERVED"],playStarted:false,playStopped:true,studioWindowNames:"Place1 - Roblox Studio"}});
-  const recovered=await recoverLongRunningMacJob(deviceId,job.id,{expectedAction:"roblox.play_test_validate",requiredAgentVersion:"2.2.46"});
+  const recovered=await recoverLongRunningMacJob(deviceId,job.id,{expectedAction:"roblox.play_test_validate",requiredAgentVersion:"2.2.47"});
   assert.equal(recovered.id,job.id);
   assert.equal(recovered.status,"queued");
   assert.equal(recovered.resumeCount,1);
-  assert.equal(recovered.args.requiredAgentVersion,"2.2.46");
+  assert.equal(recovered.args.requiredAgentVersion,"2.2.47");
   assert.equal(recovered.resumeHistory.at(-1).reason,"play_test_exact_artifact_window_repaired");
+});
+
+test("blank Place1 Roblox play-test block recovers the same identity for native File Open repair",async()=>{
+  const nonce=`${Date.now()}-${Math.random()}`,key=`playtest-native-open-${nonce}`,deviceId=`playtest-native-open-mac-${nonce}`;
+  const job=await enqueueMacJob({userId:`playtest-native-open-user-${nonce}`,deviceId,action:"roblox.play_test_validate",args:{requiredAgentVersion:"2.2.46"},risk:"sensitive_write",idempotencyKey:key,maxAttempts:5});
+  await claimMacJobs(deviceId,50,{agentVersion:"2.2.46"});
+  await completeMacJob(deviceId,job.id,{result:{status:"blocked",defects:["ROBLOX_PROTOTYPE_WINDOW_NOT_READY"],playStarted:false,playStopped:true,studioWindowNames:"Place1 - Roblox Studio",studioWindowMatched:false,studioDocumentPath:""}});
+  const recovered=await recoverLongRunningMacJob(deviceId,job.id,{expectedAction:"roblox.play_test_validate",requiredAgentVersion:"2.2.47"});
+  assert.equal(recovered.id,job.id);
+  assert.equal(recovered.status,"queued");
+  assert.equal(recovered.resumeCount,1);
+  assert.equal(recovered.args.requiredAgentVersion,"2.2.47");
+  assert.equal(recovered.resumeHistory.at(-1).reason,"play_test_studio_native_file_open_repaired");
 });
 
 // Node runs test files concurrently. Give this file a private physical queue so
