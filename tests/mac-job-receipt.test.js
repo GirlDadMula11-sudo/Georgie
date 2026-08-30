@@ -14,6 +14,23 @@ test("read-only checkpoint lookup with prohibitions cannot create a recovery pla
   assert.deepEqual(deterministicToolPlan(`Read-only status reconciliation. Inspect exact durable Mac job ${recoveryJobId}. Do not enqueue, restart, retry, create, approve, or execute any job. Return its current status, attempts, claim lease, checkpoints, and error.`),[{tool:"mac.job_receipt",args:{jobId:recoveryJobId}}]);
 });
 
+test("exact long-running recovery marker prepares one identity-preserving plan",()=>{
+  const marker=`MAC_LONG_RUNNING_RECOVERY_JSON: ${JSON.stringify({jobId:recoveryJobId,deviceId:"primary-mac",expectedAction:"roblox.install_rojo_and_build",requiredAgentVersion:"2.2.39"})}`;
+  const [action]=deterministicToolPlan(marker);
+  assert.equal(action.tool,"approvals.prepare_plan");
+  assert.deepEqual(action.args.execution.args,{jobId:recoveryJobId,deviceId:"primary-mac",expectedAction:"roblox.install_rojo_and_build",requiredAgentVersion:"2.2.39"});
+  assert.deepEqual(action.args.execution.verification.map(item=>item.tool),["mac.job_receipt","mac.devices"]);
+  assert.match(action.args.summary,/never enqueue another Roblox job/i);
+});
+
+test("long-running recovery marker rejects any scope expansion",()=>{
+  for(const request of [
+    {jobId:recoveryJobId,deviceId:"secondary-mac",expectedAction:"roblox.install_rojo_and_build",requiredAgentVersion:"2.2.39"},
+    {jobId:recoveryJobId,deviceId:"primary-mac",expectedAction:"roblox.install_rojo_and_build",requiredAgentVersion:"2.2.40"},
+    {jobId:recoveryJobId,deviceId:"primary-mac",expectedAction:"roblox.create_job",requiredAgentVersion:"2.2.39"}
+  ]) assert.deepEqual(deterministicToolPlan(`MAC_LONG_RUNNING_RECOVERY_JSON: ${JSON.stringify(request)}`),[]);
+});
+
 test("multiple exact job lookups and heartbeat remain entirely read-only",()=>{
   assert.deepEqual(deterministicToolPlan(`Read-only: inspect ${recoveryJobId} and ${jobId}, then return heartbeat and agent version. Never resume or execute either job.`),[{tool:"mac.job_receipt",args:{jobId:recoveryJobId}},{tool:"mac.job_receipt",args:{jobId}},{tool:"mac.devices",args:{}}]);
 });
