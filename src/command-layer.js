@@ -6,8 +6,8 @@ import { getSierraHealth, getSierraInfrastructure, getSierraStrategy, sierraWork
 import { evaluationScorecard } from "./evaluation.js";
 import { maintenanceControlBrief, maintenanceStatus } from "./maintenance-sentinel.js";
 
-const DECISIONS_NS = "decision_journal";
-const APPROVALS_NS = "approval_control";
+const DECISIONS_NS = "decision_journal_v2";
+const APPROVALS_NS = "approval_control_v2";
 const SNAPSHOT_NS = "command_center_snapshot";
 const PRIORITY_WEIGHT = { urgent: 100, high: 70, normal: 40, low: 10 };
 
@@ -45,7 +45,8 @@ async function readList(userId, namespace, key) {
   return Array.isArray(state[key]) ? state[key] : [];
 }
 async function writeList(userId, namespace, key, items) {
-  return writeCloudState(userId, namespace, { [key]: items.slice(-5000), updatedAt: now() });
+  const limit = namespace === APPROVALS_NS ? 500 : 1000;
+  return writeCloudState(userId, namespace, { [key]: items.slice(-limit), updatedAt: now() });
 }
 
 export async function recordDecision(userId, input = {}) {

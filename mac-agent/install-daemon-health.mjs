@@ -4,10 +4,9 @@ import path from "node:path";
 const target = path.resolve("mac-agent/agent.js");
 let source = fs.readFileSync(target, "utf8");
 
-const versionOld = 'const AGENT_VERSION = "2.2.34";';
-const versionNew = 'const AGENT_VERSION = "2.2.35";';
-if (source.includes(versionOld)) source = source.replace(versionOld, versionNew);
-else if (!source.includes(versionNew)) throw new Error("MAC_DAEMON_HEALTH_VERSION_ANCHOR_NOT_FOUND");
+const versionMatch = source.match(/const AGENT_VERSION = "(\d+\.\d+\.\d+)";/);
+if (!versionMatch) throw new Error("MAC_DAEMON_HEALTH_VERSION_ANCHOR_NOT_FOUND");
+const sourceAgentVersion = versionMatch[1];
 
 const maxBackoffAnchor = 'const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));';
 const healthBlock = [
@@ -36,7 +35,7 @@ if (!source.includes("lastPollOk: true")) {
 
 fs.writeFileSync(target, source);
 const verify = fs.readFileSync(target, "utf8");
-for (const marker of ["2.2.35", "mac-agent-health.json", "lastPollOk: true", 'const temp = HEALTH_FILE + "." + process.pid + ".tmp";']) {
+for (const marker of [`const AGENT_VERSION = "${sourceAgentVersion}";`, "mac-agent-health.json", "lastPollOk: true", 'const temp = HEALTH_FILE + "." + process.pid + ".tmp";']) {
   if (!verify.includes(marker)) throw new Error(`MAC_DAEMON_HEALTH_VERIFY_FAILED:${marker}`);
 }
 console.log("[Georgie] daemon-owned Mac polling health receipt installed");

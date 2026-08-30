@@ -13,7 +13,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.36";
+const AGENT_VERSION = "2.2.38";
 const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;
 const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));
 const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));
@@ -43,13 +43,72 @@ function safeErrorDetail(error) {
   };
 }
 
-const SAFE_APPS = ["Safari","Google Chrome","Notes","Mail","Finder","Calendar","Messages","Preview","System Settings","Microsoft Excel","Microsoft Word","Adobe Acrobat Reader"];
+const SAFE_APPS = ["Safari","Google Chrome","Notes","Mail","Finder","Calendar","Messages","Preview","System Settings","Microsoft Excel","Microsoft Word","Adobe Acrobat Reader","RobloxStudio"];
 const SAFE_KEYS = new Set(["return","tab","escape","space","delete","up arrow","down arrow","left arrow","right arrow"]);
 function canonicalApp(value) {
   const requested = String(value || "").trim().toLowerCase();
   const app = SAFE_APPS.find(name => name.toLowerCase() === requested);
   if (!app) throw new Error("Application is not allowlisted");
   return app;
+}
+
+function validateRobloxProjectRequest(args = {}) {
+  const projectName = String(args.projectName || "").trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9 _-]{1,63}$/.test(projectName)) throw new Error("ROBLOX_PROJECT_NAME_REJECTED");
+  const slug = projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const files = Array.isArray(args.files) && args.files.length ? args.files : defaultRobloxPrototypeFiles(args.designBrief);
+  if (!files.length || files.length > 80) throw new Error("ROBLOX_PROJECT_FILES_REJECTED");
+  let totalBytes = 0;
+  const normalized = files.map((file) => {
+    const relative = String(file?.path || "").replaceAll("\\", "/");
+    if (!/^[A-Za-z0-9_. -]+(?:\/[A-Za-z0-9_. -]+)*$/.test(relative) || relative.split("/").includes("..") || !/\.(?:lua|luau|json|md)$/i.test(relative)) throw new Error("ROBLOX_PROJECT_PATH_REJECTED");
+    const content = String(file?.content || "");
+    totalBytes += Buffer.byteLength(content);
+    return { relative, content };
+  });
+  if (totalBytes > 1_000_000) throw new Error("ROBLOX_PROJECT_SIZE_REJECTED");
+  if (!normalized.some((file) => file.relative === "default.project.json")) throw new Error("ROBLOX_PROJECT_MANIFEST_REQUIRED");
+  return { projectName, slug, files: normalized, totalBytes };
+}
+
+function defaultRobloxPrototypeFiles(designBrief = "") {
+  const brief = String(designBrief || "Original family-friendly suspense horror prototype designed with Makayla").slice(0, 2000);
+  const manifest = { name: "MakaylaHorrorPrototype", tree: { "$className": "DataModel", "ReplicatedStorage": { "$className": "ReplicatedStorage" }, "ServerScriptService": { "$className": "ServerScriptService", "$path": "src/server" }, "StarterPlayer": { "$className": "StarterPlayer", "StarterPlayerScripts": { "$className": "StarterPlayerScripts", "$path": "src/client" } } } };
+  const server = `-- Georgie-generated original Roblox horror prototype\nlocal Lighting=game:GetService("Lighting")\nlocal Players=game:GetService("Players")\nLighting.ClockTime=0.5 Lighting.Brightness=0.7 Lighting.FogEnd=115 Lighting.FogColor=Color3.fromRGB(24,20,18)\nlocal world=Instance.new("Folder",workspace) world.Name="MakaylaPrototype"\nlocal function part(name,size,pos,color,material) local p=Instance.new("Part",world) p.Name=name p.Anchored=true p.Size=size p.Position=pos p.Color=color p.Material=material or Enum.Material.WoodPlanks return p end\npart("Ground",Vector3.new(150,1,150),Vector3.new(0,-1,0),Color3.fromRGB(35,31,27),Enum.Material.Ground)\nfor i=-3,3 do part("HallFloor",Vector3.new(18,1,18),Vector3.new(0,0,i*18),Color3.fromRGB(62,48,37)) part("WallL",Vector3.new(1,14,18),Vector3.new(-9,7,i*18),Color3.fromRGB(45,42,38),Enum.Material.Concrete) part("WallR",Vector3.new(1,14,18),Vector3.new(9,7,i*18),Color3.fromRGB(45,42,38),Enum.Material.Concrete) end\nlocal spawn=Instance.new("SpawnLocation",world) spawn.Anchored=true spawn.Size=Vector3.new(6,1,6) spawn.Position=Vector3.new(0,1,-52) spawn.Neutral=true\nlocal keys={} for i,z in ipairs({-30,5,38}) do local k=part("Relic"..i,Vector3.new(1.4,1.4,1.4),Vector3.new(i%2==0 and 5 or -5,2,z),Color3.fromRGB(210,170,65),Enum.Material.Neon) keys[i]=k end\nlocal exit=part("ExitDoor",Vector3.new(8,12,1),Vector3.new(0,6,63),Color3.fromRGB(70,20,18),Enum.Material.Wood)\nlocal collected={} local count=0\nfor _,k in ipairs(keys) do k.Touched:Connect(function(hit) local pl=Players:GetPlayerFromCharacter(hit.Parent) if pl and not collected[k] then collected[k]=true count+=1 k:Destroy() if count==#keys then exit.Color=Color3.fromRGB(35,150,70) exit.CanCollide=false end end end) end\nlocal enemy=part("TheWatcher",Vector3.new(4,8,4),Vector3.new(0,4,28),Color3.fromRGB(12,12,12),Enum.Material.SmoothPlastic) enemy.Anchored=false enemy.CanCollide=false\ntask.spawn(function() while enemy.Parent do task.wait(.35) local target,dist=nil,80 for _,pl in ipairs(Players:GetPlayers()) do local root=pl.Character and pl.Character:FindFirstChild("HumanoidRootPart") if root then local d=(root.Position-enemy.Position).Magnitude if d<dist then target=root dist=d end end end if target then local direction=(target.Position-enemy.Position) if direction.Magnitude>1 then enemy.AssemblyLinearVelocity=direction.Unit*10 end end end end)\nprint("Georgie prototype loaded: ${brief.replaceAll("`", "'").replaceAll("${", "")}")\n`;
+  const client = `local Players=game:GetService("Players") local Lighting=game:GetService("Lighting")\nlocal player=Players.LocalPlayer local gui=Instance.new("ScreenGui",player:WaitForChild("PlayerGui")) gui.Name="MakaylaObjective"\nlocal label=Instance.new("TextLabel",gui) label.Size=UDim2.fromOffset(390,54) label.Position=UDim2.new(.5,-195,0,24) label.BackgroundTransparency=.25 label.BackgroundColor3=Color3.fromRGB(8,8,8) label.TextColor3=Color3.fromRGB(232,195,95) label.Font=Enum.Font.GothamBold label.TextScaled=true label.Text="FIND 3 RELICS. ESCAPE THE WATCHER."\nlocal light=Instance.new("PointLight") light.Range=28 light.Brightness=1.8 light.Color=Color3.fromRGB(255,225,175)\nplayer.CharacterAdded:Connect(function(char) light.Parent=char:WaitForChild("Head") end) if player.Character then light.Parent=player.Character:WaitForChild("Head") end\n`;
+  return [
+    { path: "default.project.json", content: JSON.stringify(manifest, null, 2) },
+    { path: "src/server/Main.server.luau", content: server },
+    { path: "src/client/Main.client.luau", content: client },
+    { path: "README.md", content: `# Makayla Horror Prototype\n\n${brief}\n\nGenerated by Georgie for private playtesting. Collect three relics, avoid The Watcher, and reach the exit.` }
+  ];
+}
+
+async function buildRobloxPrototype(args = {}) {
+  const request = validateRobloxProjectRequest(args);
+  const projectsRoot = path.join(os.homedir(), "Documents", "Georgie Roblox Projects");
+  const projectRoot = path.join(projectsRoot, request.slug);
+  await fs.mkdir(projectRoot, { recursive: true, mode: 0o700 });
+  for (const file of request.files) {
+    const target = path.resolve(projectRoot, file.relative);
+    if (!target.startsWith(projectRoot + path.sep)) throw new Error("ROBLOX_PROJECT_PATH_ESCAPE_REJECTED");
+    await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+    const temp = `${target}.${process.pid}.tmp`;
+    await fs.writeFile(temp, file.content, { mode: 0o600 });
+    await fs.rename(temp, target);
+  }
+  JSON.parse(await fs.readFile(path.join(projectRoot, "default.project.json"), "utf8"));
+  const output = path.join(projectRoot, "Prototype.rbxlx");
+  let rojo = null;
+  for (const candidate of ["/opt/homebrew/bin/rojo", "/usr/local/bin/rojo", path.join(os.homedir(), ".cargo", "bin", "rojo")]) {
+    try { await fs.access(candidate); rojo = candidate; break; } catch {}
+  }
+  if (!rojo) return { status: "blocked_tooling", projectRoot, filesWritten: request.files.length, totalBytes: request.totalBytes, missingPrecondition: "Rojo CLI", nextAction: "Install Rojo once, then resume this same prototype build.", preserved: true };
+  const built = await execFileAsync(rojo, ["build", path.join(projectRoot, "default.project.json"), "-o", output], { timeout: 120000, maxBuffer: 4 * 1024 * 1024 });
+  const stat = await fs.stat(output);
+  if (stat.size < 100) throw new Error("ROBLOX_PROTOTYPE_BUILD_EMPTY");
+  if (args.openInStudio !== false) await execFileAsync("open", ["-a", "RobloxStudio", output], { timeout: 30000 });
+  return { status: "completed", projectRoot, output, outputBytes: stat.size, filesWritten: request.files.length, totalBytes: request.totalBytes, openedInStudio: args.openInStudio !== false, buildOutput: String(built.stdout || "").slice(0, 2000) };
 }
 
 async function api(route, options = {}) {
@@ -132,12 +191,48 @@ function governedWordpressHost(rawUrl) {
 async function inspectGovernedWordpressSession(args = {}) {
   if (args.authority !== "read_only" || args.operation !== "inspect_session") throw new Error("GOVERNED_BROWSER_AUTHORIZATION_REJECTED");
   if (String(args.siteOrigin || "").replace(/\/$/, "") !== "https://sierramarketinginc.com") throw new Error("GOVERNED_BROWSER_SITE_REJECTED");
-  const observed = await inspectBrowserTabs({ includeContent: true });
-  const tabs = (observed.tabs || []).filter(tab => governedWordpressHost(tab.url)).map(tab => ({
-    browser: tab.browser, window: tab.window, tab: tab.tab, active: tab.active,
-    title: tab.title, url: tab.url, contentApproved: tab.contentApproved,
-    content: tab.content, contentError: tab.contentError
-  }));
+  const script = `
+const approved = ${JSON.stringify(GOVERNED_WORDPRESS_BROWSER_HOSTS)};
+const maxPerTab = 12000;
+const result = { observedAt: new Date().toISOString(), tabs: [], browserErrors: [] };
+function clean(value, max) { return String(value || '').replace(/\\u0000/g, '').slice(0, max); }
+function approvedUrl(raw) {
+  const match = String(raw || '').match(/^https?:\\/\\/([^\\/?#]+)/i);
+  if (!match) return false;
+  const host = match[1].split(':')[0].toLowerCase();
+  return approved.some(domain => host === domain || host.endsWith('.' + domain));
+}
+function safeUrl(raw) { return clean(String(raw || '').replace(/([?&#](?:api[_-]?key|token|secret|password|code|session|auth)=)[^&#]*/ig, '$1[REDACTED]').replace(/#.*$/, ''), 4000); }
+function redact(value) { return clean(String(value || '').replace(/(?:api[_ -]?key|password|secret|access[_ -]?token|refresh[_ -]?token|authorization)\\s*[:=]?\\s*[^\\n]{1,240}/ig, '[REDACTED SENSITIVE VALUE]').replace(/\\b(?:sk|sb_secret|rnd|ghp|github_pat)_[A-Za-z0-9_-]{8,}\\b/g, '[REDACTED CREDENTIAL]'), maxPerTab); }
+function pageObservationScript() {
+  return "(() => { const body = document.body ? document.body.innerText : ''; const admin = /\\/wp-admin\\//.test(location.pathname) && !/wp-login\\.php/.test(location.pathname); return JSON.stringify({ text: String(body || '').slice(0," + maxPerTab + "), wordpressAdminAuthenticated: admin, pathname: location.pathname }); })()";
+}
+try {
+  const chrome = Application('Google Chrome');
+  if (chrome.running()) chrome.windows().forEach((win, wi) => {
+    const active = Number(win.activeTabIndex());
+    win.tabs().forEach((tab, ti) => {
+      let rawUrl = '';
+      try { rawUrl = clean(tab.url(), 4000); } catch (error) { return; }
+      if (!approvedUrl(rawUrl)) return;
+      const item = { browser: 'Google Chrome', window: wi + 1, tab: ti + 1, active: (ti + 1) === active, title: '', url: safeUrl(rawUrl), contentApproved: true, content: null, contentError: null, wordpressAdminAuthenticated: false, pathname: null };
+      try { item.title = clean(tab.title(), 1000); } catch (error) { item.contentError = clean(error.message || error, 1000); }
+      try {
+        const observed = JSON.parse(String(tab.execute({ javascript: pageObservationScript() }) || '{}'));
+        item.content = redact(observed.text);
+        item.wordpressAdminAuthenticated = observed.wordpressAdminAuthenticated === true;
+        item.pathname = clean(observed.pathname, 1000);
+      } catch (error) { item.contentError = clean(error.message || error, 1000); }
+      result.tabs.push(item);
+    });
+  });
+} catch (error) { result.browserErrors.push({ browser: 'Google Chrome', error: clean(error.message || error, 1000) }); }
+result.tabCount = result.tabs.length;
+result.contentInspectedCount = result.tabs.filter(tab => tab.content !== null).length;
+JSON.stringify(result);
+`;
+  const observed = JSON.parse(await runJxa(script) || "{}");
+  const tabs = Array.isArray(observed.tabs) ? observed.tabs : [];
   if (!tabs.length) throw new Error("GOVERNED_BROWSER_APPROVED_TAB_NOT_FOUND");
   return {
     governedBrowserInspection: {
@@ -146,6 +241,7 @@ async function inspectGovernedWordpressSession(args = {}) {
       tabs,
       tabCount: tabs.length,
       contentInspectedCount: tabs.filter(tab => tab.content !== null).length,
+      wordpressAdminAuthenticated: tabs.some(tab => tab.wordpressAdminAuthenticated === true),
       browserErrors: observed.browserErrors || []
     },
     authority: "read_only",
@@ -709,6 +805,25 @@ async function execute(job) {
         await fs.unlink(target).catch(() => {});
       }
     }
+    case "roblox.install_rojo_and_build": {
+      let rojo=null;
+      for(const candidate of ["/opt/homebrew/bin/rojo","/usr/local/bin/rojo",path.join(os.homedir(),".cargo","bin","rojo")]){try{await fs.access(candidate);rojo=candidate;break}catch{}}
+      let installed=false;
+      if(!rojo){
+        let brew=null;
+        for(const candidate of ["/opt/homebrew/bin/brew","/usr/local/bin/brew"]){try{await fs.access(candidate);brew=candidate;break}catch{}}
+        if(!brew)throw new Error("HOMEBREW_REQUIRED_FOR_ROJO_INSTALL");
+        await execFileAsync(brew,["install","rojo"],{timeout:600000,maxBuffer:4*1024*1024});
+        installed=true;
+        rojo=brew.startsWith("/opt/homebrew")?"/opt/homebrew/bin/rojo":"/usr/local/bin/rojo";
+      }
+      const version=(await execFileAsync(rojo,["--version"],{timeout:30000,maxBuffer:1024*1024})).stdout.trim();
+      if(!/^Rojo 7\./i.test(version))throw new Error(`ROJO_VERSION_NOT_VERIFIED:${version.slice(0,100)}`);
+      const result=await buildRobloxPrototype(a);
+      return{...result,rojoInstalled:installed,rojoPath:rojo,rojoVersion:version};
+    }
+    case "roblox.prototype_build":
+      return buildRobloxPrototype(a);
     case "screen.capture": {
       const target = path.join(os.tmpdir(), `georgie-screen-${Date.now()}.png`);
       await execFileAsync("screencapture", ["-x", target], { timeout: 15000 });

@@ -3,10 +3,22 @@ import { createApprovalRequest, decideApproval, listApprovals } from "./command-
 import { readCloudState, writeCloudState } from "./cloud-state.js";
 import { isExplicitConversationalApproval } from "./approval-language.js";
 
-const NS="approval_continuation";
+const NS="approval_continuation_v3";
 
 const clean=value=>String(value||"").trim();
 const now=()=>new Date().toISOString();
+function compactDurableValue(value,key="",depth=0){
+  if(value==null||typeof value==="number"||typeof value==="boolean")return value;
+  if(typeof value==="string"){
+    if(key==="base64")return {omitted:true,encoding:"base64",characters:value.length,digest:crypto.createHash("sha256").update(value).digest("hex")};
+    return value.length>6000?`${value.slice(0,6000)}…[truncated ${value.length-6000} chars]`:value;
+  }
+  if(depth>=8)return "[depth omitted]";
+  if(Array.isArray(value))return value.slice(0,100).map(item=>compactDurableValue(item,"",depth+1));
+  if(typeof value==="object")return Object.fromEntries(Object.entries(value).slice(0,200).map(([childKey,child])=>[childKey,compactDurableValue(child,childKey,depth+1)]));
+  return String(value).slice(0,1000);
+}
+function compactPlan(plan){return {...plan,executionResult:compactDurableValue(plan?.executionResult,"executionResult")};}
 
 export function isConversationalApproval(input){return isExplicitConversationalApproval(input);}
 
@@ -20,7 +32,7 @@ export function preflightExecution(execution,availableTools=[]){
 }
 
 async function readState(userId){return readCloudState(userId,NS,{version:1,plans:[]});}
-async function saveState(userId,state){const saved=await writeCloudState(userId,NS,{...state,version:1,updatedAt:now(),plans:(state.plans||[]).slice(-500)});if(!saved)throw new Error("Durable approval-continuation storage is unavailable");}
+async function saveState(userId,state){const saved=await writeCloudState(userId,NS,{...state,version:1,updatedAt:now(),plans:(state.plans||[]).slice(-200).map(compactPlan)});if(!saved)throw new Error("Durable approval-continuation storage is unavailable");}
 
 export async function prepareApprovalPlan(userId,{sessionId="native",title,summary,steps=[],execution=null,domain="general",risk="high",reversible=false,verificationMethod="",rollbackPlan=""}={}){
   const uid=clean(userId)||"primary",state=await readState(uid),stableKey=crypto.createHash("sha256").update(`${clean(title)}\n${clean(summary)}`).digest("hex").slice(0,24);
@@ -32,6 +44,7 @@ export async function prepareApprovalPlan(userId,{sessionId="native",title,summa
 
 export async function resolveConversationalApproval(userId,input,{sessionId="native"}={}){
   if(!isConversationalApproval(input))return null;
+  const exact=String(input||"").match(/approve\s+plan\s+([0-9a-f-]{36})\s+under\s+approval\s+([0-9a-f-]{36})/i);if(exact)return approvePlanById(userId,{planId:exact[1],approvalId:exact[2],note:"Explicit exact-ID conversational approval"});
   const uid=clean(userId)||"primary",pending=await listApprovals(uid,{status:"pending",limit:25});
   const eligible=pending.filter(item=>item.actionType==="execute_versioned_plan"&&item.evidence?.planId);
   if(!eligible.length)return{ok:false,status:"no_eligible_plan",missingTool:null,error:"No pending versioned repair plan is eligible for conversational approval. Ask Georgie to prepare the repair first."};
@@ -54,7 +67,7 @@ export async function listRecoverableApprovalDispatches(userId,{limit=10}={}){
 
 export async function approvePlanById(userId,{planId,approvalId,note="Explicit exact-ID plan approval"}={}){
   const uid=clean(userId)||"primary",state=await readState(uid),plan=(state.plans||[]).find(item=>item.id===clean(planId));if(!plan)throw new Error("Exact approval plan was not found");if(plan.approvalId!==clean(approvalId))throw new Error("Approval ID is not bound to the requested plan");
-  const pending=await listApprovals(uid,{status:"pending",limit:100}),request=pending.find(item=>item.id===plan.approvalId&&item.evidence?.planId===plan.id);if(!request)throw new Error("Bound approval is not pending or is no longer eligible");
+  const pending=await listApprovals(uid,{status:"pending",limit:100}),request=pending.find(item=>item.id===plan.approvalId&&item.evidence?.planId===plan.id);if(!request){const approved=(await listApprovals(uid,{status:"approved",limit:100})).find(item=>item.id===plan.approvalId&&item.evidence?.planId===plan.id);if(approved&&plan.dispatch)return{ok:true,status:plan.status,plan,approval:approved,execution:plan.execution,idempotentReplay:true};throw new Error("Bound approval is not pending or is no longer eligible");}
   const idempotencyKey=`approval:${request.id}:plan:${plan.id}`;plan.dispatch=plan.dispatch||{idempotencyKey,status:"pending_authorization",createdAt:now(),attempts:0,nextAttemptAt:null,receipt:null,lastError:null};await saveState(uid,state);
   const approval=await decideApproval(uid,request.id,{decision:"approved",note:clean(note).slice(0,1000)});plan.status="approved_dispatch_pending";plan.dispatch={...plan.dispatch,status:"pending",authorizedAt:approval.decidedAt||now(),nextAttemptAt:now()};plan.updatedAt=now();await saveState(uid,state);return{ok:true,status:"approved_dispatch_pending",plan,approval,execution:plan.execution};
 }

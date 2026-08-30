@@ -110,7 +110,24 @@ function vercelMemberInvitePlan({email,role="DEVELOPER"}={}){
 export function deterministicToolPlan(input = "") {
   const text = String(input || "").trim();
   const lower = text.toLowerCase();
+  const affirmativeLower = lower.replace(/\b(?:do not|don't|never)\s+(?:create|prepare|update|restart|execute|install|repair|recover)(?:\s+(?:or|and)\s+(?:create|prepare|update|restart|execute|install|repair|recover))*\b/g,"");
   if (!text) return [];
+  const exactMacJobId=text.match(/\bidem-[0-9a-f]{40}\b/i)?.[0];
+  const exactMacJobReceipt=exactMacJobId
+    && /\b(?:receipt|result|artifact|prototype|studio|output)\b/i.test(text)
+    && /\b(?:report|show|read|return|retrieve|verify|give|what)\b/i.test(text)
+    && !/\b(?:install|resume|build|develop|continue|update|restart|execute|repair)\b/i.test(affirmativeLower);
+  if(exactMacJobReceipt)return[{tool:"mac.job_receipt",args:{jobId:exactMacJobId}}];
+  const investigationId=text.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i)?.[0];
+  const approvalPlanStatus = investigationId
+    && /\b(?:plan|approval|dispatch|execution|status|receipt|mac[- ]?agent|roblox[- ]?build)\b/i.test(text)
+    && /\b(?:check|show|report|retrieve|read|verify|what|current|status)\b/i.test(text);
+  if(approvalPlanStatus)return[{tool:"approvals.plans",args:{limit:100}},{tool:"mac.jobs",args:{limit:100}}];
+  const macDeviceStatus = /\b(?:primary[- ]?mac|mac(?:intosh)?(?:\s+(?:agent|device))?)\b/i.test(text)
+    && /\b(?:heartbeat|agent version|device status|online|offline|last seen)\b/i.test(text)
+    && /\b(?:show|list|check|read|return|report|verify|what|exact|status)\b/i.test(text)
+    && !/\b(?:prepare|create|update|restart|execute|install|repair|recover)\b/.test(affirmativeLower);
+  if(macDeviceStatus)return[{tool:"mac.devices",args:{}}];
   const vercelMemberInvite = parseExplicitVercelMemberInvite(text);
   if(vercelMemberInvite){
     const plan=vercelMemberInvitePlan(vercelMemberInvite);
@@ -130,6 +147,69 @@ export function deterministicToolPlan(input = "") {
       {tool:"github.source.search",args:{repository,query:"referrals"}}
     ];
   }
+  const explicitApprovalPlanLedger = /\bapprovals\.plans\b/i.test(text);
+  if (explicitApprovalPlanLedger) {
+    const limitMatch = text.match(/\blimit\s*[:=]?\s*(\d{1,3})\b/i);
+    const limit = Math.max(1, Math.min(100, Number(limitMatch?.[1] || 25)));
+    return [{tool:"approvals.plans",args:{limit}}];
+  }
+  const developerPatchMarker = text.match(/DEVELOPER_PATCH_JSON:\s*(\{[\s\S]*\})\s*$/i);
+  if (developerPatchMarker) {
+    let request;
+    try { request = JSON.parse(developerPatchMarker[1]); } catch { return []; }
+    const repo = String(request?.repo || "");
+    const patch = String(request?.patch || "");
+    if (repo !== "/Users/mac/Georgie" || !patch || patch.length > 100000) return [];
+    return [{tool:"developer.prepare_patch",args:{repo,patch,title:String(request?.title||"Apply prepared Mac recovery patch").slice(0,200),summary:String(request?.summary||"Exact governed Mac recovery patch.").slice(0,2000),verificationMethod:String(request?.verificationMethod||"Run git apply --check and inspect the exact status receipt.").slice(0,2000)}}];
+  }
+  const developerApplyMarker = text.match(/DEVELOPER_APPLY_JSON:\s*(\{[\s\S]*\})\s*$/i);
+  if (developerApplyMarker) {
+    let request;
+    try { request = JSON.parse(developerApplyMarker[1]); } catch { return []; }
+    const approvalId = String(request?.approvalId || "");
+    if (!/^[0-9a-f-]{36}$/i.test(approvalId)) return [];
+    return [{tool:"approvals.prepare_plan",args:{
+      title:"Apply exact approved Mac recovery patch",
+      summary:"Execute only the classic developer patch approval bound to the supplied approval ID on primary-mac, then require a durable git-apply receipt.",
+      steps:["Validate the classic developer patch approval and its stored SHA-256 hash.","Apply only that stored patch to /Users/mac/Georgie.","Return git diff-check and exact status evidence without committing or pushing."],
+      domain:"technical",risk:"high",reversible:true,
+      verificationMethod:"Require the developer.apply_approved_patch dispatch receipt, clean diff-check output, and the exact resulting worktree status.",
+      rollbackPlan:"Reverse the exact stored patch if verification fails; do not commit, push, or deploy.",
+      execution:{tool:"developer.apply_approved_patch",args:{approvalId,deviceId:"primary-mac"},verification:[]}
+    }}];
+  }
+  const developerRunChecksMarker = text.match(/DEVELOPER_RUN_CHECKS_JSON:\s*(\{[\s\S]*\})\s*$/i);
+  if (developerRunChecksMarker) {
+    let request;
+    try { request = JSON.parse(developerRunChecksMarker[1]); } catch { return []; }
+    const repo = String(request?.repo || ""), script = String(request?.script || "");
+    if (repo !== "/Users/mac/Georgie" || !["check","test","benchmark"].includes(script)) return [];
+    return [{tool:"approvals.prepare_plan",args:{
+      title:"Run exact approved Georgie check",
+      summary:"Execute one allowlisted npm script on primary-mac with immutable repository and script arguments, then preserve its durable receipt.",
+      steps:[`Run developer.run_checks once for npm script ${script} in /Users/mac/Georgie.`,"Return the bounded command receipt and resulting primary-mac heartbeat."],
+      domain:"technical",risk:"high",reversible:true,
+      verificationMethod:"Require the developer.run_checks dispatch receipt and a fresh primary-mac heartbeat.",
+      rollbackPlan:"The invoked script must be self-restoring; stop without retry if its receipt is ambiguous.",
+      execution:{tool:"developer.run_checks",args:{repo,script,deviceId:"primary-mac"},verification:[]}
+    }}];
+  }
+  const governedPatchMarker = text.match(/DEVELOPER_GOVERNED_PATCH_JSON:\s*(\{[\s\S]*\})\s*$/i);
+  if (governedPatchMarker) {
+    let request;
+    try { request = JSON.parse(governedPatchMarker[1]); } catch { return []; }
+    const repo = String(request?.repo || ""), patch = String(request?.patch || ""), patchHash = String(request?.patchHash || "").toLowerCase();
+    if (repo !== "/Users/mac/Georgie" || !patch || patch.length > 100000 || !/^[0-9a-f]{64}$/.test(patchHash)) return [];
+    return [{tool:"approvals.prepare_plan",args:{
+      title:String(request?.title||"Apply exact governed Mac patch").slice(0,200),
+      summary:String(request?.summary||"Apply one patch whose full body and SHA-256 are embedded in this versioned plan.").slice(0,2000),
+      steps:["Validate the embedded patch body against its SHA-256.","Apply only that exact patch to /Users/mac/Georgie on primary-mac.","Return git diff-check and exact status evidence without committing or pushing."],
+      domain:"technical",risk:"high",reversible:true,
+      verificationMethod:"Require the developer.apply_governed_patch dispatch receipt, clean diff-check, and exact status evidence.",
+      rollbackPlan:"Reverse the exact embedded patch if verification fails; do not commit, push, or deploy.",
+      execution:{tool:"developer.apply_governed_patch",args:{repo,patch,patchHash,deviceId:"primary-mac"},verification:[]}
+    }}];
+  }
   const explicitDeveloperFileRead = /\bdeveloper\.file_read\b/i.test(text);
   if (explicitDeveloperFileRead) {
     const repoMatch = text.match(/\brepo\s*[:=]\s*([^\s,;]+)/i);
@@ -141,6 +221,117 @@ export function deterministicToolPlan(input = "") {
     }
     return [];
   }
+  const macUiSequencePlanRequest = /\b(?:prepare|create|register)\b/.test(lower)
+    && /\b(?:immutable\s+)?(?:bounded\s+)?approval\s+plan\b/.test(lower)
+    && /\bmac\.ui_sequence\b/.test(lower)
+    && /\b(?:sierramarketinginc\.com|hostinger)\b/.test(lower);
+  if (macUiSequencePlanRequest) {
+    const marker = text.match(/UI_SEQUENCE_JSON:\s*(\[[\s\S]*\])\s*$/i);
+    if (!marker) return [];
+    let steps;
+    try { steps = JSON.parse(marker[1]); } catch { return []; }
+    const allowed = new Set(["activate_app","open_url","click","type_text","key","wait","screen_capture"]);
+    if (!Array.isArray(steps) || !steps.length || steps.length > 30 || steps.some(step => !step || !allowed.has(String(step.action || "")))) return [];
+    for (const step of steps) {
+      if (step.action === "open_url") {
+        try {
+          const url = new URL(String(step.url || ""));
+          const host = url.hostname.toLowerCase();
+          if (url.protocol !== "https:" || !["sierramarketinginc.com","hpanel.hostinger.com"].some(domain => host === domain || host.endsWith("." + domain))) return [];
+        } catch { return []; }
+      }
+      if (step.action === "activate_app" && String(step.app || "") !== "Google Chrome") return [];
+      if (step.action === "type_text" && (!String(step.text || "") || String(step.text || "").length > 5000)) return [];
+    }
+    return [{
+      tool:"approvals.prepare_plan",
+      args:{
+        title:"Run bounded Sierra sitemap browser sequence",
+        summary:"Execute only the supplied, ordered Google Chrome UI actions on primary-mac within sierramarketinginc.com and Hostinger for the Rank Math sitemap repair, stopping on any unexpected state.",
+        steps:steps.map((step,index)=>`${index+1}. ${step.action}`),
+        domain:"technical",
+        risk:"high",
+        reversible:true,
+        verificationMethod:"Require a durable receipt for every step and finish with a screenshot or public sitemap verification.",
+        rollbackPlan:"Stop immediately on ambiguity; use Hostinger recovery or restore only the specifically changed cache artifact if a mutation must be reversed.",
+        execution:{tool:"mac.ui_sequence",args:{deviceId:"primary-mac",steps},verification:[]}
+      }
+    }];
+  }
+
+  const wordpressBrowserInspectionPlanRequest = /\b(?:prepare|create|register)\b/.test(lower)
+    && /\b(?:immutable\s+)?(?:bounded\s+)?approval\s+plan\b/.test(lower)
+    && /\bmac\.(?:wordpress_hostinger_inspect|browser_inspect)\b/.test(lower)
+    && /\bsierramarketinginc\.com\b/.test(lower)
+    && /\bwordpress\b/.test(lower);
+  if (wordpressBrowserInspectionPlanRequest) return [{
+    tool:"approvals.prepare_plan",
+    args:{
+      title:"Verify Sierra WordPress admin session",
+      summary:"Read only the approved sierramarketinginc.com browser tab on primary-mac to verify that the existing WordPress admin session is available for the bounded sitemap repair.",
+      steps:[
+        "Inspect only browser tabs whose domain is sierramarketinginc.com.",
+        "Return the approved tab URL and title and whether WordPress admin authentication is active.",
+        "Stop without interaction if login, CAPTCHA, credential entry, or another domain is encountered."
+      ],
+      domain:"technical",
+      risk:"medium",
+      reversible:true,
+      verificationMethod:"The mac.wordpress_hostinger_inspect receipt must identify only approved Sierra or Hostinger Chrome tabs and explicitly report WordPress authentication state without mutation.",
+      rollbackPlan:"No rollback is required because the execution is read-only; stop and preserve the receipt if any boundary is encountered.",
+      execution:{
+        tool:"mac.wordpress_hostinger_inspect",
+        args:{siteOrigin:"https://sierramarketinginc.com",deviceId:"primary-mac",authority:"read_only",operation:"inspect_session"},
+        verification:[]
+      }
+    }
+  }];
+
+
+  const georgieUpdateRestartPlanRequest = /\b(?:prepare|create|register)\b/.test(lower)
+    && /\b(?:immutable\s+)?(?:bounded\s+)?(?:approval|recovery)\s+plan\b/.test(lower)
+    && lower.includes("developer.update_restart_from_main")
+    && text.includes("/Users/mac/Georgie");
+  if (georgieUpdateRestartPlanRequest) return [{
+    tool:"approvals.prepare_plan",
+    args:{
+      title:"Update and restart Georgie Mac agent",
+      summary:"Fast-forward only the allowlisted Georgie checkout to origin/main, reconcile only remote-identical dirty paths, and restart the Mac agent so the targeted WordPress inspector becomes active.",
+      steps:[
+        "Fetch origin/main and inspect the exact /Users/mac/Georgie worktree.",
+        "Reconcile only dirty paths that are byte-identical to origin/main; stop on any genuine local modification.",
+        "Fast-forward to origin/main and restart the Mac agent.",
+        "Verify the new agent heartbeat before any WordPress operation."
+      ],
+      domain:"technical",
+      risk:"high",
+      reversible:true,
+      verificationMethod:"Require a completed developer.update_restart_from_main receipt followed by an online primary-mac heartbeat from the updated agent.",
+      rollbackPlan:"If the fast-forward or restart fails, preserve the checkout unchanged and keep the existing Mac agent process available for recovery.",
+      execution:{
+        tool:"developer.update_restart_from_main",
+        args:{repo:"/Users/mac/Georgie",deviceId:"primary-mac"},
+        verification:[]
+      }
+    }
+  }];
+
+  const makaylaRobloxContinuation = /\b(?:makayla|roblox)\b/.test(lower)
+    && /\b(?:prototype|game)\b/.test(lower)
+    && /\b(?:update|restart|resume|build|develop|continue)\b/.test(lower);
+  if (makaylaRobloxContinuation) return [{
+    tool:"approvals.prepare_plan",
+    args:{
+      title:"Build Makayla Roblox horror prototype",
+      summary:"Update Georgie's primary Mac agent, permanently install and verify Rojo when missing, resume the preserved playable horror prototype, build the Roblox place, and open it in Roblox Studio.",
+      steps:["Update and restart only /Users/mac/Georgie from origin/main.","Install the official Homebrew Rojo formula only when Rojo is missing and verify its version.","Resume the preserved original suspense-horror prototype from the retained Makayla design brief.","Build a durable Prototype.rbxlx and open it in Roblox Studio.","Return the exact artifact and receipts; never delegate Studio operation back to Jason."],
+      domain:"technical",risk:"high",reversible:true,
+      verificationMethod:"Require both the Mac update receipt and Roblox build receipt, plus a non-empty Prototype.rbxlx artifact path.",
+      rollbackPlan:"Preserve the generated project directory; close the prototype without publishing and revert only the dedicated project files if Jason rejects the result.",
+      execution:{tool:"roblox.update_agent_install_and_build",args:{deviceId:"primary-mac",projectName:"Makayla Horror Prototype",designBrief:"Original suspense-horror game inspired by the tension and atmosphere Jason and Makayla liked in House of Locust, without copying protected characters or assets. Makayla contributes design ideas and playtesting. First milestone is a polished private prototype with an explorable dark environment, collectible objectives, a pursuing creature, an escape condition, readable objective UI, and room for iterative art and story refinement.",openInStudio:true},verification:[]}
+    }
+  }];
+
   const snapshotPlanRequest = /\b(?:prepare|create|register)\b/.test(lower)
     && /\b(?:immutable\s+)?approval\s+plan\b/.test(lower)
     && /\b(?:snapshot|reconcile|primary[- ]mac|seo phase 2)\b/.test(lower)
@@ -174,7 +365,6 @@ export function deterministicToolPlan(input = "") {
   if (/\bapproved phase 1\b/.test(lower) || (/\b(?:activate|enable|start)\b/.test(lower) && /\bbackground (?:operating|operations|monitor|work)\b/.test(lower))) return [{tool:"system.background_operations_activate",args:{}}];
   if (/\b(?:self[- ]?(?:evol|improv|teach|learn)|continuous improvement|deep research)\w*\b/.test(lower) && /\b(?:georgie|him|yourself|capab|activate|enable|make|become|status|check)\w*\b/.test(lower)) return [{tool:"system.self_evolution_check",args:{}}];
   if(/\bactivate\b/.test(lower)&&/\bprogressive(?:ly)?\b/.test(lower))return[{tool:"system.revenue_controller_activate",args:{phase:1}}];
-  const investigationId=text.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i)?.[0];
   if(investigationId&&/\b(?:open|show|build|generate|render|resume|continue|retrieve|read)\b/i.test(text)&&/\b(?:investigation|control brief|report|artifact)\b/i.test(text))return[{tool:"sierra.investigation_open",args:{investigationId}}];
   const integrityControlBrief = /\b(?:sierra\s+)?(?:deep[- ]system\s+)?integrity\s+program\b/.test(lower)
     || (/\bcontrol brief\b/.test(lower) && /\b(?:sierra|system|integrity|health|evidence coverage)\b/.test(lower));
@@ -209,6 +399,13 @@ export function deterministicToolPlan(input = "") {
   const continuationTarget=investigationTargetFrom(text);
   if(/\b(?:continue|resume|pick up)\b/.test(lower)&&/\b(?:investigation|diagnosis|inspection|evidence)\b/.test(lower)&&continuationTarget)return [{tool:"sierra.continue_diagnostic_investigation",args:{reference:continuationTarget,scope:"deal_continuation",freshnessMs:300000}}];
   if (/\b(?:inspect|review|check)\b/.test(lower) && /\b(?:repo|repository|codebase|working tree|git status)\b/.test(lower)) return [{tool:"developer.repo_inspect",args:{repo:null}}];
+  // WordPress/SEO objectives are single-domain technical work. They must bypass the
+  // Sierra multi-system audit shortcut so the normal planner can select the governed
+  // WordPress/Mac executor and preserve the requested scope.
+  const explicitWordPressSeoObjective = /\b(?:wordpress|rank math|sitemap|seo)\b/.test(lower)
+    && /\b(?:repair|regenerate|flush|verify|submit|cache|index|canonical|noindex)\b/.test(lower);
+  if (explicitWordPressSeoObjective) return [];
+
   const multiSystemMacAudit = /\b(?:mac|desktop|browser|tabs?|safari|chrome)\b/.test(lower)
     && /\b(?:sierra|supabase|super\s*base|github|vercel|render|partner portal|capitalapply|capital apply)\b/.test(lower)
     && /\b(?:everything|all|platform|functioning|health|diagnos\w*|permanent repair|make sure)\b/.test(lower);
@@ -238,6 +435,12 @@ export function deterministicToolPlan(input = "") {
   if (/\b(world state|what am i working on|what are we working on|everything pending|open commitments|unfinished work)\b/.test(lower)) return [{tool:"system.world_state",args:{context:text}}];
   if (/\b(durable objectives?|unfinished engineering|blocked actions?|resume across sessions?|continuity state)\b/.test(lower)) return [{tool:"system.continuity",args:{limit:50}}];
   if (/\b(domain packs?|speciali[sz]ation packs?|installed packs?|georgie core)\b/.test(lower)) return [{tool:"system.domain_packs",args:{}}];
+  if (/\b(?:list|show|read|return)\b/.test(lower)
+    && /\b(?:recent\s+)?(?:primary[- ]mac|mac)\s+jobs?\b/.test(lower)
+    && /\b(?:status|result|receipt|error|action|fields?)\b/.test(lower)) {
+    const requestedLimit = Number(text.match(/\b(\d{1,3})\s+most\s+recent\b/i)?.[1] || 20);
+    return [{tool:"mac.jobs",args:{limit:Math.max(1,Math.min(requestedLimit,100))}}];
+  }
   const emailSend=parseExplicitEmailSend(text); if(emailSend) return [emailSend];
   const macApp=parseMacOpen(text); if(macApp) return [{tool:"mac.devices",args:{}},{tool:"mac.open_app",args:{app:macApp}}];
   const ref = referenceFrom(text);
