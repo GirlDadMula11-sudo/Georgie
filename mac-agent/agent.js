@@ -13,7 +13,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.40";
+const AGENT_VERSION = "2.2.41";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -166,6 +166,101 @@ async function installPinnedRojo() {
   } finally {
     await fs.unlink(staged).catch(() => {});
     await fs.rm(temporaryRoot, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+function inspectRobloxPrototypeSources(projectRoot) {
+  const expectedRoot = path.join(os.homedir(), "Documents", "Georgie Roblox Projects", "makayla-horror-prototype");
+  if (path.resolve(projectRoot) !== expectedRoot) throw new Error("ROBLOX_PLAY_TEST_PROJECT_REJECTED");
+  return Promise.all([
+    fs.readFile(path.join(expectedRoot, "default.project.json"), "utf8"),
+    fs.readFile(path.join(expectedRoot, "src", "server", "Main.server.luau"), "utf8"),
+    fs.readFile(path.join(expectedRoot, "src", "client", "Main.client.luau"), "utf8")
+  ]).then(([manifestSource, serverSource, clientSource]) => {
+    const manifest = JSON.parse(manifestSource);
+    const checks = {
+      spawning: /SpawnLocation/.test(serverSource) && /spawn\.Position=Vector3\.new\(0,1,-52\)/.test(serverSource),
+      threeRelics: /\{-30,5,38\}/.test(serverSource) && /Relic/.test(serverSource) && /k\.Touched:Connect/.test(serverSource),
+      watcherChase: /TheWatcher/.test(serverSource) && /Players:GetPlayers\(\)/.test(serverSource) && /AssemblyLinearVelocity=direction\.Unit\*10/.test(serverSource),
+      exitDoorUnlock: /ExitDoor/.test(serverSource) && /count==#keys/.test(serverSource) && /exit\.CanCollide=false/.test(serverSource),
+      lighting: /Lighting\.ClockTime=0\.5/.test(serverSource) && /Lighting\.Brightness=0\.7/.test(serverSource) && /Lighting\.FogEnd=115/.test(serverSource),
+      controls: Boolean(manifest?.tree?.StarterPlayer?.StarterPlayerScripts?.["$path"] === "src/client") && /Players\.LocalPlayer/.test(clientSource) && /CharacterAdded:Connect/.test(clientSource)
+    };
+    return { expectedRoot, serverSource, checks, defects: Object.entries(checks).filter(([,passed]) => !passed).map(([name]) => `STATIC_${name.toUpperCase()}_CHECK_FAILED`) };
+  });
+}
+
+async function newestRobloxStudioLog(sinceMs) {
+  const logRoot = path.join(os.homedir(), "Library", "Logs", "Roblox");
+  const entries = await fs.readdir(logRoot, { withFileTypes: true }).catch(() => []);
+  const candidates = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !/\.log$/i.test(entry.name)) continue;
+    const target = path.join(logRoot, entry.name);
+    const stat = await fs.stat(target).catch(() => null);
+    if (stat && stat.mtimeMs >= sinceMs - 10_000) candidates.push({ target, mtimeMs: stat.mtimeMs, size: stat.size });
+  }
+  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return candidates[0] || null;
+}
+
+async function waitForRobloxRuntimeMarker(sinceMs, marker, timeoutMs = 25000) {
+  const deadline = Date.now() + timeoutMs;
+  let latest = null;
+  while (Date.now() < deadline) {
+    latest = await newestRobloxStudioLog(sinceMs);
+    if (latest) {
+      const log = await fs.readFile(latest.target, "utf8").catch(() => "");
+      const markerIndex = log.lastIndexOf(marker);
+      if (markerIndex >= 0) return { observed: true, logPath: latest.target, logBytes: latest.size, excerpt: log.slice(markerIndex, markerIndex + 500) };
+    }
+    await delay(500);
+  }
+  return { observed: false, logPath: latest?.target || null, logBytes: latest?.size || 0, excerpt: "" };
+}
+
+async function playTestRobloxPrototype(args = {}) {
+  const projectRoot = String(args.projectRoot || "");
+  const artifact = path.join(projectRoot, "Prototype.rbxlx");
+  const expectedArtifact = path.join(os.homedir(), "Documents", "Georgie Roblox Projects", "makayla-horror-prototype", "Prototype.rbxlx");
+  if (path.resolve(artifact) !== expectedArtifact) throw new Error("ROBLOX_PLAY_TEST_ARTIFACT_REJECTED");
+  const sourceInspection = await inspectRobloxPrototypeSources(projectRoot);
+  const artifactStat = await fs.stat(artifact);
+  if (artifactStat.size < 100) throw new Error("ROBLOX_PLAY_TEST_ARTIFACT_EMPTY");
+  if (sourceInspection.defects.length) return { status: "blocked", artifact, artifactBytes: artifactStat.size, checks: sourceInspection.checks, defects: sourceInspection.defects, playStarted: false, playStopped: false };
+  const startedAtMs = Date.now();
+  const captureTarget = path.join(os.tmpdir(), `georgie-roblox-playtest-${startedAtMs}.png`);
+  let playStopped = false;
+  try {
+    await execFileAsync("open", ["-a", "RobloxStudio", artifact], { timeout: 30000 });
+    if (!await waitForAppProcess("RobloxStudio", 15000)) throw new Error("ROBLOX_STUDIO_NOT_RUNNING");
+    await runAppleScript('tell application "RobloxStudio" to activate');
+    await delay(3000);
+    await runAppleScript('tell application "System Events" to key code 96');
+    const runtime = await waitForRobloxRuntimeMarker(startedAtMs, "Georgie prototype loaded:");
+    await execFileAsync("screencapture", ["-x", captureTarget], { timeout: 15000 });
+    const screenshotSha256 = await sha256File(captureTarget);
+    await runAppleScript('tell application "System Events" to key code 96 using {shift down}');
+    playStopped = true;
+    const defects = runtime.observed ? [] : ["RUNTIME_PROTOTYPE_MARKER_NOT_OBSERVED"];
+    return {
+      status: defects.length ? "blocked" : "completed",
+      artifact,
+      artifactBytes: artifactStat.size,
+      checks: sourceInspection.checks,
+      defects,
+      playStarted: true,
+      playStopped,
+      runtimeMarkerObserved: runtime.observed,
+      runtimeLogPath: runtime.logPath,
+      runtimeLogBytes: runtime.logBytes,
+      runtimeExcerpt: runtime.excerpt,
+      screenshotSha256,
+      testedAt: new Date().toISOString()
+    };
+  } finally {
+    if (!playStopped) await runAppleScript('tell application "System Events" to key code 96 using {shift down}').catch(() => {});
+    await fs.unlink(captureTarget).catch(() => {});
   }
 }
 
@@ -870,6 +965,8 @@ async function execute(job) {
     }
     case "roblox.prototype_build":
       return buildRobloxPrototype(a);
+    case "roblox.play_test_validate":
+      return playTestRobloxPrototype(a);
     case "screen.capture": {
       const target = path.join(os.tmpdir(), `georgie-screen-${Date.now()}.png`);
       await execFileAsync("screencapture", ["-x", target], { timeout: 15000 });

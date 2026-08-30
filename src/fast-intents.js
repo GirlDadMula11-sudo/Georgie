@@ -139,15 +139,32 @@ export function deterministicToolPlan(input = "") {
     if (!/^idem-[0-9a-f]{40}$/.test(jobId)
       || deviceId !== "primary-mac"
       || expectedAction !== "roblox.install_rojo_and_build"
-      || requiredAgentVersion !== "2.2.40") return [];
+      || requiredAgentVersion !== "2.2.41") return [];
     return [{tool:"approvals.prepare_plan",args:{
       title:"Resume exact preserved Roblox prototype job",
       summary:`Recover ${jobId} in place on primary-mac after the deployed checkpoint transport repair. Preserve its identity and never enqueue another Roblox job.`,
       steps:["Validate the exact preserved job, action, device, and required agent version.","Requeue only the same durable job identity with its existing checkpoint receipts.","Read back the exact job receipt and primary-mac heartbeat."],
       domain:"technical",risk:"high",reversible:true,
-      verificationMethod:"Require the same job ID, roblox.install_rojo_and_build action, queued or completed recovery state, agent 2.2.40 binding, and a fresh primary-mac heartbeat.",
+      verificationMethod:"Require the same job ID, roblox.install_rojo_and_build action, queued or completed recovery state, agent 2.2.41 binding, and a fresh primary-mac heartbeat.",
       rollbackPlan:"Stop the preserved job without creating a replacement if its exact identity, action, checkpoint, or agent binding cannot be verified.",
       execution:{tool:"mac.long_running_job_recover",args:{jobId,deviceId,expectedAction,requiredAgentVersion},verification:[{tool:"mac.job_receipt",args:{jobId}},{tool:"mac.devices",args:{}}]}
+    }}];
+  }
+  const robloxPlayTestMarker = text.match(/ROBLOX_PLAY_TEST_JSON:\s*(\{[\s\S]*\})\s*$/i);
+  if (robloxPlayTestMarker) {
+    let request;
+    try { request = JSON.parse(robloxPlayTestMarker[1]); } catch { return []; }
+    const projectRoot = String(request?.projectRoot || "");
+    const requiredAgentVersion = String(request?.requiredAgentVersion || "");
+    if (projectRoot !== "/Users/mac/Documents/Georgie Roblox Projects/makayla-horror-prototype" || requiredAgentVersion !== "2.2.41") return [];
+    return [{tool:"approvals.prepare_plan",args:{
+      title:"Play-test existing Makayla Roblox prototype",
+      summary:"Run Roblox Studio play mode against the existing prototype, verify spawning, three relics, The Watcher chase, exit unlock, lighting, controls, and runtime startup, then stop play mode and record defects. Do not publish or create another project.",
+      steps:["Verify the exact existing project and artifact path.","Run the governed Studio play test on primary-mac.","Read back every gameplay check, runtime evidence, and defect receipt."],
+      domain:"technical",risk:"high",reversible:true,
+      verificationMethod:"Require agent 2.2.41, all six gameplay checks true, the runtime marker observed, play mode stopped, and an empty defect list.",
+      rollbackPlan:"Stop Studio play mode and preserve the existing project and Prototype.rbxlx unchanged if any check fails.",
+      execution:{tool:"roblox.play_test_validate",args:{deviceId:"primary-mac",projectRoot,requiredAgentVersion},verification:[]}
     }}];
   }
   const vercelMemberInvite = parseExplicitVercelMemberInvite(text);
