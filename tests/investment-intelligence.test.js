@@ -11,14 +11,16 @@ test("detects cross-asset investment language without contaminating ordinary tur
   assert.equal(isInvestmentIntent("Plan a family trip"), false);
 });
 
-test("routes investment work to an explicitly enabled frontier, current-evidence path", () => {
+test("routes investment work through Luna first with Sol available as the required current-evidence tier", () => {
   const previous = process.env.GEORGIE_FRONTIER_INFERENCE_ENABLED;
   process.env.GEORGIE_FRONTIER_INFERENCE_ENABLED = "true";
   try {
     const route = intelligenceRoute("Research the latest Ethereum price and investment risks");
     assert.equal(route.domain, "investments");
     assert.equal(route.requestedTier, "frontier");
-    assert.equal(route.tier, "frontier");
+    assert.equal(route.tier, "fast");
+    assert.equal(route.model, "gpt-5.6-luna");
+    assert.equal(route.escalationPlan.at(-1).model, "gpt-5.6-sol");
     assert.equal(route.costPolicy.frontierEnabled, true);
     assert.equal(route.requiresCurrentEvidence, true);
     assert.equal(runtimePolicy("Check the latest Bitcoin price").allowWebTool, true);

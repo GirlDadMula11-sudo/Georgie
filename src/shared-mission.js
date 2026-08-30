@@ -64,7 +64,7 @@ function dispatchRank(item){return item?.source==="authorized_assistant_control_
 export function compareHandoffPriority(a,b){return dispatchRank(b)-dispatchRank(a)||b.priority-a.priority||String(a.createdAt).localeCompare(String(b.createdAt));}
 export async function listHandoffs(userId=USER(),{status="active",limit=100}={}){const state=await missionStatus(userId),items=state.items.filter(item=>status==="all"||(status==="active"?!["completed","cancelled","quarantined"].includes(item.status):item.status===status)).sort(compareHandoffPriority).slice(0,Math.max(1,Math.min(Number(limit)||100,500)));return{mission:state.mission,active:state.active,items,lastCycleAt:state.lastCycleAt};}
 function resolveDependency(state,key){const target=bounded(key,220);if(!target)return null;return state.items.find(item=>item.dedupeKey===target||bounded(item.scope?.controlCommand?.commandId,220)===target||bounded(item.scope?.controlCommand?.idempotencyKey,220)===target||`ai-control:${bounded(item.scope?.controlCommand?.idempotencyKey,220)}`===target)||null;}
-export function claimNextHandoff(userId=USER(),workerId="georgie-background"){return serialized(userId,async()=>{
+export function claimNextHandoff(userId=USER(),workerId="georgie-background",selector={}){return serialized(userId,async()=>{
   const uid=String(userId),state=await missionStatus(uid),at=Date.now();
   for(const item of state.items)if(item.status==="running"&&Date.parse(item.lease?.expiresAt||0)<=at)item.status="queued";
   const gatePassed=row=>(row.dependsOn||[]).every(key=>{const dependency=resolveDependency(state,key);return dependency?.status==="completed"||(dependency?.status==="diagnosed"&&dependency?.result?.repairPlan?.reproducible===true);});
@@ -74,7 +74,9 @@ export function claimNextHandoff(userId=USER(),workerId="georgie-background"){re
     if(row.status==="queued"&&!passed){row.status="blocked_by_dependency";row.updatedAt=now();}
     else if(row.status==="blocked_by_dependency"&&passed){row.status="queued";row.updatedAt=now();}
   }
-  const item=state.items.filter(row=>row.status==="queued"&&(!row.nextAttemptAt||Date.parse(row.nextAttemptAt)<=at)&&row.attempts<MAX_ATTEMPTS).sort(compareHandoffPriority)[0];
+  const item=state.items.filter(row=>row.status==="queued"&&(!row.nextAttemptAt||Date.parse(row.nextAttemptAt)<=at)&&row.attempts<MAX_ATTEMPTS
+    && (!selector.source||row.source===selector.source)
+    && (!selector.issueNumber||Number(row.scope?.issueNumber)===Number(selector.issueNumber))).sort(compareHandoffPriority)[0];
   if(!item){state.lastCycleAt=now();state.updatedAt=now();await save(uid,state);return null;}
   item.status="running";item.attempts+=1;item.lease={workerId:bounded(workerId,100),claimedAt:now(),expiresAt:new Date(at+LEASE_MS).toISOString()};item.updatedAt=now();state.lastCycleAt=now();state.updatedAt=now();await save(uid,state);return structuredClone(item);
 });}

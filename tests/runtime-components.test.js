@@ -37,16 +37,25 @@ test("serverless request instances never claim long-lived worker ownership", () 
   assert.equal(runtimeOwnsBackgroundWorkers({}), true);
 });
 
+test("Render PR previews fail closed and can allowlist one canary worker", () => {
+  assert.equal(runtimeOwnsBackgroundWorkers({ IS_PULL_REQUEST: "true" }), false);
+  const env={IS_PULL_REQUEST:"true",GEORGIE_PREVIEW_WORKERS_ENABLED:"true",GEORGIE_PREVIEW_WORKER_ALLOWLIST:"engineering-coordinator"};
+  assert.equal(runtimeOwnsBackgroundWorkers(env),true);
+  assert.deepEqual(componentsForProfile("web",RUNTIME_COMPONENTS,null,"kernel",env).map(component=>component.id),["engineering-coordinator"]);
+});
+
 test("kernel mode starts one objective authority and no autonomous specialists", () => {
   const web = componentsForProfile("web", RUNTIME_COMPONENTS, null, "kernel");
   assert.deepEqual(web.map(component => component.id), [
     "cloud-state-recovery",
     "mobile-turn-recovery",
     "approval-dispatch",
+    "engineering-coordinator",
     "objective-worker"
   ]);
   assert.equal(web.filter(component => component.role === "kernel").length, 1);
   assert.equal(web.some(component => component.plane === "specialist"), false);
+  assert.equal(web.some(component => component.id === "engineering-coordinator"), true);
 });
 
 test("server delegates every background lifecycle to the runtime registry", async () => {

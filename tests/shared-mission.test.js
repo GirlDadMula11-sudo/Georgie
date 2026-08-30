@@ -39,6 +39,16 @@ test("exact duplicate typed-command replay collapses by canonical idempotency ke
   assert.equal(first.status,"queued");assert.equal(second.status,"deduplicated");assert.equal(second.item.id,first.item.id);
 });
 
+test("canary selector claims only the exact GitHub issue",async()=>{
+  const user=`canary-selector-${Date.now()}`;
+  await enqueueHandoff(user,{source:"shared_mission",objective:"Higher priority production work",priority:100,dedupeKey:"mission:held"});
+  await enqueueHandoff(user,{source:"authorized_assistant_github_issue",objective:"Other issue",priority:75,dedupeKey:"github:repo#255",scope:{issueNumber:255}});
+  const target=await enqueueHandoff(user,{source:"authorized_assistant_github_issue",objective:"Canary issue",priority:75,dedupeKey:"github:repo#256",scope:{issueNumber:256}});
+  const claimed=await claimNextHandoff(user,"canary",{source:"authorized_assistant_github_issue",issueNumber:256});
+  assert.equal(claimed.id,target.item.id);
+  assert.equal(await claimNextHandoff(user,"canary",{source:"authorized_assistant_github_issue",issueNumber:256}),null);
+});
+
 test("only verified reversible isolated-branch repairs qualify for automatic commit",()=>{
   const eligible=autonomousRepairPolicy({risk:"write",files:["src/parser.js","tests/parser.test.js"],checks:[{status:"passed"}],reversible:true,rollbackPlan:"Revert commit",branch:"repair/parser",customerDataChanged:false,externalSideEffect:false});
   assert.equal(eligible.eligible,true);assert.equal(eligible.action,"commit_to_isolated_branch");assert.equal(eligible.mergeToMain,false);
