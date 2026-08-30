@@ -4,9 +4,18 @@ import { deterministicToolPlan } from "../src/fast-intents.js";
 import { verifiedDirectResponse } from "../src/v2-turn-engine.js";
 
 const jobId="idem-2b5c6016aec13c3e305a7a85c81087c0d6668633";
+const recoveryJobId="idem-0505ad1acfe35898ed8f1f95e492777965ab78dd";
 
 test("exact completed receipt request is read-only and never reruns the job",()=>{
   assert.deepEqual(deterministicToolPlan(`Report the completed receipt for Mac job ${jobId}, including its Prototype.rbxlx artifact path and Roblox Studio open result. Do not create or execute anything.`),[{tool:"mac.job_receipt",args:{jobId}}]);
+});
+
+test("read-only checkpoint lookup with prohibitions cannot create a recovery plan",()=>{
+  assert.deepEqual(deterministicToolPlan(`Read-only status reconciliation. Inspect exact durable Mac job ${recoveryJobId}. Do not enqueue, restart, retry, create, approve, or execute any job. Return its current status, attempts, claim lease, checkpoints, and error.`),[{tool:"mac.job_receipt",args:{jobId:recoveryJobId}}]);
+});
+
+test("multiple exact job lookups and heartbeat remain entirely read-only",()=>{
+  assert.deepEqual(deterministicToolPlan(`Read-only: inspect ${recoveryJobId} and ${jobId}, then return heartbeat and agent version. Never resume or execute either job.`),[{tool:"mac.job_receipt",args:{jobId:recoveryJobId}},{tool:"mac.job_receipt",args:{jobId}},{tool:"mac.devices",args:{}}]);
 });
 
 test("Rojo installation and resume command cannot be swallowed by receipt lookup",()=>{
