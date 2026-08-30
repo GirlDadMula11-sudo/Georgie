@@ -20,7 +20,7 @@ test("high-impact language begins with Luna but requires Sol authority", () => {
     const route = intelligenceRoute("repair the production database incident");
     assert.equal(route.requestedTier, "frontier");
     assert.equal(route.tier, "fast");
-    assert.deepEqual(route.escalationPlan.map(step => step.tier), ["fast", "balanced", "frontier"]);
+    assert.deepEqual(route.escalationPlan.map(step => step.tier), ["frontier"]);
     assert.equal(route.costPolicy.expensiveTierOptInRequired, false);
   });
 });
@@ -28,8 +28,9 @@ test("high-impact language begins with Luna but requires Sol authority", () => {
 test("frontier inference is available unless its emergency kill switch is off", () => {
   withEnv({ GEORGIE_FRONTIER_INFERENCE_ENABLED: "false" }, () => {
     const route = intelligenceRoute("repair the production database incident");
-    assert.deepEqual(route.escalationPlan.map(step => step.tier), ["fast", "balanced"]);
+    assert.deepEqual(route.escalationPlan.map(step => step.tier), []);
     assert.equal(route.costPolicy.frontierEnabled, false);
+    assert.equal(route.conclusionAuthority, "triage_and_evidence_only");
   });
 });
 

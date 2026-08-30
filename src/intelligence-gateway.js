@@ -76,7 +76,11 @@ export function intelligenceRoute(input = "", context = {}, env = process.env) {
   const conclusionAuthority = zeroSpendSource ? "verified_evidence" : meetsMinimumTier ? "full" : highImpact ? "triage_and_evidence_only" : "bounded_with_disclosure";
   const requiresCurrentEvidence = highImpact || policy.allowWebTool || context.requiresCurrentEvidence === true || CURRENT_EVIDENCE.test(text);
   const selectedSource = zeroSpendSource || INTELLIGENCE_TIERS.fast.modelFamily;
-  const escalationPlan = admission.availableTiers.map((tier, index) => ({
+  const minimumIndex = order.indexOf(required.tier);
+  const plannedTiers = required.tier === "frontier" && context.economicalTriage !== true
+    ? admission.availableTiers.filter(tier => tier === "frontier")
+    : admission.availableTiers.filter(tier => order.indexOf(tier) <= minimumIndex);
+  const escalationPlan = plannedTiers.map((tier, index) => ({
     attempt: index + 1,
     tier,
     model: modelFor(tier, env),
@@ -143,7 +147,18 @@ export function evaluateAttemptSufficiency(route, attempt = {}) {
   const text = String(attempt.text || "").trim();
   if (attempt.error) return { sufficient: false, reason: "provider_or_runtime_failure" };
   if (!text) return { sufficient: false, reason: "empty_result" };
-  if (attempt.qualityPassed === false) return { sufficient: false, reason: "quality_gate_failed" };
+  const quality = evaluateDeterministicQuality(route, attempt);
+  if (!quality.passed) return { sufficient: false, reason: quality.reason };
   if (order.indexOf(tier) < order.indexOf(minimumTier)) return { sufficient: false, reason: "minimum_intelligence_not_reached" };
   return { sufficient: true, reason: "minimum_intelligence_and_quality_satisfied" };
+}
+
+export function evaluateDeterministicQuality(route, attempt = {}) {
+  const text = String(attempt.text || "").trim();
+  if (!text) return { passed: false, reason: "empty_result" };
+  if (attempt.completed === false || attempt.terminalReason) return { passed: false, reason: "incomplete_or_terminal_result" };
+  if (text.length < Math.max(24, Number(route?.qualityContract?.minimumCharacters || 40))) return { passed: false, reason: "result_below_minimum_content" };
+  if (/\b(?:I (?:cannot|can't) verify|unverified|partial result|stream was interrupted|no evidence)\b/i.test(text)) return { passed: false, reason: "result_disclosed_insufficient_evidence" };
+  if (route?.requiresCurrentEvidence && route?.allowWebTool && Number(attempt.webSearches || 0) < 1) return { passed: false, reason: "current_evidence_not_observed" };
+  return { passed: true, reason: "deterministic_contract_satisfied" };
 }

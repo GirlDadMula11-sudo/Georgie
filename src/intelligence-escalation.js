@@ -1,6 +1,6 @@
 import { evaluateAttemptSufficiency } from "./intelligence-gateway.js";
 
-export async function runIntelligenceEscalation({ route, execute, evaluate = evaluateAttemptSufficiency }) {
+export async function runIntelligenceEscalation({ route, execute, evaluate = evaluateAttemptSufficiency, onAssessment = null }) {
   if (!route?.shouldInvokeModel) return { result: null, attempts: [], zeroSpend: true };
   if (typeof execute !== "function") throw new TypeError("Intelligence escalation requires an execute function");
 
@@ -9,6 +9,7 @@ export async function runIntelligenceEscalation({ route, execute, evaluate = eva
     try {
       const result = await execute(step);
       const assessment = evaluate(route, { ...result, tier: step.tier });
+      if (typeof onAssessment === "function") await onAssessment({ step, result, assessment });
       attempts.push({ ...step, sufficient: assessment.sufficient, reason: assessment.reason });
       if (assessment.sufficient) return { result, attempts, selected: step, zeroSpend: false };
     } catch (error) {

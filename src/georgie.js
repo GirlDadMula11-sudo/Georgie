@@ -2,7 +2,7 @@ import { runtimePolicy, shouldRunMemoryExtraction } from "./runtime-policy.js";
 import { intelligenceRoute } from "./intelligence-gateway.js";
 import { runIntelligenceEscalation } from "./intelligence-escalation.js";
 import { withModelPermit } from "./resource-governor.js";
-import { acquireModelSpendPermit, recordModelProviderFailure } from "./model-cost-governor.js";
+import { acquireModelSpendPermit, reconcileModelTokens, recordModelProviderFailure } from "./model-cost-governor.js";
 import { codingRuntimePrompt } from "./coding-intelligence.js";
 import { investmentRuntimePrompt } from "./investment-intelligence.js";
 
@@ -114,7 +114,8 @@ function fastMacAction(input){
 }
 
 function requireApiKey() { if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured"); return process.env.OPENAI_API_KEY; }
-async function openAI(path, options = {}) { acquireModelSpendPermit();const response = await fetch(`${OPENAI_BASE_URL}${path}`, { ...options, signal:options.signal||AbortSignal.timeout(Math.min(24000,Math.max(5000,Number(process.env.GEORGIE_OPENAI_TIMEOUT_MS||24000)))), headers: { Authorization: `Bearer ${requireApiKey()}`, ...(options.headers || {}) } }); if (!response.ok) { const body = await response.text();recordModelProviderFailure({status:response.status,message:body});throw new Error(`OpenAI request failed (${response.status}): ${body.slice(0, 500)}`); } return response; }
+async function openAI(path, options = {}, spend = {}) { const startedAt=Date.now();const parsedBody=typeof options.body==="string"?JSON.parse(options.body):options.body||{};const reservation=await acquireModelSpendPermit({model:spend.model||parsedBody.model,tier:spend.tier,objectiveId:spend.objectiveId,escalationReason:spend.escalationReason,body:parsedBody,maxOutputTokens:parsedBody.max_output_tokens,idempotencyKey:spend.idempotencyKey});const response = await fetch(`${OPENAI_BASE_URL}${path}`, { ...options, signal:options.signal||AbortSignal.timeout(Math.min(24000,Math.max(5000,Number(process.env.GEORGIE_OPENAI_TIMEOUT_MS||24000)))), headers: { Authorization: `Bearer ${requireApiKey()}`, ...(options.headers || {}) } });Object.defineProperty(response,"georgieSpend",{value:{reservation,startedAt},enumerable:false}); if (!response.ok) { const body = await response.text();recordModelProviderFailure({status:response.status,message:body});await reconcileModelTokens({reservationId:reservation.reservationId,usage:{total_tokens:reservation.reservedTokens},latencyMs:Date.now()-startedAt,qualityResult:"provider_failure",outcome:"failed",errorCode:`http_${response.status}`}).catch(()=>{});throw new Error(`OpenAI request failed (${response.status}): ${body.slice(0, 500)}`); } return response; }
+async function reconcileResponseSpend(response,usage,qualityResult="received",outcome="completed"){const spend=response?.georgieSpend;if(!spend)return;const safeUsage=usage&&Number.isFinite(Number(usage.total_tokens??usage.totalTokens))?usage:{total_tokens:spend.reservation.reservedTokens};await reconcileModelTokens({reservationId:spend.reservation.reservationId,usage:safeUsage,latencyMs:Date.now()-spend.startedAt,qualityResult,outcome}).catch(error=>console.warn("[Georgie] model spend reconciliation delayed:",error instanceof Error?error.message:error));}
 function extractResponseText(payload) { if (payload.output_text) return payload.output_text; for (const item of payload.output || []) for (const content of item.content || []) if (content.type === "output_text" && content.text) return content.text; return ""; }
 function reasoning(effort = "medium") { return { effort, context: "all_turns" }; }
 function parseModelJson(rawValue){
@@ -129,7 +130,7 @@ function parseModelJson(rawValue){
 }
 async function jsonResponse({ model, instructions, input, effort = "medium" }) { return withModelPermit(async()=>{const response = await openAI("/responses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, instructions, input, reasoning: reasoning(effort), text: { verbosity: "low" } }) }); const payload = await response.json(); return parseModelJson(extractResponseText(payload));}); }
 
-async function askGeorgieCore(input, history = [], context = "", { onTextDelta, modelOverride = null, routeOverride = null, attachmentParts = [] } = {}) {
+async function askGeorgieCore(input, history = [], context = "", { onTextDelta, modelOverride = null, routeOverride = null, attachmentParts = [], objectiveId = null, escalationReason = null } = {}) {
   if (!input?.trim()) throw new Error("Input is required");
   const fast=fastMacAction(input);
   if(fast){return {text:`Command sent to your Mac: ${fast[0].args.app}.`,responseId:null,webSearches:0,model:"deterministic-fast-path"};}
@@ -146,12 +147,12 @@ async function askGeorgieCore(input, history = [], context = "", { onTextDelta, 
   const body = { model: modelOverride||route.model, instructions, input: [...safeHistory, { role: "user", content: userContent }], reasoning: reasoning(modelOverride?"low":process.env.OPENAI_REASONING_EFFORT || route.reasoningEffort), text: { verbosity: process.env.OPENAI_VERBOSITY || route.responseVerbosity }, ...(streaming ? { stream: true } : {}) };
   if (process.env.GEORGIE_WEB_ENABLED !== "false" && route.allowWebTool) body.tools = [{ type: "web_search" }];
   const intelligenceTimeoutMs = modelOverride ? 18000 : route.latencyClass === "deep" ? 36000 : 24000;
-  const response = await openAI("/responses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(intelligenceTimeoutMs) });
+  const response = await openAI("/responses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(intelligenceTimeoutMs) },{model:body.model,tier:routeOverride?.tier||route.tier,objectiveId,escalationReason});
   if (streaming) {
     const reader = response.body?.getReader();
     if (!reader) throw new Error("Georgie streaming response was unavailable");
     const decoder = new TextDecoder();
-    let buffer = "", text = "", responseId = null, webSearches = 0;
+    let buffer = "", text = "", responseId = null, webSearches = 0, usage = null;
     while (true) {
       const { value, done } = await reader.read();
       buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
@@ -165,21 +166,52 @@ async function askGeorgieCore(input, history = [], context = "", { onTextDelta, 
           let event; try { event = JSON.parse(raw); } catch { continue; }
           if (event.type === "response.output_text.delta" && event.delta) { text += event.delta; onTextDelta(event.delta, text); }
           if (event.type === "response.web_search_call.in_progress" || event.type === "response.web_search_call.completed") webSearches += event.type.endsWith("completed") ? 1 : 0;
-          if (event.type === "response.completed") responseId = event.response?.id || responseId;
+          if (event.type === "response.completed") { responseId = event.response?.id || responseId; usage=event.response?.usage||usage; }
           if (event.type === "response.failed") throw new Error(event.response?.error?.message || "Georgie streaming response failed");
         }
       }
       if (done) break;
     }
     if (!text.trim()) throw new Error("Georgie returned an empty response");
-    return { text, responseId, webSearches, model: body.model, route };
+    await reconcileResponseSpend(response,usage);
+    return { text, responseId, webSearches, model: body.model, route, spendReservationId:response.georgieSpend?.reservation?.reservationId||null, spendUsage:usage||{total_tokens:response.georgieSpend?.reservation?.reservedTokens||0}, spendLatencyMs:response.georgieSpend?Date.now()-response.georgieSpend.startedAt:0 };
   }
-  const payload = await response.json(); const text = extractResponseText(payload); if (!text) throw new Error("Georgie returned an empty response");
-  return { text, responseId: payload.id, webSearches: (payload.output || []).filter((item) => item.type === "web_search_call").length, model: body.model, route };
+  const payload = await response.json(); const text = extractResponseText(payload); if (!text) throw new Error("Georgie returned an empty response");await reconcileResponseSpend(response,payload.usage);
+  return { text, responseId: payload.id, webSearches: (payload.output || []).filter((item) => item.type === "web_search_call").length, model: body.model, route, spendReservationId:response.georgieSpend?.reservation?.reservationId||null, spendUsage:payload.usage||{total_tokens:response.georgieSpend?.reservation?.reservedTokens||0}, spendLatencyMs:response.georgieSpend?Date.now()-response.georgieSpend.startedAt:0 };
 }
 export function interruptedStreamRecoveryContext(context,partialText){return `${context}\n\nRUNTIME RECOVERY: The primary intelligence stream stopped after producing the partial draft below. Do not repeat the draft. Finish the user's request with a compact executive conclusion: lead with verified outcome, include only material findings and unfinished work, and never claim an unverified action. Keep the recovery under 350 words.\n\nPARTIAL DRAFT ALREADY SHOWN\n${String(partialText||"").slice(-12000)}`;}
 export function modelCreditBlock(error){const message=String(error instanceof Error?error.message:error||"");return /\b(?:no credits? remaining|insufficient[_ ]quota|billing quota|billing hard limit|model cost circuit is open)\b/i.test(message);}
-export async function askGeorgie(input,history=[],context="",options={}){return withModelPermit(async()=>{const route=intelligenceRoute(input);try{const ladder=await runIntelligenceEscalation({route,execute:step=>askGeorgieCore(input,history,context,{...options,onTextDelta:undefined,modelOverride:step.model,routeOverride:route})});const finalRoute={...route,tier:ladder.selected.tier,model:ladder.selected.model,meetsMinimumTier:true,conclusionAuthority:"full",costPolicy:{...route.costPolicy,selectedTier:ladder.selected.tier,spendClass:ladder.selected.spendClass,conclusionAuthority:"full"}};const result={...ladder.result,route:finalRoute,intelligenceAttempts:ladder.attempts};options.onTextDelta?.(result.text,result.text);return result;}catch(error){const attempts=Array.isArray(error?.attempts)?error.attempts:[];const creditBlocked=attempts.some(attempt=>modelCreditBlock(attempt.error));const text=creditBlocked?"This response needs Georgie's external intelligence model, but the API account currently has no credits. Nothing is still running and no charge was attempted. Basic deterministic guidance and local runtime tools remain available; model-dependent reasoning will remain blocked unless you separately choose to add API credits.":"Georgie tried every available intelligence tier, but none produced a result that passed the required quality and authority gate. No incomplete answer is being presented as final.";options.onTextDelta?.(text,text);return{text,responseId:null,webSearches:0,model:creditBlocked?"credit-blocked-truthful-fallback":"intelligence-ladder-exhausted",route,completed:false,terminal:true,terminalState:"blocked",terminalReason:creditBlocked?"model_credits_exhausted":"intelligence_ladder_exhausted",confidence:"verified_blocker",intelligenceAttempts:attempts};}});}
+export async function askGeorgie(input,history=[],context="",options={}){
+  return withModelPermit(async()=>{
+    const route=intelligenceRoute(input,options.intelligenceContext||{});
+    if(!route.shouldInvokeModel){
+      const result=options.zeroSpendResult;
+      if(!result?.text)throw new Error("A verified zero-spend result is required when deterministic or cached evidence is selected");
+      options.onTextDelta?.(result.text,result.text);
+      return{...result,model:route.selectedSource,route,intelligenceAttempts:[],zeroSpend:true};
+    }
+    let emitted=false,partialText="";
+    const streamingDelta=typeof options.onTextDelta==="function"?(delta,text)=>{emitted=true;partialText=text;options.onTextDelta(delta,text);}:undefined;
+    try{
+      const ladder=await runIntelligenceEscalation({route,execute:step=>askGeorgieCore(input,history,context,{...options,onTextDelta:step.tier===route.minimumTier?streamingDelta:undefined,modelOverride:step.model,routeOverride:{...route,tier:step.tier},objectiveId:options.objectiveId||null,escalationReason:`${route.minimumTier}:${step.tier}`}),onAssessment:async({result,assessment})=>{if(result.spendReservationId)await reconcileModelTokens({reservationId:result.spendReservationId,usage:result.spendUsage,latencyMs:result.spendLatencyMs,qualityResult:assessment.sufficient?"passed":assessment.reason,outcome:assessment.sufficient?"completed":"quality_rejected"});}});
+      const finalRoute={...route,tier:ladder.selected.tier,model:ladder.selected.model,meetsMinimumTier:true,conclusionAuthority:"full",costPolicy:{...route.costPolicy,selectedTier:ladder.selected.tier,spendClass:ladder.selected.spendClass,conclusionAuthority:"full"}};
+      const result={...ladder.result,route:finalRoute,intelligenceAttempts:ladder.attempts};
+      if(!emitted)options.onTextDelta?.(result.text,result.text);
+      return result;
+    }catch(error){
+      const attempts=Array.isArray(error?.attempts)?error.attempts:[];
+      if(emitted&&partialText.trim()){
+        const note="\n\nThe intelligence stream was interrupted or failed its deterministic completion gate. This is a partial result; no unfinished conclusion should be treated as complete.";
+        options.onTextDelta?.(note,`${partialText}${note}`);
+        return{text:`${partialText}${note}`,responseId:null,webSearches:0,model:"partial-stream-recovery",route,completed:false,terminal:true,terminalReason:"intelligence_stream_interrupted",confidence:"partial_unverified",intelligenceAttempts:attempts};
+      }
+      const creditBlocked=attempts.some(attempt=>modelCreditBlock(attempt.error));
+      const text=creditBlocked?"This response needs Georgie's external intelligence model, but the API account currently has no credits. Nothing is still running and no charge was attempted. Basic deterministic guidance and local runtime tools remain available; model-dependent reasoning will remain blocked unless you separately choose to add API credits.":"Georgie tried the permitted intelligence path, but it did not pass the deterministic quality and authority gate. No incomplete answer is being presented as final.";
+      options.onTextDelta?.(text,text);
+      return{text,responseId:null,webSearches:0,model:creditBlocked?"credit-blocked-truthful-fallback":"intelligence-ladder-exhausted",route,completed:false,terminal:true,terminalState:"blocked",terminalReason:creditBlocked?"model_credits_exhausted":"intelligence_ladder_exhausted",confidence:"verified_blocker",intelligenceAttempts:attempts};
+    }
+  });
+}
 
 const SPOKEN_DETAIL_REQUEST = /\b(?:explain|elaborate|expand|walk me through|break (?:it|that) down|more detail|full detail|all (?:the )?details|in depth|deep dive|tell me more|read (?:it|that|the whole|the full)|say (?:it|that|the whole|the full))\b/i;
 const SPOKEN_WORD_LIMIT = Math.max(18, Math.min(60, Number(process.env.GEORGIE_SPOKEN_WORD_LIMIT || 28)));
