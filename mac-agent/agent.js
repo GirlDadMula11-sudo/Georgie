@@ -13,7 +13,13 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.39";
+const AGENT_VERSION = "2.2.40";
+const ROJO_RELEASE = Object.freeze({
+  version: "7.7.0",
+  url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
+  archiveSha256: "9bd69697ca3a0abf0ec847c779013e7315501b2d997d63d5e1766e14d49d9c66",
+  binarySha256: "571e186637ddac6961e97e5b744f8fec33c3ef02fa77ba9fa2e63c2ad3b5f2a8"
+});
 const TOKEN = process.env.GEORGIE_MAC_AGENT_TOKEN;
 const INTERVAL = Math.max(750, Number(process.env.GEORGIE_MAC_POLL_MS || 1000));
 const MAX_BACKOFF = Math.max(INTERVAL, Number(process.env.GEORGIE_MAC_MAX_BACKOFF_MS || 30000));
@@ -100,7 +106,7 @@ async function buildRobloxPrototype(args = {}) {
   JSON.parse(await fs.readFile(path.join(projectRoot, "default.project.json"), "utf8"));
   const output = path.join(projectRoot, "Prototype.rbxlx");
   let rojo = null;
-  for (const candidate of ["/opt/homebrew/bin/rojo", "/usr/local/bin/rojo", path.join(os.homedir(), ".cargo", "bin", "rojo")]) {
+  for (const candidate of [path.join(os.homedir(), ".local", "bin", "rojo"), "/opt/homebrew/bin/rojo", "/usr/local/bin/rojo", path.join(os.homedir(), ".cargo", "bin", "rojo")]) {
     try { await fs.access(candidate); rojo = candidate; break; } catch {}
   }
   if (!rojo) return { status: "blocked_tooling", projectRoot, filesWritten: request.files.length, totalBytes: request.totalBytes, missingPrecondition: "Rojo CLI", nextAction: "Install Rojo once, then resume this same prototype build.", preserved: true };
@@ -109,6 +115,58 @@ async function buildRobloxPrototype(args = {}) {
   if (stat.size < 100) throw new Error("ROBLOX_PROTOTYPE_BUILD_EMPTY");
   if (args.openInStudio !== false) await execFileAsync("open", ["-a", "RobloxStudio", output], { timeout: 30000 });
   return { status: "completed", projectRoot, output, outputBytes: stat.size, filesWritten: request.files.length, totalBytes: request.totalBytes, openedInStudio: args.openInStudio !== false, buildOutput: String(built.stdout || "").slice(0, 2000) };
+}
+
+async function sha256File(target) {
+  return crypto.createHash("sha256").update(await fs.readFile(target)).digest("hex");
+}
+
+async function verifiedPinnedRojo() {
+  const target = path.join(os.homedir(), ".local", "bin", "rojo");
+  try {
+    await fs.access(target);
+    const [binarySha256, versionResult] = await Promise.all([
+      sha256File(target),
+      execFileAsync(target, ["--version"], { timeout: 30000, maxBuffer: 1024 * 1024 })
+    ]);
+    const version = versionResult.stdout.trim();
+    if (binarySha256 === ROJO_RELEASE.binarySha256 && version === `Rojo ${ROJO_RELEASE.version}`) {
+      return { path: target, version, archiveSha256: ROJO_RELEASE.archiveSha256, binarySha256, installed: false };
+    }
+  } catch {}
+  return null;
+}
+
+async function installPinnedRojo() {
+  const existing = await verifiedPinnedRojo();
+  if (existing) return existing;
+  if (os.arch() !== "x64") throw new Error(`ROJO_PREBUILT_ARCH_UNSUPPORTED:${os.arch()}`);
+  const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), "georgie-rojo-"));
+  const archive = path.join(temporaryRoot, "rojo.zip");
+  const extracted = path.join(temporaryRoot, "expanded");
+  const targetDirectory = path.join(os.homedir(), ".local", "bin");
+  const target = path.join(targetDirectory, "rojo");
+  const staged = `${target}.${process.pid}.tmp`;
+  try {
+    await execFileAsync("/usr/bin/curl", ["--fail", "--location", "--silent", "--show-error", "--retry", "3", "--output", archive, ROJO_RELEASE.url], { timeout: 120000, maxBuffer: 4 * 1024 * 1024 });
+    const archiveSha256 = await sha256File(archive);
+    if (archiveSha256 !== ROJO_RELEASE.archiveSha256) throw new Error(`ROJO_ARCHIVE_CHECKSUM_MISMATCH:${archiveSha256}`);
+    await fs.mkdir(extracted, { recursive: true, mode: 0o700 });
+    await execFileAsync("/usr/bin/ditto", ["-x", "-k", archive, extracted], { timeout: 30000, maxBuffer: 4 * 1024 * 1024 });
+    const binary = path.join(extracted, "rojo");
+    const binarySha256 = await sha256File(binary);
+    if (binarySha256 !== ROJO_RELEASE.binarySha256) throw new Error(`ROJO_BINARY_CHECKSUM_MISMATCH:${binarySha256}`);
+    await fs.mkdir(targetDirectory, { recursive: true, mode: 0o700 });
+    await fs.copyFile(binary, staged);
+    await fs.chmod(staged, 0o755);
+    await fs.rename(staged, target);
+    const installed = await verifiedPinnedRojo();
+    if (!installed) throw new Error("ROJO_PINNED_INSTALL_NOT_VERIFIED");
+    return { ...installed, installed: true };
+  } finally {
+    await fs.unlink(staged).catch(() => {});
+    await fs.rm(temporaryRoot, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 async function api(route, options = {}) {
@@ -806,21 +864,9 @@ async function execute(job) {
       }
     }
     case "roblox.install_rojo_and_build": {
-      let rojo=null;
-      for(const candidate of ["/opt/homebrew/bin/rojo","/usr/local/bin/rojo",path.join(os.homedir(),".cargo","bin","rojo")]){try{await fs.access(candidate);rojo=candidate;break}catch{}}
-      let installed=false;
-      if(!rojo){
-        let brew=null;
-        for(const candidate of ["/opt/homebrew/bin/brew","/usr/local/bin/brew"]){try{await fs.access(candidate);brew=candidate;break}catch{}}
-        if(!brew)throw new Error("HOMEBREW_REQUIRED_FOR_ROJO_INSTALL");
-        await execFileAsync(brew,["install","rojo"],{timeout:600000,maxBuffer:4*1024*1024});
-        installed=true;
-        rojo=brew.startsWith("/opt/homebrew")?"/opt/homebrew/bin/rojo":"/usr/local/bin/rojo";
-      }
-      const version=(await execFileAsync(rojo,["--version"],{timeout:30000,maxBuffer:1024*1024})).stdout.trim();
-      if(!/^Rojo 7\./i.test(version))throw new Error(`ROJO_VERSION_NOT_VERIFIED:${version.slice(0,100)}`);
+      const pinned=await installPinnedRojo();
       const result=await buildRobloxPrototype(a);
-      return{...result,rojoInstalled:installed,rojoPath:rojo,rojoVersion:version};
+      return{...result,rojoInstalled:pinned.installed,rojoPath:pinned.path,rojoVersion:pinned.version,rojoArchiveSha256:pinned.archiveSha256,rojoBinarySha256:pinned.binarySha256,rojoReleaseUrl:ROJO_RELEASE.url};
     }
     case "roblox.prototype_build":
       return buildRobloxPrototype(a);
