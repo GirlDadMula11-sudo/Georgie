@@ -13,7 +13,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.44";
+const AGENT_VERSION = "2.2.45";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -275,8 +275,14 @@ async function playTestRobloxPrototype(args = {}) {
     await execFileAsync("open", ["-a", "RobloxStudio", artifact], { timeout: 30000 });
     if (!await waitForAppProcess("RobloxStudio", 15000)) throw new Error("ROBLOX_STUDIO_NOT_RUNNING");
     const runtime = await activateRobloxStudioPlayMode(startedAtMs);
-    await execFileAsync("screencapture", ["-x", captureTarget], { timeout: 15000 });
-    const screenshotSha256 = await sha256File(captureTarget);
+    let screenshotSha256 = null;
+    let screenshotError = null;
+    try {
+      await execFileAsync("screencapture", ["-x", captureTarget], { timeout: 15000 });
+      screenshotSha256 = await sha256File(captureTarget);
+    } catch (error) {
+      screenshotError = String(error instanceof Error ? error.message : error).slice(0, 1000);
+    }
     await runAppleScript('tell application "System Events" to key code 96 using {shift down}');
     playStopped = true;
     const defects = runtime.observed ? [] : ["RUNTIME_PROTOTYPE_MARKER_NOT_OBSERVED"];
@@ -297,7 +303,9 @@ async function playTestRobloxPrototype(args = {}) {
       runtimeLogBytes: runtime.logBytes,
       runtimeSearchedLogCount: runtime.searchedLogCount,
       runtimeExcerpt: runtime.excerpt,
+      screenshotCaptured: Boolean(screenshotSha256),
       screenshotSha256,
+      screenshotError,
       testedAt: new Date().toISOString()
     };
   } finally {
