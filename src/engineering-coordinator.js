@@ -103,6 +103,14 @@ async function processItem(userId,item){
 async function publishControlOutcome(userId,item,outcome){const objectiveId=item.scope?.controlObjectiveId;if(!objectiveId)return null;const evidence=await appendEvidence(userId,{objectiveId,source:"georgie-background",kind:"handoff_outcome",claim:bounded(outcome?.summary||outcome?.status||"Background handoff updated"),refs:[`handoff:${item.id}`],confidence:"verified_runtime_receipt",metadata:{sharedHandoffId:item.id,status:outcome?.status||null}});return recordCallback(userId,{objectiveId,from:"georgie",to:"chatgpt",type:"handoff_result",status:outcome?.status||"available",summary:bounded(outcome?.summary||"Background handoff updated"),evidenceRefs:[evidence.id],deliveryMode:"github_plus_durable_pull",idempotencyKey:`handoff-callback:${item.id}`,metadata:{handoffId:item.id}});}
 async function relayIssueReceipt(item,outcome){if(item.source!=="authorized_assistant_github_issue"||!item.scope?.repository||!item.scope?.issueNumber)return null;const status=bounded(outcome?.status||"updated",80),summary=bounded(outcome?.summary||"Georgie advanced this handoff.",2500);return commentHandoffIssue(item.scope.repository,item.scope.issueNumber,{receiptKey:`${item.id}:${status}`,body:["### Georgie execution receipt",`Status: **${status}**`,`Handoff: \`${item.id}\``,item.scope.controlObjectiveId?`Control objective: \`${item.scope.controlObjectiveId}\``:null,"",summary,"","Authority note: this receipt records governed internal engineering work; it does not expand production, credential, lender, financial, destructive, or external-business authority."].filter(v=>v!==null).join("\n")});}
 
+async function queueCanaryImportReceipt(userId,item){
+  const status="imported",summary="Georgie verified the durable #256 handoff is already imported. The canary did not reclaim or repeat the existing mutation.",commandId=`handoff-${item.id}`,correlationId=commandId;
+  const callback=await recordCallback(userId,{objectiveId:item.scope?.controlObjectiveId||`github-${item.scope.issueNumber}`,from:"georgie",to:"chatgpt",type:"ai_control_receipt",status,summary,evidenceRefs:[`github:${item.scope.repository}#${item.scope.issueNumber}`,`handoff:${item.id}`],deliveryMode:"github_ai_control",idempotencyKey:`canary-import-receipt:${item.id}`,metadata:{repository:item.scope.repository,issueNumber:item.scope.issueNumber,commandId,correlationId,terminal:true}});
+  const delivery=await postAIControlReceipt(item.scope.repository,item.scope.issueNumber,{commandId,correlationId,status,summary,evidenceRefs:[`handoff:${item.id}`],terminal:true});
+  const updated=await recordCallbackDelivery(userId,{callbackId:callback.id,delivered:delivery.ok===true&&delivery.readBackConfirmed===true,error:delivery.error?.message||null,receipt:delivery});
+  return{callback:updated||callback,delivery};
+}
+
 async function processClaimedItem(uid,item){
   if(!item)return{status:"idle",observedAt:now()};
   if(item.scope?.controlHandoffId)await acknowledgeControlHandoff(uid,{handoffId:item.scope.controlHandoffId,participant:"georgie"}).catch(()=>null);
@@ -127,8 +135,9 @@ export async function runEngineeringCoordinatorCycle(userId=USER()){
       const sync=await syncAssistantHandoffs(uid).catch(error=>({status:"unavailable",imported:0,error:error instanceof Error?error.message:String(error)}));
       const item=await claimNextHandoff(uid,"georgie-preview-canary",{source:"authorized_assistant_github_issue",issueNumber:canaryIssue});
       if(!item&&sync?.handoffs?.[0]){
-        const existing=sync.handoffs[0],receipt=await relayIssueReceipt(existing,{status:"imported",summary:"Georgie verified the durable #256 handoff is already imported. The canary did not reclaim or repeat the existing mutation."});
-        return{status:receipt?.duplicate?"receipt_replayed":"receipt_posted",canary:true,canaryIssue,sync,handoffId:existing.id,receipt};
+        const existing=sync.handoffs[0],receipt=await queueCanaryImportReceipt(uid,existing),delivery=receipt.delivery;
+        const status=delivery?.ok===true&&delivery?.readBackConfirmed===true?(delivery?.deduplicated?"receipt_replayed":"receipt_posted"):"receipt_queued_for_oidc_relay";
+        return{status,canary:true,canaryIssue,sync,handoffId:existing.id,receipt,error:delivery?.ok===true?null:{code:delivery?.error?.code||"receipt_delivery_failed",message:bounded(delivery?.error?.message||"Receipt delivery is awaiting the GitHub OIDC relay.",500)}};
       }
       const result=await processClaimedItem(uid,item);
       return{...result,canary:true,canaryIssue,sync};
