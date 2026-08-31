@@ -354,7 +354,7 @@ if openButton is missing value then
 set currentStage to "open_button_nested_scan"
 repeat 3 times
 repeat with candidateElement in (entire contents of openPanel)
-set resolvedElement to contents of resolvedElement
+set resolvedElement to contents of candidateElement
 set candidateRole to ""
 set candidateTitle to ""
 set candidateDescription to ""
@@ -413,7 +413,7 @@ end repeat
 if diagnosticPanel is not missing value then
 set diagnosticCount to 0
 repeat with diagnosticElement in (entire contents of diagnosticPanel)
-set resolvedDiagnosticElement to contents of resolvedDiagnosticElement
+set resolvedDiagnosticElement to contents of diagnosticElement
 if diagnosticCount is greater than or equal to 80 then exit repeat
 set elementRole to ""
 set elementSubrole to ""
