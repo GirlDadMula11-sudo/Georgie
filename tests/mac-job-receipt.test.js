@@ -15,19 +15,19 @@ test("read-only checkpoint lookup with prohibitions cannot create a recovery pla
 });
 
 test("exact long-running recovery marker prepares one identity-preserving plan",()=>{
-  const marker=`MAC_LONG_RUNNING_RECOVERY_JSON: ${JSON.stringify({jobId:recoveryJobId,deviceId:"primary-mac",expectedAction:"roblox.install_rojo_and_build",requiredAgentVersion:"2.2.55"})}`;
+  const marker=`MAC_LONG_RUNNING_RECOVERY_JSON: ${JSON.stringify({jobId:recoveryJobId,deviceId:"primary-mac",expectedAction:"roblox.install_rojo_and_build",requiredAgentVersion:"2.2.56"})}`;
   const [action]=deterministicToolPlan(marker);
   assert.equal(action.tool,"approvals.prepare_plan");
-  assert.deepEqual(action.args.execution.args,{jobId:recoveryJobId,deviceId:"primary-mac",expectedAction:"roblox.install_rojo_and_build",requiredAgentVersion:"2.2.55"});
+  assert.deepEqual(action.args.execution.args,{jobId:recoveryJobId,deviceId:"primary-mac",expectedAction:"roblox.install_rojo_and_build",requiredAgentVersion:"2.2.56"});
   assert.deepEqual(action.args.execution.verification.map(item=>item.tool),["mac.job_receipt","mac.devices"]);
   assert.match(action.args.summary,/never enqueue another Roblox job/i);
 });
 
 test("long-running recovery marker rejects any scope expansion",()=>{
   for(const request of [
-    {jobId:recoveryJobId,deviceId:"secondary-mac",expectedAction:"roblox.install_rojo_and_build",requiredAgentVersion:"2.2.55"},
+    {jobId:recoveryJobId,deviceId:"secondary-mac",expectedAction:"roblox.install_rojo_and_build",requiredAgentVersion:"2.2.56"},
     {jobId:recoveryJobId,deviceId:"primary-mac",expectedAction:"roblox.install_rojo_and_build",requiredAgentVersion:"2.2.41"},
-    {jobId:recoveryJobId,deviceId:"primary-mac",expectedAction:"roblox.create_job",requiredAgentVersion:"2.2.55"}
+    {jobId:recoveryJobId,deviceId:"primary-mac",expectedAction:"roblox.create_job",requiredAgentVersion:"2.2.56"}
   ]) assert.deepEqual(deterministicToolPlan(`MAC_LONG_RUNNING_RECOVERY_JSON: ${JSON.stringify(request)}`),[]);
 });
 
