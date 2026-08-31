@@ -64,7 +64,7 @@ test("Mac agent performs a bounded Studio play test with six gameplay checks", (
   assert.match(queue, /play_test_open_control_applescript_compiled/);
   assert.match(queue, /play_test_screenshot_evidence_repaired/);
   assert.match(tools, /name:"roblox\.play_test_validate"/);
-  assert.match(tools, /requiredAgentVersion:"2\.2\.50"/);
+  assert.match(tools, /requiredAgentVersion:"2\.2\.51"/);
   assert.match(tools, /runtimeMarkerObserved/);
   assert.match(tools, /safeResult\.checks/);
   const activation = agent.slice(agent.indexOf("async function activateRobloxStudioPlayMode"), agent.indexOf("async function playTestRobloxPrototype"));
