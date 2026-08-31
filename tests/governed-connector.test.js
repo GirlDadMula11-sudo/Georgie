@@ -22,6 +22,33 @@ test("connector requires idempotency and binds approval IDs", () => {
   assert.equal(value.kind, "approval"); assert.equal(value.planId, "plan-1"); assert.equal(value.approvalId, "approval-1");
 });
 
+test("connector acceptance never waits for operating graph or status sinks", async () => {
+  const box={state:{schema:"georgie.governed-connector.v1",version:2,commands:[],leases:[],events:[],receipts:[],updatedAt:null}};
+  const never=()=>new Promise(()=>{});
+  const connector=createGovernedConnector({
+    executeCommand:async()=>({terminalState:"completed"}),
+    readState:async()=>structuredClone(box.state),
+    writeState:async(_userId,next)=>{box.state=structuredClone(next);},
+    retainObjective:never,
+    transitionObjective:never,
+    emitStatus:never
+  });
+  const input={source:"openai",idempotencyKey:"acceptance-fast-path",objectiveId:"acceptance-fast-path",command:"Persist and acknowledge immediately"};
+  const accepted=await Promise.race([
+    connector.submit("acceptance-fast-path",input),
+    new Promise((_,reject)=>setTimeout(()=>reject(new Error("acceptance blocked on enrichment")),100))
+  ]);
+  assert.equal(accepted.status,"accepted");
+  assert.match(accepted.commandId,/^cmd_/);
+  assert.match(accepted.receipt.receiptId,/^rcpt_/);
+  const duplicate=await Promise.race([
+    connector.submit("acceptance-fast-path",input),
+    new Promise((_,reject)=>setTimeout(()=>reject(new Error("duplicate lookup blocked on enrichment")),100))
+  ]);
+  assert.equal(duplicate.duplicate,true);
+  assert.equal(duplicate.commandId,accepted.commandId);
+});
+
 test("connector dispatches once and returns objective and evidence receipts", async () => {
   let calls = 0; const statuses = [];
   const connector = harness({ executeCommand: async ({ connector: context }) => { calls += 1; return { text: "Verified", terminalState: "completed", context }; }, emitStatus: async (event) => statuses.push(event.status) });
