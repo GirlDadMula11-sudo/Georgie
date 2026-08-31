@@ -13,7 +13,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.55";
+const AGENT_VERSION = "2.2.56";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -261,6 +261,45 @@ end tell`).catch(() => "");
     await delay(500);
   }
   return { ready: false, matched: false, windowNames, windowTitle, documentPath };
+}
+
+async function robloxStudioProcessRunning() {
+  const observed = await runAppleScript('tell application "System Events" to return exists process "RobloxStudio"').catch(() => false);
+  return String(observed).trim().toLowerCase() === "true";
+}
+
+async function openRobloxStudioArtifactDirectly(artifact) {
+  const expectedArtifact = path.resolve(String(artifact || ""));
+  if (!expectedArtifact.endsWith(`${path.sep}Prototype.rbxlx`)) throw new Error("ROBLOX_STUDIO_DIRECT_OPEN_REJECTED");
+  const sessionInspection = await runAppleScript(`set expectedArtifact to ${JSON.stringify(expectedArtifact)}
+tell application "System Events"
+if not (exists process "RobloxStudio") then return "STOPPED"
+tell process "RobloxStudio"
+set conflictingDocuments to {}
+repeat with studioWindow in windows
+set studioDocument to ""
+try
+set studioDocument to value of attribute "AXDocument" of studioWindow as string
+end try
+if studioDocument is not "" and studioDocument does not contain expectedArtifact then set end of conflictingDocuments to studioDocument
+end repeat
+if (count of conflictingDocuments) > 0 then return "CONFLICT" & linefeed & (conflictingDocuments as string)
+return "SAFE"
+end tell
+end tell`);
+  const [sessionState = "", ...conflicts] = String(sessionInspection).split("\n");
+  if (sessionState === "CONFLICT") return { stage: "direct_session_conflict", error: "ROBLOX_STUDIO_UNRELATED_DOCUMENT_OPEN", errorCode: null, topology: conflicts.join("\n").slice(0, 6000), controlStrategy: "launch_services_clean_session", compiled: false, executionMode: "direct_launch_services" };
+  if (sessionState === "SAFE") {
+    await runAppleScript('tell application "RobloxStudio" to quit');
+    const quitDeadline = Date.now() + 15000;
+    while (Date.now() < quitDeadline && await robloxStudioProcessRunning()) await delay(250);
+    if (await robloxStudioProcessRunning()) return { stage: "direct_session_quit_blocked", error: "ROBLOX_STUDIO_CLEAN_RESTART_BLOCKED", errorCode: null, topology: "", controlStrategy: "launch_services_clean_session", compiled: false, executionMode: "direct_launch_services" };
+  }
+  await execFileAsync("/usr/bin/open", ["-n", "-a", "RobloxStudio", expectedArtifact], { timeout: 30000, maxBuffer: 1024 * 1024 });
+  if (!await waitForAppProcess("RobloxStudio", 15000)) return { stage: "direct_process_wait", error: "ROBLOX_STUDIO_NOT_RUNNING", errorCode: null, topology: "", controlStrategy: "launch_services_clean_session", compiled: false, executionMode: "direct_launch_services" };
+  const studioWindow = await waitForRobloxStudioArtifactWindow(expectedArtifact, 30000);
+  if (!studioWindow.ready) return { stage: "direct_document_wait", error: "ROBLOX_STUDIO_DIRECT_DOCUMENT_NOT_READY", errorCode: null, topology: studioWindow.windowNames.slice(0, 6000), controlStrategy: "launch_services_clean_session", compiled: false, executionMode: "direct_launch_services" };
+  return { stage: "direct_document_verified", error: null, errorCode: null, topology: "", controlStrategy: "launch_services_clean_session", compiled: false, executionMode: "direct_launch_services", studioWindow };
 }
 
 async function openRobloxStudioArtifactThroughFileDialog(artifact) {
@@ -565,7 +604,7 @@ async function activateRobloxStudioPlayMode(startedAtMs, artifact) {
   if (!studioWindow.ready) {
     studioFileOpenAttempted = true;
     try {
-      const fileOpen = await openRobloxStudioArtifactThroughFileDialog(artifact);
+      const fileOpen = await openRobloxStudioArtifactDirectly(artifact);
       studioFileOpenStage = fileOpen.stage;
       studioFileOpenError = fileOpen.error;
       studioFileOpenErrorCode = fileOpen.errorCode;
@@ -578,7 +617,7 @@ async function activateRobloxStudioPlayMode(startedAtMs, artifact) {
       studioFileOpenError = String(error instanceof Error ? error.message : error).trim().split("\n").at(-1).slice(0, 1000);
       studioFileOpenErrorCode = error?.code ? String(error.code).slice(0, 100) : null;
     }
-    studioWindow = await waitForRobloxStudioArtifactWindow(artifact, 15000);
+    studioWindow = await waitForRobloxStudioArtifactWindow(artifact, 5000);
   }
   if (!studioWindow.ready) return { observed: false, logPath: null, logBytes: 0, excerpt: "", searchedLogCount: 0, activationAttempts: 0, artifactOpenRequested: true, studioFileOpenAttempted, studioFileOpenError, studioFileOpenErrorCode, studioFileOpenStage, studioFileOpenTopology, studioFileOpenControlStrategy, studioFileOpenCompiled, studioFileOpenExecutionMode, studioWindowReady: false, studioWindowMatched: false, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
   await delay(1500);
@@ -611,8 +650,6 @@ async function playTestRobloxPrototype(args = {}) {
   const captureTarget = path.join(os.tmpdir(), `georgie-roblox-playtest-${startedAtMs}.png`);
   let playStopped = false;
   try {
-    await execFileAsync("open", ["-a", "RobloxStudio", artifact], { timeout: 30000 });
-    if (!await waitForAppProcess("RobloxStudio", 15000)) throw new Error("ROBLOX_STUDIO_NOT_RUNNING");
     const runtime = await activateRobloxStudioPlayMode(startedAtMs, artifact);
     let screenshotSha256 = null;
     let screenshotError = null;
