@@ -13,7 +13,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.53";
+const AGENT_VERSION = "2.2.54";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -281,18 +281,64 @@ if not (exists process "RobloxStudio") then error "ROBLOX_STUDIO_NOT_RUNNING"
 tell process "RobloxStudio"
 set frontmost to true
 set currentStage to "open_panel_requested"
+set openInvocationStrategy to "keyboard_shortcut"
 keystroke "o" using {command down}
 set currentStage to "open_panel_wait"
 set openPanel to missing value
 repeat 50 times
 repeat with candidateWindow in windows
+set resolvedWindow to contents of candidateWindow
 try
-if (name of candidateWindow as string) contains "Open Roblox File" then set openPanel to candidateWindow
+if (name of resolvedWindow as string) contains "Open Roblox File" then set openPanel to resolvedWindow
 end try
+if openPanel is missing value then
+try
+if (count of sheets of resolvedWindow) > 0 then set openPanel to sheet 1 of resolvedWindow
+end try
+end if
 end repeat
 if openPanel is not missing value then exit repeat
 delay 0.1
 end repeat
+if openPanel is missing value then
+set currentStage to "file_menu_open_item"
+set openMenuItem to missing value
+try
+set fileMenu to menu 1 of menu bar item "File" of menu bar 1
+repeat with candidateItem in menu items of fileMenu
+set resolvedItem to contents of candidateItem
+set itemTitle to ""
+try
+set itemTitle to name of resolvedItem as string
+end try
+if itemTitle is "Open from File" or itemTitle is "Open from File…" or itemTitle is "Open from File..." or itemTitle is "Open" or itemTitle is "Open…" or itemTitle is "Open..." then
+if enabled of resolvedItem then
+set openMenuItem to resolvedItem
+exit repeat
+end if
+end if
+end repeat
+end try
+if openMenuItem is missing value then error "ROBLOX_STUDIO_FILE_MENU_OPEN_ITEM_NOT_FOUND"
+perform action "AXPress" of openMenuItem
+set openInvocationStrategy to "file_menu_item"
+set currentStage to "open_panel_wait_after_file_menu"
+repeat 50 times
+repeat with candidateWindow in windows
+set resolvedWindow to contents of candidateWindow
+try
+if (name of resolvedWindow as string) contains "Open Roblox File" then set openPanel to resolvedWindow
+end try
+if openPanel is missing value then
+try
+if (count of sheets of resolvedWindow) > 0 then set openPanel to sheet 1 of resolvedWindow
+end try
+end if
+end repeat
+if openPanel is not missing value then exit repeat
+delay 0.1
+end repeat
+end if
 if openPanel is missing value then error "ROBLOX_STUDIO_OPEN_PANEL_NOT_FOUND"
 set currentStage to "go_to_folder_requested"
 keystroke "g" using {command down, shift down}
@@ -387,12 +433,15 @@ perform action "AXPress" of openButton
 set currentStage to "open_panel_close_wait"
 repeat 100 times
 set panelStillOpen to false
+try
+if exists openPanel then set panelStillOpen to true
+end try
 repeat with candidateWindow in windows
 try
 if (name of candidateWindow as string) contains "Open Roblox File" then set panelStillOpen to true
 end try
 end repeat
-if panelStillOpen is false then return "SUCCESS" & linefeed & "dialog_closed" & linefeed & openControlStrategy
+if panelStillOpen is false then return "SUCCESS" & linefeed & "dialog_closed" & linefeed & openInvocationStrategy & ":" & openControlStrategy
 delay 0.1
 end repeat
 error "ROBLOX_STUDIO_OPEN_PANEL_STUCK"
@@ -406,9 +455,15 @@ if exists process "RobloxStudio" then
 tell process "RobloxStudio"
 set diagnosticPanel to missing value
 repeat with candidateWindow in windows
+set resolvedDiagnosticWindow to contents of candidateWindow
 try
-if (name of candidateWindow as string) contains "Open Roblox File" then set diagnosticPanel to candidateWindow
+if (name of resolvedDiagnosticWindow as string) contains "Open Roblox File" then set diagnosticPanel to resolvedDiagnosticWindow
 end try
+if diagnosticPanel is missing value then
+try
+if (count of sheets of resolvedDiagnosticWindow) > 0 then set diagnosticPanel to sheet 1 of resolvedDiagnosticWindow
+end try
+end if
 end repeat
 if diagnosticPanel is not missing value then
 set diagnosticCount to 0
