@@ -13,7 +13,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.52";
+const AGENT_VERSION = "2.2.53";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -354,22 +354,23 @@ if openButton is missing value then
 set currentStage to "open_button_nested_scan"
 repeat 3 times
 repeat with candidateElement in (entire contents of openPanel)
+set resolvedElement to contents of candidateElement
 set candidateRole to ""
 set candidateTitle to ""
 set candidateDescription to ""
 try
-set candidateRole to value of attribute "AXRole" of candidateElement as string
+set candidateRole to value of attribute "AXRole" of resolvedElement as string
 end try
 if candidateRole is "AXButton" then
 try
-set candidateTitle to value of attribute "AXTitle" of candidateElement as string
+set candidateTitle to value of attribute "AXTitle" of resolvedElement as string
 end try
 try
-set candidateDescription to value of attribute "AXDescription" of candidateElement as string
+set candidateDescription to value of attribute "AXDescription" of resolvedElement as string
 end try
 if candidateTitle is "Open" or candidateDescription is "Open" then
-if enabled of candidateElement then
-set openButton to candidateElement
+if enabled of resolvedElement then
+set openButton to resolvedElement
 set openControlStrategy to "nested_ax_button"
 exit repeat
 end if
@@ -412,6 +413,7 @@ end repeat
 if diagnosticPanel is not missing value then
 set diagnosticCount to 0
 repeat with diagnosticElement in (entire contents of diagnosticPanel)
+set resolvedDiagnosticElement to contents of diagnosticElement
 if diagnosticCount is greater than or equal to 80 then exit repeat
 set elementRole to ""
 set elementSubrole to ""
@@ -419,19 +421,19 @@ set elementTitle to ""
 set elementDescription to ""
 set elementIdentifier to ""
 try
-set elementRole to value of attribute "AXRole" of diagnosticElement as string
+set elementRole to value of attribute "AXRole" of resolvedDiagnosticElement as string
 end try
 try
-set elementSubrole to value of attribute "AXSubrole" of diagnosticElement as string
+set elementSubrole to value of attribute "AXSubrole" of resolvedDiagnosticElement as string
 end try
 try
-set elementTitle to value of attribute "AXTitle" of diagnosticElement as string
+set elementTitle to value of attribute "AXTitle" of resolvedDiagnosticElement as string
 end try
 try
-set elementDescription to value of attribute "AXDescription" of diagnosticElement as string
+set elementDescription to value of attribute "AXDescription" of resolvedDiagnosticElement as string
 end try
 try
-set elementIdentifier to value of attribute "AXIdentifier" of diagnosticElement as string
+set elementIdentifier to value of attribute "AXIdentifier" of resolvedDiagnosticElement as string
 end try
 set diagnosticText to diagnosticText & elementRole & "|" & elementSubrole & "|" & elementTitle & "|" & elementDescription & "|" & elementIdentifier & linefeed
 set diagnosticCount to diagnosticCount + 1
