@@ -69,7 +69,7 @@ test("blank Place1 Roblox play-test block recovers the same identity for native 
   assert.equal(recovered.status,"queued");
   assert.equal(recovered.resumeCount,1);
   assert.equal(recovered.args.requiredAgentVersion,"2.2.51");
-  assert.equal(recovered.resumeHistory.at(-1).reason,"play_test_nested_default_open_control_repaired");
+  assert.equal(recovered.resumeHistory.at(-1).reason,"play_test_open_control_applescript_compiled");
 });
 
 // Node runs test files concurrently. Give this file a private physical queue so
