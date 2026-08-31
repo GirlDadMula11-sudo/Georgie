@@ -13,7 +13,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.51";
+const AGENT_VERSION = "2.2.52";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -334,10 +334,10 @@ end repeat
 try
 if (count of sheets of openPanel) > 0 then error "ROBLOX_STUDIO_GO_TO_FOLDER_SHEET_STUCK"
 end try
-set currentStage to "open_button_wait"
+set currentStage to "open_button_default_wait"
 set openButton to missing value
 set openControlStrategy to ""
-repeat 50 times
+repeat 30 times
 try
 set candidateButton to value of attribute "AXDefaultButton" of openPanel
 if candidateButton is not missing value then
@@ -347,12 +347,16 @@ set openControlStrategy to "ax_default_button"
 end if
 end if
 end try
+if openButton is not missing value then exit repeat
+delay 0.1
+end repeat
 if openButton is missing value then
+set currentStage to "open_button_nested_scan"
+repeat 3 times
 repeat with candidateElement in (entire contents of openPanel)
 set candidateRole to ""
 set candidateTitle to ""
 set candidateDescription to ""
-set candidateIdentifier to ""
 try
 set candidateRole to value of attribute "AXRole" of candidateElement as string
 end try
@@ -363,9 +367,6 @@ end try
 try
 set candidateDescription to value of attribute "AXDescription" of candidateElement as string
 end try
-try
-set candidateIdentifier to value of attribute "AXIdentifier" of candidateElement as string
-end try
 if candidateTitle is "Open" or candidateDescription is "Open" then
 if enabled of candidateElement then
 set openButton to candidateElement
@@ -375,10 +376,10 @@ end if
 end if
 end if
 end repeat
-end if
 if openButton is not missing value then exit repeat
-delay 0.1
+delay 0.5
 end repeat
+end if
 if openButton is missing value then error "ROBLOX_STUDIO_OPEN_BUTTON_NOT_READY"
 set currentStage to "open_button_press_" & openControlStrategy
 perform action "AXPress" of openButton
@@ -446,24 +447,27 @@ end try`;
   try {
     await execFileAsync("osacompile", ["-e", fileOpenScript, "-o", compileTarget], { timeout: 15000, maxBuffer: 1024 * 1024 });
   } catch (error) {
-    return { stage: "applescript_compile", error: boundedAppleScriptError(error), errorCode: error?.code ? String(error.code).slice(0, 100) : null, topology: "", controlStrategy: null, compiled: false };
+    await fs.unlink(compileTarget).catch(() => {});
+    return { stage: "applescript_compile", error: boundedAppleScriptError(error), errorCode: error?.code ? String(error.code).slice(0, 100) : null, topology: "", controlStrategy: null, compiled: false, executionMode: "compiled_scpt" };
+  }
+  try {
+    const { stdout } = await execFileAsync("osascript", [compileTarget], { timeout: 45000, maxBuffer: 1024 * 1024 });
+    rawEvidence = stdout.trim();
+  } catch (error) {
+    return { stage: "applescript_process", error: boundedAppleScriptError(error), errorCode: error?.code ? String(error.code).slice(0, 100) : null, topology: "", controlStrategy: null, compiled: true, executionMode: "compiled_scpt" };
   } finally {
     await fs.unlink(compileTarget).catch(() => {});
   }
-  try {
-    rawEvidence = await runAppleScript(fileOpenScript, { timeout: 45000 });
-  } catch (error) {
-    return { stage: "applescript_process", error: boundedAppleScriptError(error), errorCode: error?.code ? String(error.code).slice(0, 100) : null, topology: "", controlStrategy: null, compiled: true };
-  }
   const [status = "", stage = "", errorCode = "", errorLine = "", ...topologyLines] = String(rawEvidence).split("\n");
-  if (status === "SUCCESS" && stage === "dialog_closed") return { stage, error: null, errorCode: null, topology: "", controlStrategy: errorCode || null, compiled: true };
+  if (status === "SUCCESS" && stage === "dialog_closed") return { stage, error: null, errorCode: null, topology: "", controlStrategy: errorCode || null, compiled: true, executionMode: "compiled_scpt" };
   return {
     stage: stage || "unclassified",
     error: (errorLine || "ROBLOX_STUDIO_FILE_OPEN_UNVERIFIED").slice(0, 1000),
     errorCode: errorCode || null,
     topology: topologyLines.join("\n").slice(0, 6000),
     controlStrategy: null,
-    compiled: true
+    compiled: true,
+    executionMode: "compiled_scpt"
   };
 }
 async function activateRobloxStudioPlayMode(startedAtMs, artifact) {
@@ -475,6 +479,7 @@ async function activateRobloxStudioPlayMode(startedAtMs, artifact) {
   let studioFileOpenTopology = "";
   let studioFileOpenControlStrategy = null;
   let studioFileOpenCompiled = null;
+  let studioFileOpenExecutionMode = null;
   if (!studioWindow.ready) {
     studioFileOpenAttempted = true;
     try {
@@ -485,6 +490,7 @@ async function activateRobloxStudioPlayMode(startedAtMs, artifact) {
       studioFileOpenTopology = fileOpen.topology;
       studioFileOpenControlStrategy = fileOpen.controlStrategy;
       studioFileOpenCompiled = fileOpen.compiled;
+      studioFileOpenExecutionMode = fileOpen.executionMode;
     } catch (error) {
       studioFileOpenStage = "unhandled";
       studioFileOpenError = String(error instanceof Error ? error.message : error).trim().split("\n").at(-1).slice(0, 1000);
@@ -492,7 +498,7 @@ async function activateRobloxStudioPlayMode(startedAtMs, artifact) {
     }
     studioWindow = await waitForRobloxStudioArtifactWindow(artifact, 15000);
   }
-  if (!studioWindow.ready) return { observed: false, logPath: null, logBytes: 0, excerpt: "", searchedLogCount: 0, activationAttempts: 0, artifactOpenRequested: true, studioFileOpenAttempted, studioFileOpenError, studioFileOpenErrorCode, studioFileOpenStage, studioFileOpenTopology, studioFileOpenControlStrategy, studioFileOpenCompiled, studioWindowReady: false, studioWindowMatched: false, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
+  if (!studioWindow.ready) return { observed: false, logPath: null, logBytes: 0, excerpt: "", searchedLogCount: 0, activationAttempts: 0, artifactOpenRequested: true, studioFileOpenAttempted, studioFileOpenError, studioFileOpenErrorCode, studioFileOpenStage, studioFileOpenTopology, studioFileOpenControlStrategy, studioFileOpenCompiled, studioFileOpenExecutionMode, studioWindowReady: false, studioWindowMatched: false, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
   await delay(1500);
   let runtime = { observed: false, logPath: null, logBytes: 0, excerpt: "", searchedLogCount: 0 };
   for (let activationAttempts = 1; activationAttempts <= 2; activationAttempts += 1) {
@@ -501,13 +507,13 @@ async function activateRobloxStudioPlayMode(startedAtMs, artifact) {
     if (!studioWindow.ready) break;
     await runAppleScript('tell application "System Events" to tell process "RobloxStudio" to key code 96');
     runtime = await waitForRobloxRuntimeMarker(startedAtMs, "Georgie prototype loaded:", 20000);
-    if (runtime.observed) return { ...runtime, activationAttempts, artifactOpenRequested: true, studioFileOpenAttempted, studioFileOpenError, studioFileOpenErrorCode, studioFileOpenStage, studioFileOpenTopology, studioFileOpenControlStrategy, studioFileOpenCompiled, studioWindowReady: true, studioWindowMatched: true, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
+    if (runtime.observed) return { ...runtime, activationAttempts, artifactOpenRequested: true, studioFileOpenAttempted, studioFileOpenError, studioFileOpenErrorCode, studioFileOpenStage, studioFileOpenTopology, studioFileOpenControlStrategy, studioFileOpenCompiled, studioFileOpenExecutionMode, studioWindowReady: true, studioWindowMatched: true, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
     if (activationAttempts < 2) {
       await runAppleScript('tell application "System Events" to tell process "RobloxStudio" to key code 96 using {shift down}').catch(() => {});
       await delay(1500);
     }
   }
-  return { ...runtime, activationAttempts: 2, artifactOpenRequested: true, studioFileOpenAttempted, studioFileOpenError, studioFileOpenErrorCode, studioFileOpenStage, studioFileOpenTopology, studioFileOpenControlStrategy, studioFileOpenCompiled, studioWindowReady: studioWindow.ready, studioWindowMatched: studioWindow.matched, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
+  return { ...runtime, activationAttempts: 2, artifactOpenRequested: true, studioFileOpenAttempted, studioFileOpenError, studioFileOpenErrorCode, studioFileOpenStage, studioFileOpenTopology, studioFileOpenControlStrategy, studioFileOpenCompiled, studioFileOpenExecutionMode, studioWindowReady: studioWindow.ready, studioWindowMatched: studioWindow.matched, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
 }
 
 async function playTestRobloxPrototype(args = {}) {
@@ -553,6 +559,7 @@ async function playTestRobloxPrototype(args = {}) {
       studioFileOpenTopology: runtime.studioFileOpenTopology,
       studioFileOpenControlStrategy: runtime.studioFileOpenControlStrategy,
       studioFileOpenCompiled: runtime.studioFileOpenCompiled,
+      studioFileOpenExecutionMode: runtime.studioFileOpenExecutionMode,
       studioWindowReady: runtime.studioWindowReady,
       studioWindowMatched: runtime.studioWindowMatched,
       studioWindowNames: runtime.studioWindowNames,

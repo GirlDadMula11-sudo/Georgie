@@ -36,6 +36,12 @@ test("Mac agent performs a bounded Studio play test with six gameplay checks", (
   assert.match(agent, /execFileAsync\("osacompile"/);
   assert.match(agent, /applescript_compile/);
   assert.match(agent, /studioFileOpenCompiled/);
+  assert.match(agent, /compiled_scpt/);
+  assert.match(agent, /execFileAsync\("osascript", \[compileTarget\]/);
+  assert.match(agent, /open_button_default_wait/);
+  assert.match(agent, /open_button_nested_scan/);
+  assert.match(agent, /repeat 3 times/);
+  assert.match(agent, /studioFileOpenExecutionMode/);
   assert.match(agent, /candidateTitle is "Open" or candidateDescription is "Open"/);
   const fileDialog = agent.slice(agent.indexOf("async function openRobloxStudioArtifactThroughFileDialog"), agent.indexOf("async function activateRobloxStudioPlayMode"));
   assert.doesNotMatch(fileDialog, /ignoring case/);
@@ -61,10 +67,10 @@ test("Mac agent performs a bounded Studio play test with six gameplay checks", (
   assert.match(agent, /\["roblox\.install_rojo_and_build","roblox\.play_test_validate"\]\.includes\(job\.action\)/);
   assert.match(queue, /LONG_RUNNING_MAC_ACTIONS=new Set\(\["roblox\.install_rojo_and_build","roblox\.play_test_validate"\]\)/);
   assert.match(queue, /play_test_exact_artifact_window_repaired/);
-  assert.match(queue, /play_test_open_control_applescript_compiled/);
+  assert.match(queue, /play_test_compiled_scpt_execution_repaired/);
   assert.match(queue, /play_test_screenshot_evidence_repaired/);
   assert.match(tools, /name:"roblox\.play_test_validate"/);
-  assert.match(tools, /requiredAgentVersion:"2\.2\.51"/);
+  assert.match(tools, /requiredAgentVersion:"2\.2\.52"/);
   assert.match(tools, /runtimeMarkerObserved/);
   assert.match(tools, /safeResult\.checks/);
   const activation = agent.slice(agent.indexOf("async function activateRobloxStudioPlayMode"), agent.indexOf("async function playTestRobloxPrototype"));
@@ -72,7 +78,7 @@ test("Mac agent performs a bounded Studio play test with six gameplay checks", (
 });
 
 test("exact play-test recovery marker preserves the completed job identity", () => {
-  const request = {jobId:playTestJobId,deviceId:"primary-mac",expectedAction:"roblox.play_test_validate",projectRoot,requiredAgentVersion:"2.2.51"};
+  const request = {jobId:playTestJobId,deviceId:"primary-mac",expectedAction:"roblox.play_test_validate",projectRoot,requiredAgentVersion:"2.2.52"};
   const [action] = deterministicToolPlan(`ROBLOX_PLAY_TEST_RECOVERY_JSON: ${JSON.stringify(request)}`);
   assert.equal(action.tool, "approvals.prepare_plan");
   assert.equal(action.args.execution.tool, "mac.long_running_job_recover");
@@ -81,7 +87,7 @@ test("exact play-test recovery marker preserves the completed job identity", () 
 });
 
 test("exact play-test recovery prepares through the bounded Roblox fast path", async () => {
-  const request = {jobId:playTestJobId,deviceId:"primary-mac",expectedAction:"roblox.play_test_validate",projectRoot,requiredAgentVersion:"2.2.51"};
+  const request = {jobId:playTestJobId,deviceId:"primary-mac",expectedAction:"roblox.play_test_validate",projectRoot,requiredAgentVersion:"2.2.52"};
   const started = Date.now();
   const result = await completeTurnV2({
     userId:`roblox-play-test-fast-path-${Date.now()}`,
@@ -99,7 +105,7 @@ test("exact play-test recovery prepares through the bounded Roblox fast path", a
 });
 
 test("play-test recovery marker rejects identity, path, action, or version expansion", () => {
-  const valid = {jobId:playTestJobId,deviceId:"primary-mac",expectedAction:"roblox.play_test_validate",projectRoot,requiredAgentVersion:"2.2.51"};
+  const valid = {jobId:playTestJobId,deviceId:"primary-mac",expectedAction:"roblox.play_test_validate",projectRoot,requiredAgentVersion:"2.2.52"};
   for (const request of [
     {...valid,deviceId:"secondary-mac"},
     {...valid,expectedAction:"roblox.prototype_build"},
@@ -109,7 +115,7 @@ test("play-test recovery marker rejects identity, path, action, or version expan
 });
 
 test("exact play-test marker prepares one non-publishing plan", () => {
-  const marker = `ROBLOX_PLAY_TEST_JSON: ${JSON.stringify({projectRoot,requiredAgentVersion:"2.2.51"})}`;
+  const marker = `ROBLOX_PLAY_TEST_JSON: ${JSON.stringify({projectRoot,requiredAgentVersion:"2.2.52"})}`;
   const [action] = deterministicToolPlan(marker);
   assert.equal(action.tool, "approvals.prepare_plan");
   assert.equal(action.args.execution.tool, "roblox.play_test_validate");
@@ -119,7 +125,7 @@ test("exact play-test marker prepares one non-publishing plan", () => {
 
 test("play-test marker rejects path or agent expansion", () => {
   for (const request of [
-    {projectRoot:"/Users/mac/Documents/Other",requiredAgentVersion:"2.2.51"},
+    {projectRoot:"/Users/mac/Documents/Other",requiredAgentVersion:"2.2.52"},
     {projectRoot,requiredAgentVersion:"2.2.43"}
   ]) assert.deepEqual(deterministicToolPlan(`ROBLOX_PLAY_TEST_JSON: ${JSON.stringify(request)}`), []);
 });
