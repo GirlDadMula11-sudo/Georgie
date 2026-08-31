@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import express from "express";
-import { readCloudState, writeCloudState } from "./cloud-state.js";
+import { checkpointCloudState, readCloudState } from "./cloud-state.js";
 import { upsertOperatingNode, transitionOperatingNode } from "./operating-graph.js";
 import { enqueueMacJob, listMacJobs, resumeFailedMacJob } from "./mac/queue.js";
 import { getMacDeviceStatus } from "./mac/router.js";
@@ -574,7 +574,7 @@ diff --git a/package-lock.json b/package-lock.json
 export function createGovernedConnector({ executeCommand, emitStatus = async () => {}, readState, writeState, retainObjective, transitionObjective, leaseTtlMs = 120_000, recoveryBaseDelayMs = 1_000, recoveryMaxDelayMs = 60_000, recoveryMaxAttempts = 8, ownerId = null } = {}) {
   if (typeof executeCommand !== "function") throw new Error("Connector requires an executeCommand function");
   const readStore = readState || ((userId) => readCloudState(String(userId), NS, baseState()));
-  const writeStore = writeState || ((userId, state) => writeCloudState(String(userId), NS, state));
+  const writeStore = writeState || ((userId, state) => checkpointCloudState(String(userId), NS, state));
   const retain = retainObjective || ((userId, input) => upsertOperatingNode(userId, input));
   const transition = transitionObjective || ((userId, id, input) => transitionOperatingNode(userId, id, input));
   const workerId = clean(ownerId || `connector-worker:${process.pid}:${crypto.randomUUID()}`, 180);
