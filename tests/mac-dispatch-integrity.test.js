@@ -5,6 +5,10 @@ import os from "node:os";
 import path from "node:path";
 import { compactJobStore, enqueueMacJob, claimMacJobs, checkpointMacJob, completeMacJob, importRecoveredMacJob, listMacJobs, reconcileMacDispatches, recoverLongRunningMacJob, repairRecoveredMailboxPayload, resumeFailedMacJob, versionRecoverableMailboxJob } from "../src/mac/queue.js";
 
+// Node runs test files concurrently. Give this entire file a private physical
+// queue so another suite cannot restore or claim its exact preserved job ID.
+process.env.GEORGIE_DATA_DIR = path.join(os.tmpdir(), `georgie-mac-dispatch-integrity-${process.pid}`);
+
 test("Rojo install-and-build receives a long-running claim lease",async()=>{
   const nonce=`${Date.now()}-${Math.random()}`,userId=`rojo-lease-${nonce}`,deviceId=`lease-test-mac-${nonce}`;
   const job=await enqueueMacJob({userId,deviceId,action:"roblox.install_rojo_and_build",args:{},risk:"sensitive_write",reason:"test",idempotencyKey:`rojo-${nonce}`});
@@ -91,10 +95,6 @@ test("queue compaction retains pinned long-running identities beyond the recent-
   const compacted=compactJobStore({jobs});
   assert.equal(compacted.jobs.length,501);assert.equal(compacted.jobs[0].id,pinned.id);assert.equal(compacted.jobs.at(-1).id,"ordinary-599");
 });
-
-// Node runs test files concurrently. Give this file a private physical queue so
-// another suite cannot claim its jobs from the shared on-disk `primary` queue.
-process.env.GEORGIE_DATA_DIR = path.join(os.tmpdir(), `georgie-mac-dispatch-integrity-${process.pid}`);
 
 test("recovered Mac job import preserves identity and rejects conflicts",async()=>{
   const nonce=crypto.randomBytes(20).toString("hex"),root=`idem-${crypto.randomBytes(20).toString("hex")}`;
