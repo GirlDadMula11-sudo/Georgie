@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
-import { enqueueMacJob, claimMacJobs, checkpointMacJob, completeMacJob, importRecoveredMacJob, listMacJobs, reconcileMacDispatches, recoverLongRunningMacJob, repairRecoveredMailboxPayload, resumeFailedMacJob, versionRecoverableMailboxJob } from "../src/mac/queue.js";
+import { compactJobStore, enqueueMacJob, claimMacJobs, checkpointMacJob, completeMacJob, importRecoveredMacJob, listMacJobs, reconcileMacDispatches, recoverLongRunningMacJob, repairRecoveredMailboxPayload, resumeFailedMacJob, versionRecoverableMailboxJob } from "../src/mac/queue.js";
 
 test("Rojo install-and-build receives a long-running claim lease",async()=>{
   const nonce=`${Date.now()}-${Math.random()}`,userId=`rojo-lease-${nonce}`,deviceId=`lease-test-mac-${nonce}`;
@@ -70,6 +70,26 @@ test("blank Place1 Roblox play-test block recovers the same identity for native 
   assert.equal(recovered.resumeCount,1);
   assert.equal(recovered.args.requiredAgentVersion,"2.2.53");
   assert.equal(recovered.resumeHistory.at(-1).reason,"play_test_open_element_dereference_repaired");
+});
+
+test("approved missing Makayla play-test ledger entry is restored once under the exact identity",async()=>{
+  const jobId="idem-cb7e9b3ba3d078186977ba33a5a18acc371cb90f",governance={planId:"f4977010-f9e2-41be-ae0f-955702e45917",approvalId:"3a5369b0-1caa-4a07-bda1-fd73e74bfc24",idempotencyKey:"approval:makayla-recovery"};
+  await assert.rejects(()=>recoverLongRunningMacJob("primary-mac",jobId,{expectedAction:"roblox.play_test_validate",requiredAgentVersion:"2.2.53",governance:{...governance,approvalId:"wrong"}}),/MAC_LONG_RUNNING_RESTORATION_APPROVAL_REJECTED/);
+  const first=await recoverLongRunningMacJob("primary-mac",jobId,{expectedAction:"roblox.play_test_validate",requiredAgentVersion:"2.2.53",governance});
+  const second=await recoverLongRunningMacJob("primary-mac",jobId,{expectedAction:"roblox.play_test_validate",requiredAgentVersion:"2.2.53",governance});
+  assert.equal(first.id,jobId);assert.equal(second.id,jobId);assert.equal(first.status,"queued");assert.equal(first.retention,"pinned");assert.equal(first.args.projectRoot,"/Users/mac/Documents/Georgie Roblox Projects/makayla-horror-prototype");assert.equal(first.restorationReceipt.identityPreserved,true);assert.equal(first.restorationReceipt.newJobIdCreated,false);assert.equal(second.resumeCount,1);
+  assert.equal((await listMacJobs("primary",500)).filter(item=>item.id===jobId).length,1);
+});
+
+test("missing Makayla identity restoration rejects scope expansion",async()=>{
+  assert.equal(await recoverLongRunningMacJob("primary-mac","idem-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",{expectedAction:"roblox.play_test_validate",requiredAgentVersion:"2.2.53",governance:{planId:"f4977010-f9e2-41be-ae0f-955702e45917",approvalId:"3a5369b0-1caa-4a07-bda1-fd73e74bfc24"}}),null);
+});
+
+test("queue compaction retains pinned long-running identities beyond the recent-job window",()=>{
+  const pinned={id:"idem-cb7e9b3ba3d078186977ba33a5a18acc371cb90f",action:"roblox.play_test_validate",retention:"pinned",createdAt:"2020-01-01T00:00:00.000Z"};
+  const jobs=[pinned,...Array.from({length:600},(_,index)=>({id:`ordinary-${index}`,action:"system.info",createdAt:new Date(1_700_000_000_000+index).toISOString()}))];
+  const compacted=compactJobStore({jobs});
+  assert.equal(compacted.jobs.length,501);assert.equal(compacted.jobs[0].id,pinned.id);assert.equal(compacted.jobs.at(-1).id,"ordinary-599");
 });
 
 // Node runs test files concurrently. Give this file a private physical queue so
