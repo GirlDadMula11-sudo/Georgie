@@ -13,7 +13,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.56";
+const AGENT_VERSION = "2.2.57";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -276,20 +276,32 @@ tell application "System Events"
 if not (exists process "RobloxStudio") then return "STOPPED"
 tell process "RobloxStudio"
 set conflictingDocuments to {}
+set conflictingPathlessWindows to {}
 repeat with studioWindow in windows
 set studioDocument to ""
+set studioWindowTitle to ""
 try
-set studioDocument to value of attribute "AXDocument" of studioWindow as string
+set rawStudioDocument to value of attribute "AXDocument" of studioWindow
+if rawStudioDocument is not missing value then set studioDocument to rawStudioDocument as string
 end try
-if studioDocument is not "" and studioDocument does not contain expectedArtifact then set end of conflictingDocuments to studioDocument
+try
+set studioWindowTitle to name of studioWindow as string
+end try
+if studioDocument is not "" then
+if studioDocument does not contain expectedArtifact then set end of conflictingDocuments to studioDocument
+else if studioWindowTitle is not "" and studioWindowTitle is not "Roblox Studio" and studioWindowTitle does not contain "Open Roblox File" then
+set end of conflictingPathlessWindows to studioWindowTitle
+end if
 end repeat
 if (count of conflictingDocuments) > 0 then return "CONFLICT" & linefeed & (conflictingDocuments as string)
+if (count of conflictingPathlessWindows) > 0 then return "CONFLICT" & linefeed & (conflictingPathlessWindows as string)
 return "SAFE"
 end tell
 end tell`);
   const [sessionState = "", ...conflicts] = String(sessionInspection).split("\n");
   if (sessionState === "CONFLICT") return { stage: "direct_session_conflict", error: "ROBLOX_STUDIO_UNRELATED_DOCUMENT_OPEN", errorCode: null, topology: conflicts.join("\n").slice(0, 6000), controlStrategy: "launch_services_clean_session", compiled: false, executionMode: "direct_launch_services" };
   if (sessionState === "SAFE") {
+    await runAppleScript('tell application "RobloxStudio" to activate\ntell application "System Events" to key code 53').catch(() => {});
     await runAppleScript('tell application "RobloxStudio" to quit');
     const quitDeadline = Date.now() + 15000;
     while (Date.now() < quitDeadline && await robloxStudioProcessRunning()) await delay(250);
