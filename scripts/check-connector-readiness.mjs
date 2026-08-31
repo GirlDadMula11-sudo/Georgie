@@ -3,7 +3,7 @@ const readinessUrl = `${origin}/.well-known/georgie-connector-readiness`;
 const oauthUrl = `${origin}/.well-known/oauth-authorization-server`;
 const resourceUrl = `${origin}/.well-known/oauth-protected-resource/mcp`;
 const mcpUrl = `${origin}/mcp`;
-const expectedServer = { name: "georgie-governed-connector-r2", version: "2.4.1" };
+const expectedServer = { name: "georgie-governed-connector-r2", version: "2.4.2" };
 
 async function fetchJson(url, options = {}) {
   const controller = new AbortController();
@@ -46,7 +46,7 @@ if (token) {
   const init = await fetchJson(mcpUrl, {
     method: "POST",
     headers: commonHeaders,
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "georgie-readiness-probe", version: "2.4.1" } } }),
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "georgie-readiness-probe", version: "2.4.2" } } }),
   });
   deepMcp.serverInfo = init.body?.result?.serverInfo || null;
   if (!init.response.ok || deepMcp.serverInfo?.name !== expectedServer.name || deepMcp.serverInfo?.version !== expectedServer.version) fail("mcp_initialize", { status: init.response.status, expectedServer, body: init.body });
