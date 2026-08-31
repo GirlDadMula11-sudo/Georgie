@@ -13,7 +13,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.54";
+const AGENT_VERSION = "2.2.55";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -272,7 +272,73 @@ async function openRobloxStudioArtifactThroughFileDialog(artifact) {
     const fallback = String(error instanceof Error ? error.message : error).trim();
     return (stderr || fallback || "ROBLOX_STUDIO_FILE_OPEN_FAILED").split("\n").slice(-4).join("\n").slice(-2000);
   };
-  const fileOpenScript = `set expectedArtifact to ${JSON.stringify(expectedArtifact)}
+  const fileOpenScript = `on accessibilityAttribute(elementRef, attributeName)
+tell application "System Events"
+try
+return value of attribute attributeName of elementRef as string
+on error
+return ""
+end try
+end tell
+end accessibilityAttribute
+
+on accessibilityChildren(elementRef)
+tell application "System Events"
+try
+return UI elements of elementRef
+on error
+return {}
+end try
+end tell
+end accessibilityChildren
+
+on findOpenButtonRecursively(elementRef, remainingDepth)
+set elementRole to my accessibilityAttribute(elementRef, "AXRole")
+if elementRole is "AXButton" then
+set elementTitle to my accessibilityAttribute(elementRef, "AXTitle")
+set elementDescription to my accessibilityAttribute(elementRef, "AXDescription")
+if elementTitle is "Open" or elementDescription is "Open" then
+tell application "System Events"
+try
+if enabled of elementRef then return elementRef
+end try
+end tell
+end if
+end if
+if remainingDepth is less than or equal to 0 then return missing value
+set childElements to my accessibilityChildren(elementRef)
+repeat with childElement in childElements
+try
+set matchedButton to my findOpenButtonRecursively(childElement, remainingDepth - 1)
+if matchedButton is not missing value then return matchedButton
+end try
+end repeat
+return missing value
+end findOpenButtonRecursively
+
+on collectAccessibilityTopology(elementRef, remainingDepth, remainingBudget)
+if remainingBudget is less than or equal to 0 then return {"", 0}
+set elementRole to my accessibilityAttribute(elementRef, "AXRole")
+set elementSubrole to my accessibilityAttribute(elementRef, "AXSubrole")
+set elementTitle to my accessibilityAttribute(elementRef, "AXTitle")
+set elementDescription to my accessibilityAttribute(elementRef, "AXDescription")
+set elementIdentifier to my accessibilityAttribute(elementRef, "AXIdentifier")
+set topologyText to elementRole & "|" & elementSubrole & "|" & elementTitle & "|" & elementDescription & "|" & elementIdentifier & linefeed
+set consumedCount to 1
+if remainingDepth is less than or equal to 0 then return {topologyText, consumedCount}
+set childElements to my accessibilityChildren(elementRef)
+repeat with childElement in childElements
+if consumedCount is greater than or equal to remainingBudget then exit repeat
+try
+set childTopology to my collectAccessibilityTopology(childElement, remainingDepth - 1, remainingBudget - consumedCount)
+set topologyText to topologyText & item 1 of childTopology
+set consumedCount to consumedCount + item 2 of childTopology
+end try
+end repeat
+return {topologyText, consumedCount}
+end collectAccessibilityTopology
+
+set expectedArtifact to ${JSON.stringify(expectedArtifact)}
 set currentStage to "activate_studio"
 try
 tell application "RobloxStudio" to activate
@@ -399,31 +465,13 @@ end repeat
 if openButton is missing value then
 set currentStage to "open_button_nested_scan"
 repeat 3 times
-repeat with candidateElement in (entire contents of openPanel)
-set resolvedElement to contents of candidateElement
-set candidateRole to ""
-set candidateTitle to ""
-set candidateDescription to ""
 try
-set candidateRole to value of attribute "AXRole" of resolvedElement as string
+set openButton to my findOpenButtonRecursively(openPanel, 12)
 end try
-if candidateRole is "AXButton" then
-try
-set candidateTitle to value of attribute "AXTitle" of resolvedElement as string
-end try
-try
-set candidateDescription to value of attribute "AXDescription" of resolvedElement as string
-end try
-if candidateTitle is "Open" or candidateDescription is "Open" then
-if enabled of resolvedElement then
-set openButton to resolvedElement
-set openControlStrategy to "nested_ax_button"
+if openButton is not missing value then
+set openControlStrategy to "recursive_ax_button"
 exit repeat
 end if
-end if
-end if
-end repeat
-if openButton is not missing value then exit repeat
 delay 0.5
 end repeat
 end if
@@ -466,33 +514,10 @@ end try
 end if
 end repeat
 if diagnosticPanel is not missing value then
-set diagnosticCount to 0
-repeat with diagnosticElement in (entire contents of diagnosticPanel)
-set resolvedDiagnosticElement to contents of diagnosticElement
-if diagnosticCount is greater than or equal to 80 then exit repeat
-set elementRole to ""
-set elementSubrole to ""
-set elementTitle to ""
-set elementDescription to ""
-set elementIdentifier to ""
 try
-set elementRole to value of attribute "AXRole" of resolvedDiagnosticElement as string
+set topologyResult to my collectAccessibilityTopology(diagnosticPanel, 12, 80)
+set diagnosticText to item 1 of topologyResult
 end try
-try
-set elementSubrole to value of attribute "AXSubrole" of resolvedDiagnosticElement as string
-end try
-try
-set elementTitle to value of attribute "AXTitle" of resolvedDiagnosticElement as string
-end try
-try
-set elementDescription to value of attribute "AXDescription" of resolvedDiagnosticElement as string
-end try
-try
-set elementIdentifier to value of attribute "AXIdentifier" of resolvedDiagnosticElement as string
-end try
-set diagnosticText to diagnosticText & elementRole & "|" & elementSubrole & "|" & elementTitle & "|" & elementDescription & "|" & elementIdentifier & linefeed
-set diagnosticCount to diagnosticCount + 1
-end repeat
 end if
 end tell
 end if

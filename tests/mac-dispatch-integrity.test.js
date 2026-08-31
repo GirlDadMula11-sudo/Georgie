@@ -69,7 +69,7 @@ test("blank Place1 Roblox play-test block recovers the same identity for native 
   assert.equal(recovered.status,"queued");
   assert.equal(recovered.resumeCount,1);
   assert.equal(recovered.args.requiredAgentVersion,"2.2.53");
-  assert.equal(recovered.resumeHistory.at(-1).reason,"play_test_open_element_dereference_repaired");
+  assert.equal(recovered.resumeHistory.at(-1).reason,"play_test_recursive_accessibility_scan_repaired");
 });
 
 test("approved missing Makayla play-test ledger entry is restored once under the exact identity",async()=>{
