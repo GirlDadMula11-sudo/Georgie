@@ -56,7 +56,10 @@ test("connector dispatches once and returns objective and evidence receipts", as
   const first = await connector.submit("connector-test", input); const second = await connector.submit("connector-test", input);
   assert.equal(first.status, "accepted"); assert.equal(first.objectiveId, "shared-objective-1"); assert.match(first.receipt.receiptId, /^rcpt_/); assert.match(first.lease.id, /^lease_/);
   assert.equal(second.duplicate, true); assert.equal(second.commandId, first.commandId);
-  const stored = await waitFor(connector, "connector-test", first.commandId, ["completed"]); assert.equal(calls, 1); assert.equal(stored.status, "completed"); assert.ok(stored.receipts.length >= 3); assert.deepEqual(statuses, ["accepted", "running", "completed"]);
+  const stored = await waitFor(connector, "connector-test", first.commandId, ["completed"]); assert.equal(calls, 1); assert.equal(stored.status, "completed"); assert.ok(stored.receipts.length >= 3);
+  const statusDeadline = Date.now() + 500;
+  while (statuses.length < 3 && Date.now() < statusDeadline) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(statuses, ["accepted", "running", "completed"]);
 });
 
 test("typed connector results remain available through the return channel", async () => {
@@ -474,7 +477,7 @@ test("SEO autopilot wake and status remain bound to the scheduling user namespac
 
 test("SEO repair opens only the allowlisted Sierra admin origin before mutation", () => {
   const source=fs.readFileSync(new URL("../mac-agent/agent.js",import.meta.url),"utf8");
-  assert.match(source,/AGENT_VERSION = "2\.2\.57"/);
+  assert.match(source,/AGENT_VERSION = "2\.2\.58"/);
   assert.match(source,/execFileAsync\("open", \["-a", "Google Chrome", "https:\/\/sierramarketinginc\.com\/wp-admin\/"\]/);
   assert.match(source,/WORDPRESS_REPAIR_SITE_REJECTED/);
 });
