@@ -13,6 +13,7 @@ import { orchestrateCapabilityRequest } from "./capability-orchestrator.js";
 import { getCapabilityManifest } from "./capability-manifest.js";
 import { buildSeoPhase2Objective } from "./seo-phase2-executor.js";
 import { SEO_PHASE2_COMMAND_SEQUENCE } from "./seo-phase2-batches.js";
+import { evaluateHandoffEvidence } from "./agent-handoff-protocol.js";
 
 const NS = "governed_external_connector";
 const SCHEMA = "georgie.governed-connector.v1";
@@ -573,6 +574,13 @@ diff --git a/package-lock.json b/package-lock.json
 
 export function createGovernedConnector({ executeCommand, emitStatus = async () => {}, readState, writeState, retainObjective, transitionObjective, leaseTtlMs = 120_000, recoveryBaseDelayMs = 1_000, recoveryMaxDelayMs = 60_000, recoveryMaxAttempts = 8, ownerId = null } = {}) {
   if (typeof executeCommand !== "function") throw new Error("Connector requires an executeCommand function");
+  const uncheckedExecuteCommand=executeCommand;
+  executeCommand=async(context)=>{
+    const result=await uncheckedExecuteCommand(context);
+    const handoffEvidence=evaluateHandoffEvidence({command:context.input,metadata:{agent_handoff:{objective:context.input,requiredCapabilities:[]}}},result);
+    if(!handoffEvidence.required||handoffEvidence.satisfied)return result;
+    return{...result,text:[clean(result?.text||result?.response||"",50000),`BLOCKED — ${handoffEvidence.reason}`].filter(Boolean).join("\n\n"),completed:true,terminalState:"blocked",exactBlocker:handoffEvidence.reason,handoffEvidence};
+  };
   const readStore = readState || ((userId) => readCloudState(String(userId), NS, baseState()));
   const writeStore = writeState || ((userId, state) => checkpointCloudState(String(userId), NS, state));
   const retain = retainObjective || ((userId, input) => upsertOperatingNode(userId, input));

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { handoffConnectorInput, normalizeAgentHandoff, reconcileHandoffStatus } from "../src/agent-handoff-protocol.js";
+import { evaluateHandoffEvidence, handoffConnectorInput, normalizeAgentHandoff, reconcileHandoffStatus } from "../src/agent-handoff-protocol.js";
 
 const base={objectiveId:"obj_sierra_shadow_001",sequenceNumber:2,objective:"Review one Sierra deal using verified evidence only.",requiredCapabilities:["sierra.deal.read"],acceptanceCriteria:["Every material claim has evidence"],evidenceRequirements:["Authoritative deal read-back"],budget:{maxSteps:12,maxRuntimeSeconds:900},expiresAt:"2026-09-02T20:00:00.000Z"};
 
@@ -8,3 +8,26 @@ test("versioned handoff normalizes to a stable bounded connector identity",()=>{
 test("expired and secret-bearing handoffs fail closed",()=>{assert.throws(()=>normalizeAgentHandoff({...base,expiresAt:"2026-08-01T00:00:00Z"},Date.parse("2026-09-01T20:00:00Z")),/expired/i);assert.throws(()=>normalizeAgentHandoff({...base,scope:{apiToken:"secret"}},Date.parse("2026-09-01T20:00:00Z")),/secret-shaped/i);});
 test("v1 rejects dynamic or unknown capability requests before dispatch",()=>{assert.throws(()=>normalizeAgentHandoff({...base,requiredCapabilities:["arbitrary.admin.write"]},Date.parse("2026-09-01T20:00:00Z")),/CAPABILITY_MISMATCH/);});
 test("execution is not reported as verified without independent read-back",()=>{const state=reconcileHandoffStatus({id:"cmd_1",objectiveId:base.objectiveId,status:"completed",metadata:{agent_handoff:base},receipts:[{receiptId:"r1"}]});assert.equal(state.state,"executed_unverified");assert.equal(state.completionClaimAllowed,false);const verified=reconcileHandoffStatus({id:"cmd_1",objectiveId:base.objectiveId,status:"completed",verificationState:"verified",receipts:[{receiptId:"r1"}]});assert.equal(verified.state,"verified");assert.equal(verified.completionClaimAllowed,true);});
+
+test("Sierra workflow objectives gain mandatory live evidence capabilities",()=>{
+  const objective={...base,objective:"Inspect Sierra's workflow health and reconciliation status read-only.",requiredCapabilities:["repository.inspect"]};
+  const envelope=normalizeAgentHandoff(objective,Date.parse("2026-09-01T20:00:00Z"));
+  assert.deepEqual(envelope.requiredCapabilities,["repository.inspect","sierra.health.read","sierra.infrastructure.read","sierra.reconciliation.read","sierra.portfolio.read"]);
+  const input=handoffConnectorInput(objective,Date.parse("2026-09-01T20:00:00Z"));
+  assert.match(input.command,/Run fresh Sierra health, infrastructure, Apply inventory, reconciliation invariant, and portfolio reads/);
+});
+
+test("repository inspection cannot satisfy a Sierra workflow evidence contract",()=>{
+  const command={metadata:{agent_handoff:{objective:"Inspect Sierra workflow health and reconciliation.",requiredCapabilities:["repository.inspect"]}}};
+  const evidence=evaluateHandoffEvidence(command,{actions:[{ok:true,tool:"developer.repo_inspect",result:{readOnly:true}}]});
+  assert.equal(evidence.satisfied,false);
+  assert.deepEqual(evidence.missingCapabilities,["sierra.health.read","sierra.infrastructure.read","sierra.reconciliation.read","sierra.portfolio.read"]);
+});
+
+test("complete Sierra live reads satisfy the workflow evidence contract",()=>{
+  const command={metadata:{agent_handoff:{objective:"Inspect Sierra workflow health and reconciliation.",requiredCapabilities:[]}}};
+  const tools=["sierra.health","sierra.infrastructure","sierra.apply_inventory","sierra.reconciliation_invariant","sierra.portfolio"];
+  const evidence=evaluateHandoffEvidence(command,{actions:tools.map(tool=>({ok:true,tool,result:{status:"returned"}}))});
+  assert.equal(evidence.satisfied,true);
+  assert.deepEqual(evidence.missingTools,[]);
+});

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { createGovernedConnector, normalizeConnectorState, validateCommandEnvelope, summarizeGovernedMacJob } from "../src/governed-connector.js";
+import { handoffConnectorInput } from "../src/agent-handoff-protocol.js";
 
 function harness(options = {}, shared = null) {
   const box = shared || { state: { schema: "georgie.governed-connector.v1", version: 1, commands: [], events: [], receipts: [], updatedAt: null } };
@@ -60,6 +61,22 @@ test("connector dispatches once and returns objective and evidence receipts", as
   const statusDeadline = Date.now() + 500;
   while (statuses.length < 3 && Date.now() < statusDeadline) await new Promise((resolve) => setTimeout(resolve, 5));
   assert.deepEqual(statuses, ["accepted", "running", "completed"]);
+});
+
+test("Sierra shadow handoff blocks false completion and preserves one command identity",async()=>{
+  let calls=0;
+  const connector=harness({executeCommand:async()=>{calls+=1;return{text:"Repository is clean",terminalState:"completed",actions:[{ok:true,tool:"developer.repo_inspect",result:{readOnly:true}}]};}});
+  const input=handoffConnectorInput({objectiveId:"sierra-routing-regression-001",sequenceNumber:1,objective:"Inspect Sierra workflow health and reconciliation status read-only.",requiredCapabilities:["repository.inspect"],expiresAt:new Date(Date.now()+60_000).toISOString()});
+  const accepted=await connector.submit("sierra-routing-regression",input);
+  const stored=await waitFor(connector,"sierra-routing-regression",accepted.commandId,["blocked"]);
+  assert.equal(stored.status,"blocked");
+  assert.match(stored.result.text,/Repository is clean/);
+  assert.match(stored.result.text,/HANDOFF_REQUIRED_EVIDENCE_MISSING/);
+  assert.match(stored.result.actions[0].tool,/developer\.repo_inspect/);
+  const duplicate=await connector.submit("sierra-routing-regression",input);
+  assert.equal(duplicate.duplicate,true);
+  assert.equal(duplicate.commandId,accepted.commandId);
+  assert.equal(calls,1);
 });
 
 test("newer handoff versions fence stale or conflicting sequences", async()=>{
