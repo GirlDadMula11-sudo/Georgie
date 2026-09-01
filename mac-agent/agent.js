@@ -14,7 +14,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.66";
+const AGENT_VERSION = "2.2.67";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -595,6 +595,25 @@ if (name of candidateWindow as string) contains "Open Roblox File" then set pane
 end try
 end repeat
 if panelStillOpen is false then return "SUCCESS" & linefeed & "dialog_closed" & linefeed & openInvocationStrategy & ":keyboard_default_return"
+delay 0.1
+end repeat
+-- When Go to Folder is visible but absent from accessibility, the preceding
+-- Return can be consumed by that hidden sheet. Permit one bounded second
+-- native default action before falling back to AX button discovery.
+set currentStage to "open_keyboard_second_default_press"
+key code 36
+set currentStage to "open_keyboard_second_close_wait"
+repeat 30 times
+set panelStillOpen to false
+try
+if exists openPanel then set panelStillOpen to true
+end try
+repeat with candidateWindow in windows
+try
+if (name of candidateWindow as string) contains "Open Roblox File" then set panelStillOpen to true
+end try
+end repeat
+if panelStillOpen is false then return "SUCCESS" & linefeed & "dialog_closed" & linefeed & openInvocationStrategy & ":keyboard_default_return_retry"
 delay 0.1
 end repeat
 set currentStage to "open_button_default_wait"
