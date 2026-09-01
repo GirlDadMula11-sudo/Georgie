@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildUniversalClosingStrategy, inferBuyerState, normalizeProductIntelligence } from "../src/universal-closer.js";
 import { buildClosingBrief } from "../src/master-closer.js";
+import fs from "node:fs";
 
 const product = {
   productId: "advisory-1",
@@ -58,4 +59,14 @@ test("master closing brief exposes universal reasoning alongside legacy financin
   assert.equal(brief.contract, "georgie.master-closer.v3");
   assert.equal(brief.universalStrategy.contract, "georgie.universal-master-closer.v1");
   assert.equal(brief.universalStrategy.product.productId, "advisory-1");
+});
+
+test("production conversation prompt and capability manifest expose the universal closer charter", () => {
+  const prompt = fs.readFileSync(new URL("../src/georgie.js", import.meta.url), "utf8");
+  const manifest = fs.readFileSync(new URL("../src/capability-manifest.js", import.meta.url), "utf8");
+  assert.match(prompt, /UNIVERSAL MASTER CLOSER CHARTER/);
+  assert.match(prompt, /Reason on two tracks each turn/);
+  assert.match(prompt, /Never use coercion/);
+  assert.match(manifest, /verified_product_intelligence/);
+  assert.match(manifest, /dual_track_buyer_reasoning/);
 });
