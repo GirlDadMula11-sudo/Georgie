@@ -14,7 +14,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.67";
+const AGENT_VERSION = "2.2.68";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -356,6 +356,8 @@ end tell`);
 async function openRobloxStudioArtifactThroughFileDialog(artifact) {
   const expectedArtifact = path.resolve(String(artifact || ""));
   if (!expectedArtifact.endsWith(`${path.sep}Prototype.rbxlx`)) throw new Error("ROBLOX_STUDIO_FILE_OPEN_REJECTED");
+  const expectedDirectory = path.dirname(expectedArtifact);
+  const expectedFileName = path.basename(expectedArtifact);
   let rawEvidence = "";
   const boundedAppleScriptError = error => {
     const stderr = String(error?.stderr || error?.cause?.stderr || "").trim();
@@ -429,6 +431,8 @@ return {topologyText, consumedCount}
 end collectAccessibilityTopology
 
 set expectedArtifact to ${JSON.stringify(expectedArtifact)}
+set expectedDirectory to ${JSON.stringify(expectedDirectory)}
+set expectedFileName to ${JSON.stringify(expectedFileName)}
 set currentStage to "activate_studio"
 try
 tell application "RobloxStudio" to activate
@@ -518,7 +522,7 @@ if goSheet is missing value then
 -- AXSheet. Continue through the focused native keyboard flow; AXDocument is
 -- still required to equal the exact artifact before F5 can be sent.
 set currentStage to "go_to_folder_keyboard_path_fallback"
-keystroke expectedArtifact
+keystroke expectedDirectory
 delay 0.2
 set currentStage to "go_to_folder_keyboard_confirm"
 key code 36
@@ -535,7 +539,7 @@ delay 0.1
 end repeat
 if pathField is missing value then error "ROBLOX_STUDIO_GO_TO_FOLDER_FIELD_NOT_FOUND"
 set currentStage to "path_set"
-set value of attribute "AXValue" of pathField to expectedArtifact
+set value of attribute "AXValue" of pathField to expectedDirectory
 set currentStage to "path_confirm"
 try
 perform action "AXConfirm" of pathField
@@ -579,6 +583,11 @@ end repeat
 end if
 if goSheetStillOpen then error "ROBLOX_STUDIO_GO_TO_FOLDER_SHEET_STUCK"
 end if
+-- Go to Folder navigates to the containing directory. Select the exact
+-- Prototype.rbxlx entry in the outer native file list before invoking Open.
+set currentStage to "artifact_filename_select"
+keystroke expectedFileName
+delay 0.5
 -- The exact file is selected after Go to Folder. Native open panels accept
 -- Return as their default Open action even when AXDefaultButton is absent.
 set currentStage to "open_keyboard_default_press"
