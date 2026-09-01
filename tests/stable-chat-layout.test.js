@@ -1,0 +1,4 @@
+import test from "node:test";import assert from "node:assert/strict";import fs from "node:fs";
+const html=fs.readFileSync(new URL("../public/index.html",import.meta.url),"utf8"),css=fs.readFileSync(new URL("../public/chat-layout.css",import.meta.url),"utf8"),sw=fs.readFileSync(new URL("../public/sw.js",import.meta.url),"utf8");
+test("mobile shell prevents viewport zoom and keeps one internally scrolling chat",()=>{assert.match(html,/maximum-scale=1/);assert.match(html,/user-scalable=no/);assert.match(css,/height:100dvh/);assert.match(css,/\.conversation\{[^}]*overflow-y:auto/s);assert.match(css,/body\{[^}]*overflow:hidden/s)});
+test("desktop shell keeps supporting details on the left of full-height chat",()=>{assert.match(css,/grid-template-columns:300px minmax\(0,1fr\)/);assert.match(css,/\.conversation-panel\{grid-column:2/);assert.match(css,/\.workspace-details\{grid-column:1/);assert.match(sw,/chat-layout\.css/);assert.match(sw,/chat-layout\.js/)});

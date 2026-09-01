@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#07101d" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="/workspace.css" />
   <link rel="stylesheet" href="/georgie-v2.css" />
   <link rel="stylesheet" href="/activity.css" />
+  <link rel="stylesheet" href="/chat-layout.css" />
 </head>
 <body>
   <section id="enrollmentGate" class="enrollment-gate" hidden><form id="enrollmentForm" class="enrollment-card"><img src="/georgie-logo-v2.svg" alt="" /><span class="eyebrow">PRIVATE EXECUTIVE OS</span><h1>Activate Georgie</h1><p>Enter your one-time secure enrollment code. This connects only this device and can be revoked.</p><input id="enrollmentCode" autocomplete="one-time-code" placeholder="Enrollment code" required /><button type="submit">Activate this device</button><button id="recoveryCodeButton" type="button" class="secondary-action">Send recovery code</button><small id="enrollmentMessage">Your private information stays locked until activation.</small></form></section>
@@ -88,6 +89,7 @@
   <script type="module" src="/deal-workspace.js"></script>
   <script type="module" src="/proactive.js"></script>
   <script type="module" src="/activity.js"></script>
+  <script type="module" src="/chat-layout.js"></script>
   <script type="module" src="/pwa.js"></script>
 </body>
 </html>
