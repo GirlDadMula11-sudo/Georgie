@@ -96,6 +96,10 @@ test("Mac agent performs a bounded Studio play test with six gameplay checks", (
   assert.ok(fileDialog.indexOf("open_keyboard_default_press") < fileDialog.indexOf("open_button_nested_scan"), "native Return must precede the bounded accessibility fallback");
   assert.match(fileDialog, /go_to_folder_return_confirm/);
   assert.match(fileDialog, /go_to_folder_second_return_confirm/);
+  assert.match(fileDialog, /go_to_folder_keyboard_path_fallback/);
+  assert.match(fileDialog, /keystroke expectedArtifact/);
+  assert.ok(fileDialog.indexOf('perform action "AXRaise" of openPanel') < fileDialog.indexOf('keystroke "g" using {command down, shift down}'), "the native Open panel must be raised before invoking Go to Folder");
+  assert.ok(fileDialog.indexOf("go_to_folder_keyboard_confirm") < fileDialog.indexOf("open_keyboard_default_press"), "the keyboard path fallback must confirm before the outer Open action");
   assert.match(fileDialog, /if goSheetStillOpen then error "ROBLOX_STUDIO_GO_TO_FOLDER_SHEET_STUCK"/);
   assert.ok(fileDialog.indexOf("go_to_folder_second_return_confirm") < fileDialog.indexOf("open_keyboard_default_press"), "the Go to Folder sheet must be proven closed before the outer Open action");
   assert.match(agent, /error\?\.stderr/);
@@ -110,7 +114,7 @@ test("Mac agent performs a bounded Studio play test with six gameplay checks", (
   assert.match(queue, /play_test_keyboard_default_open_repaired/);
   assert.match(queue, /play_test_screenshot_evidence_repaired/);
   assert.match(tools, /name:"roblox\.play_test_validate"/);
-  assert.match(tools, /requiredAgentVersion:"2\.2\.65"/);
+  assert.match(tools, /requiredAgentVersion:"2\.2\.66"/);
   assert.match(tools, /runtimeMarkerObserved/);
   assert.match(tools, /safeResult\.checks/);
   const activation = agent.slice(agent.indexOf("async function activateRobloxStudioPlayMode"), agent.indexOf("async function playTestRobloxPrototype"));
@@ -122,7 +126,7 @@ test("Mac agent performs a bounded Studio play test with six gameplay checks", (
 });
 
 test("exact play-test recovery marker preserves the completed job identity", () => {
-  const request = {jobId:playTestJobId,deviceId:"primary-mac",expectedAction:"roblox.play_test_validate",projectRoot,requiredAgentVersion:"2.2.65"};
+  const request = {jobId:playTestJobId,deviceId:"primary-mac",expectedAction:"roblox.play_test_validate",projectRoot,requiredAgentVersion:"2.2.66"};
   const [action] = deterministicToolPlan(`ROBLOX_PLAY_TEST_RECOVERY_JSON: ${JSON.stringify(request)}`);
   assert.equal(action.tool, "approvals.prepare_plan");
   assert.equal(action.args.execution.tool, "mac.long_running_job_recover");
@@ -131,7 +135,7 @@ test("exact play-test recovery marker preserves the completed job identity", () 
 });
 
 test("exact play-test recovery prepares through the bounded Roblox fast path", async () => {
-  const request = {jobId:playTestJobId,deviceId:"primary-mac",expectedAction:"roblox.play_test_validate",projectRoot,requiredAgentVersion:"2.2.65"};
+  const request = {jobId:playTestJobId,deviceId:"primary-mac",expectedAction:"roblox.play_test_validate",projectRoot,requiredAgentVersion:"2.2.66"};
   const started = Date.now();
   const result = await completeTurnV2({
     userId:`roblox-play-test-fast-path-${Date.now()}`,
@@ -149,7 +153,7 @@ test("exact play-test recovery prepares through the bounded Roblox fast path", a
 });
 
 test("play-test recovery marker rejects identity, path, action, or version expansion", () => {
-  const valid = {jobId:playTestJobId,deviceId:"primary-mac",expectedAction:"roblox.play_test_validate",projectRoot,requiredAgentVersion:"2.2.65"};
+  const valid = {jobId:playTestJobId,deviceId:"primary-mac",expectedAction:"roblox.play_test_validate",projectRoot,requiredAgentVersion:"2.2.66"};
   for (const request of [
     {...valid,deviceId:"secondary-mac"},
     {...valid,expectedAction:"roblox.prototype_build"},
@@ -159,7 +163,7 @@ test("play-test recovery marker rejects identity, path, action, or version expan
 });
 
 test("exact play-test marker prepares one non-publishing plan", () => {
-  const marker = `ROBLOX_PLAY_TEST_JSON: ${JSON.stringify({projectRoot,requiredAgentVersion:"2.2.65"})}`;
+  const marker = `ROBLOX_PLAY_TEST_JSON: ${JSON.stringify({projectRoot,requiredAgentVersion:"2.2.66"})}`;
   const [action] = deterministicToolPlan(marker);
   assert.equal(action.tool, "approvals.prepare_plan");
   assert.equal(action.args.execution.tool, "roblox.play_test_validate");
@@ -169,7 +173,7 @@ test("exact play-test marker prepares one non-publishing plan", () => {
 
 test("play-test marker rejects path or agent expansion", () => {
   for (const request of [
-    {projectRoot:"/Users/mac/Documents/Other",requiredAgentVersion:"2.2.65"},
+    {projectRoot:"/Users/mac/Documents/Other",requiredAgentVersion:"2.2.66"},
     {projectRoot,requiredAgentVersion:"2.2.43"}
   ]) assert.deepEqual(deterministicToolPlan(`ROBLOX_PLAY_TEST_JSON: ${JSON.stringify(request)}`), []);
 });
