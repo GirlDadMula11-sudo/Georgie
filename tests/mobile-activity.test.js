@@ -1,0 +1,4 @@
+import test from "node:test";import assert from "node:assert/strict";import fs from "node:fs";
+const html=fs.readFileSync(new URL("../public/index.html",import.meta.url),"utf8"),script=fs.readFileSync(new URL("../public/activity.js",import.meta.url),"utf8"),router=fs.readFileSync(new URL("../src/mobile-router.js",import.meta.url),"utf8");
+test("mobile activity exposes five plain-language reliability views",()=>{for(const label of ["Working","Completed","Recovered","Needs you","Attention"])assert.match(script,new RegExp(label,"i"));assert.match(html,/id="activity"/);assert.match(html,/activity\.js/)});
+test("activity reads the authenticated durable objective scorecard",()=>{assert.match(router,/getObjectiveReliabilityReport/);assert.match(router,/router\.get\("\/activity"/);assert.match(script,/\/api\/mobile\/activity/);assert.match(script,/authHeaders/)});

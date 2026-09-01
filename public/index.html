@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="/attachments.css" />
   <link rel="stylesheet" href="/workspace.css" />
   <link rel="stylesheet" href="/georgie-v2.css" />
+  <link rel="stylesheet" href="/activity.css" />
 </head>
 <body>
   <section id="enrollmentGate" class="enrollment-gate" hidden><form id="enrollmentForm" class="enrollment-card"><img src="/georgie-logo-v2.svg" alt="" /><span class="eyebrow">PRIVATE EXECUTIVE OS</span><h1>Activate Georgie</h1><p>Enter your one-time secure enrollment code. This connects only this device and can be revoked.</p><input id="enrollmentCode" autocomplete="one-time-code" placeholder="Enrollment code" required /><button type="submit">Activate this device</button><button id="recoveryCodeButton" type="button" class="secondary-action">Send recovery code</button><small id="enrollmentMessage">Your private information stays locked until activation.</small></form></section>
@@ -58,6 +59,7 @@
         <article><span class="cap-icon">✉</span><strong>NEO Mail</strong><small>Active</small></article>
         <article><span class="cap-icon">▣</span><strong>Mac Agent</strong><small>Optional</small></article>
       </section>
+    <section id="activity" class="activity-card" aria-live="polite"><header><div><span>ACTIVITY</span><strong>Georgie at work</strong></div><button id="activityRefresh" type="button">Refresh</button></header><div class="activity-health"><div id="activityPulse" class="activity-pulse"></div><div><strong id="activityHeadline">Checking current work…</strong><span id="activitySummary">Loading verified activity</span></div></div><nav id="activityTabs" class="activity-tabs" aria-label="Activity filters"></nav><div id="activityItems" class="activity-items"><p>Loading tasks, recoveries, approvals, and outcomes…</p></div></section>
     <section class="priority-card inbox-card" id="maintenanceInbox" aria-live="polite"><div class="section-title"><strong>ACTIVITY &amp; OUTCOMES</strong><button id="inboxRefresh" type="button">Refresh</button></div><div id="inboxItems"><p>Loading current, completed, blocked, and resumable work…</p></div></section>
     <section class="priority-card command-card" id="commandCenter" aria-live="polite">
       <div class="section-title"><strong>TODAY’S COMMAND CENTER</strong><button id="commandRefresh" type="button">Refresh</button></div>
@@ -85,6 +87,7 @@
   <script type="module" src="/command-center.js"></script>
   <script type="module" src="/deal-workspace.js"></script>
   <script type="module" src="/proactive.js"></script>
+  <script type="module" src="/activity.js"></script>
   <script type="module" src="/pwa.js"></script>
 </body>
 </html>
