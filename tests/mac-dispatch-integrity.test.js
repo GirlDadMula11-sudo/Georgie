@@ -3,11 +3,10 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
-import { compactJobStore, enqueueMacJob, claimMacJobs, checkpointMacJob, completeMacJob, importRecoveredMacJob, listMacJobs, reconcileMacDispatches, recoverLongRunningMacJob, repairRecoveredMailboxPayload, resumeFailedMacJob, versionRecoverableMailboxJob } from "../src/mac/queue.js";
-
 // Node runs test files concurrently. Give this entire file a private physical
 // queue so another suite cannot restore or claim its exact preserved job ID.
-process.env.GEORGIE_DATA_DIR = path.join(os.tmpdir(), `georgie-mac-dispatch-integrity-${process.pid}`);
+process.env.GEORGIE_DATA_DIR = path.join(os.tmpdir(), `georgie-mac-dispatch-integrity-${process.pid}-${crypto.randomUUID()}`);
+const { compactJobStore, enqueueMacJob, claimMacJobs, checkpointMacJob, completeMacJob, importRecoveredMacJob, listMacJobs, reconcileMacDispatches, recoverLongRunningMacJob, repairRecoveredMailboxPayload, resumeFailedMacJob, versionRecoverableMailboxJob } = await import("../src/mac/queue.js");
 
 test("Rojo install-and-build receives a long-running claim lease",async()=>{
   const nonce=`${Date.now()}-${Math.random()}`,userId=`rojo-lease-${nonce}`,deviceId=`lease-test-mac-${nonce}`;
