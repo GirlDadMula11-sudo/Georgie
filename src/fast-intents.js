@@ -451,7 +451,7 @@ export function deterministicToolPlan(input = "") {
   // user explicitly asks to search/inspect source. Broad requests to repair, strengthen,
   // upgrade, sophisticate, or improve Georgie must reach the normal planner so it can
   // decompose the objective, select multiple tools, verify work, recover, and continue.
-  const explicitDeveloperSourceSearch = /\b(?:search|grep|find|locate|inspect source|inspect code|search source|search code)\b/.test(lower)
+  const explicitDeveloperSourceSearch = /\b(?:search|grep|find|locate|inspect source|inspect code|search source|search code|analy[sz]e (?:the )?(?:georgie )?(?:source|code|codebase|architecture))\b/.test(lower)
     && /\b(?:georgie|repo|repository|codebase|architecture)\b/.test(lower)
     && /\b(?:reliability|silent|working|tool|continuity|completion|failure|weakness|crash)\b/.test(lower);
   if (explicitDeveloperSourceSearch) return [{tool:"developer.search",args:{repo:null,query:"completeTurnV2|respond/stream|sendTextTurn|isBusy|appendSessionTurn|executePlannedActions|verifiedDirectResponse|planActions|queueMacAndWait|recordTurnEvaluation|restoreSession|backgroundLearn"}}];
