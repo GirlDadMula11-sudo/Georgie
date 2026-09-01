@@ -14,7 +14,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.59";
+const AGENT_VERSION = "2.2.60";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -319,7 +319,10 @@ end tell`);
   if (sessionState === "CONFLICT") return { stage: "direct_session_conflict", error: "ROBLOX_STUDIO_UNRELATED_DOCUMENT_OPEN", errorCode: null, topology: conflicts.join("\n").slice(0, 6000), controlStrategy: "launch_services_clean_session", compiled: false, executionMode: "direct_launch_services" };
   if (sessionState === "SAFE") {
     await runAppleScript('tell application "RobloxStudio" to activate\ntell application "System Events" to key code 53').catch(() => {});
-    await runAppleScript('tell application "RobloxStudio" to quit');
+    // A verified blank Studio shell can still surface a native save/cancel
+    // response when asked to quit. Treat that response as a soft failure and
+    // continue into the already-bounded process check/termination fallback.
+    await runAppleScript('tell application "RobloxStudio" to quit').catch(() => {});
     const quitDeadline = Date.now() + 15000;
     while (Date.now() < quitDeadline && await robloxStudioProcessRunning()) await delay(250);
     if (await robloxStudioProcessRunning()) {
