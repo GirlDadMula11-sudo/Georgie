@@ -5,6 +5,7 @@ const clean = value => String(value || "").trim();
 const APPROVAL_PATTERNS = [
   /^(?:yes[,.!]?\s*)?(?:so\s+)?(?:complete|proceed|execute|apply|finish|do)\s+(?:it|that|the plan|the repair)(?:\s+now)?[,.!;:\s-]*(?:you have|with|i give|this is)\s+(?:my\s+)?approval\b/i,
   /^(?:approved|i approve|you have my approval)(?:\s+(?:it|that|the plan|the repair))?[.!]?$/i,
+  /^(?:approved|i approve|you have my approval)[,.!;:\s-]+(?:please\s+)?(?:let me know|tell me|notify me|confirm)(?:\s+to me)?\s+when\s+(?:it(?:['’]s| is)|that(?:['’]s| is)|the (?:email|message)(?: is)?)\s+(?:sent|done|completed)[.!]?$/i,
   /^(?:yes[,.!]?\s*)?(?:you are|you're|youre)\s+approved\s+to\s+(?:fix|repair|complete|finish|execute|apply|do|proceed\s+with)\s+(?:it|that|the plan|the repair)(?:\s+now)?[.!]?$/i,
   /^(?:yes[,.!]?\s*)?i\s+(?:hereby\s+)?approve\s+(?:you\s+to\s+)?(?:fix|repair|complete|finish|execute|apply|do|proceed\s+with)\s+(?:it|that|the plan|the repair)(?:\s+now)?[.!]?$/i,
   /^(?:yes[,.!]?\s*)?(?:go ahead|move forward)\s+(?:and\s+)?(?:fix|repair|complete|finish|execute|apply|do)\s+(?:it|that|the plan|the repair)[,.!;:\s-]*(?:you are|you're|youre)\s+approved(?:\s+to\s+do\s+so)?[.!]?$/i
