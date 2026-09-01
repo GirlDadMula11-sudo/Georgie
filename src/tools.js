@@ -221,20 +221,20 @@ defineTool({name:"approvals.continue_latest",description:"Resolve explicit conve
     const governance={approvalId:resolved.approval.id,planId:resolved.plan.id,idempotencyKey:resolved.plan.dispatch?.idempotencyKey||`approval:${resolved.approval.id}:plan:${resolved.plan.id}`};
     await recordApprovalDispatch(userId,resolved.plan.id,{status:"dispatching"});
     const result=await target.run({userId,args:{...(resolved.execution.args||{}),_governance:governance}});
-    const dispatchReceipt=result?.dispatchReceipt||null;
-    if(resolved.execution.tool.startsWith("mac.")&&!dispatchReceipt)throw new Error("Approved Mac execution did not produce a durable dispatch receipt");
-    await recordApprovalDispatch(userId,resolved.plan.id,{status:"accepted",receipt:dispatchReceipt||{acceptedAt:new Date().toISOString(),tool:resolved.execution.tool}});
+    const dispatchReceipt=approvalDispatchReceipt(resolved.execution.tool,result);
+    await recordApprovalDispatch(userId,resolved.plan.id,{status:"accepted",receipt:dispatchReceipt});
     const verification=[];for(const check of resolved.execution.verification||[]){const verifyTool=registry.get(check.tool);if(!verifyTool){verification.push({ok:false,accepted:false,state:"UNKNOWN",tool:check.tool,error:`Required verification tool ${check.tool} is unavailable.`});continue;}try{const verificationResult=await verifyTool.run({userId,args:check.args||{}});const semantic=verifyBusinessOutcome(check.tool,verificationResult,{expect:check.expect});verification.push({ok:true,tool:check.tool,result:verificationResult,...semantic});}catch(error){verification.push({ok:false,accepted:false,state:"UNKNOWN",tool:check.tool,error:error instanceof Error?error.message:String(error)});}}
     const nonTerminalStatuses=new Set(['queued','pending','accepted','running','in_progress']);
     const resultStatus=String(result?.status||'').toLowerCase();
     const nestedStatuses=Array.isArray(result?.lanes)?result.lanes.map(item=>String(item?.status||'').toLowerCase()):[];
     const terminal=!nonTerminalStatuses.has(resultStatus)&&!nestedStatuses.some(status=>nonTerminalStatuses.has(status));
     const executionSemantic=verifyBusinessOutcome(resolved.execution.tool,result,{expect:resolved.execution.expect});
-    const verificationSatisfied=verification.length>0?verification.every(item=>item.ok&&item.accepted):resolved.execution.tool==="mac.browser_workflow"&&executionSemantic.accepted;
+    const receiptVerified=resolved.execution.tool==="email.send"&&Boolean(dispatchReceipt?.messageId)&&dispatchReceipt.accepted?.length>0;
+    const verificationSatisfied=verification.length>0?verification.every(item=>item.ok&&item.accepted):receiptVerified||resolved.execution.tool==="mac.browser_workflow"&&executionSemantic.accepted;
     const verified=terminal&&executionSemantic.accepted&&verificationSatisfied;
     const status=verified?"verified":terminal?"blocked_incomplete_evidence":"verification_pending";
     await transitionApprovalPlan(userId,resolved.plan.id,{status,executionResult:result,verification});
-    return{ok:verified,status,approvalId:resolved.approval.id,planId:resolved.plan.id,version:resolved.plan.version,executedTool:resolved.execution.tool,result,executionVerification:executionSemantic,verification};
+    return{ok:verified,status,approvalId:resolved.approval.id,planId:resolved.plan.id,version:resolved.plan.version,executedTool:resolved.execution.tool,result,dispatchReceipt,executionVerification:executionSemantic,verification};
   }catch(error){const message=error instanceof Error?error.message:String(error);await recordApprovalDispatch(userId,resolved.plan.id,{status:"retry_wait",error:message});await transitionApprovalPlan(userId,resolved.plan.id,{status:"approved_dispatch_retry",error:message});return{ok:false,status:"approved_dispatch_retry",approvalId:resolved.approval.id,planId:resolved.plan.id,version:resolved.plan.version,executedTool:resolved.execution.tool,error:message};}
 }});
 defineTool({name:"system.objective_worker",description:"Read the durable autonomous objective worker status. The worker runs server-side, resumes checkpoints after restart, uses leases, and remains approval-aware.",risk:"read",async run(){return objectiveWorkerStatus()}});
@@ -308,7 +308,22 @@ export async function executeTool({name,args,userId,policy="low_risk_write",work
 
 let approvalDispatchTimer=null,approvalDispatchBusy=false,approvalDispatchRequested=false;
 const APPROVAL_DISPATCH_RECOVERY_INTERVAL_MS=Math.max(30_000,Math.min(300_000,Number(process.env.GEORGIE_APPROVAL_DISPATCH_RECOVERY_MS||30_000)));
-export function isApprovalDispatchTool(name=""){const tool=String(name||"");return tool.startsWith("mac.")||tool==="developer.snapshot_reconcile_restart_from_main"}
+export function approvalDispatchReceipt(toolName,result){
+  const tool=String(toolName||"");
+  if(tool==="email.send"){
+    const accepted=Array.isArray(result?.accepted)?result.accepted.map(String).filter(Boolean):[];
+    const rejected=Array.isArray(result?.rejected)?result.rejected.map(String).filter(Boolean):[];
+    const messageId=String(result?.messageId||"").trim();
+    if(!messageId||!accepted.length)throw new Error("Email provider did not return a verified delivery-acceptance receipt");
+    return{provider:"smtp",messageId,accepted,rejected,mailboxId:result?.mailboxId||null,from:result?.from||null,to:result?.to||null,subject:result?.subject||"",idempotencyKey:result?.idempotencyKey||null,deduplicated:result?.deduplicated===true,acceptedAt:new Date().toISOString()};
+  }
+  if(tool.startsWith("mac.")){
+    if(!result?.dispatchReceipt)throw new Error("Approved Mac execution did not produce a durable dispatch receipt");
+    return result.dispatchReceipt;
+  }
+  return result?.dispatchReceipt||{acceptedAt:new Date().toISOString(),tool};
+}
+export function isApprovalDispatchTool(name=""){const tool=String(name||"");return tool==="email.send"||tool.startsWith("mac.")||tool==="developer.snapshot_reconcile_restart_from_main"}
 export function approvalDispatchPolicy(){return{mode:"event_driven_with_recovery_sweep",approvalPath:"immediate",idleCloudPolling:false,recoveryIntervalMs:APPROVAL_DISPATCH_RECOVERY_INTERVAL_MS,coalesced:true,idempotent:true}}
 async function runApprovalDispatchSweep(userId=process.env.GEORGIE_PRIMARY_USER_ID||"primary"){
   if(approvalDispatchBusy){approvalDispatchRequested=true;return{coalesced:true,dispatched:[]}}
@@ -323,9 +338,10 @@ async function runApprovalDispatchSweep(userId=process.env.GEORGIE_PRIMARY_USER_
         await recordApprovalDispatch(userId,plan.id,{status:"dispatching"});
         try{
           const result=await target.run({userId,args:{...(plan.execution.args||{}),_governance:{approvalId:plan.approvalId,planId:plan.id,idempotencyKey:plan.dispatch.idempotencyKey}}});
-          if(!result?.dispatchReceipt)throw new Error("Approved Mac execution did not produce a durable dispatch receipt");
-          await recordApprovalDispatch(userId,plan.id,{status:"accepted",receipt:result.dispatchReceipt});
-          dispatched.push({planId:plan.id,approvalId:plan.approvalId,status:"accepted",dispatchReceipt:result.dispatchReceipt});
+          const dispatchReceipt=approvalDispatchReceipt(approvedTool,result);
+          await recordApprovalDispatch(userId,plan.id,{status:"accepted",receipt:dispatchReceipt});
+          if(approvedTool==="email.send")await transitionApprovalPlan(userId,plan.id,{status:"verified",executionResult:result,verification:{verified:true,method:"smtp_provider_acceptance_receipt",receipt:dispatchReceipt}});
+          dispatched.push({planId:plan.id,approvalId:plan.approvalId,status:"accepted",dispatchReceipt});
         }catch(error){
           const message=error instanceof Error?error.message:String(error);
           await recordApprovalDispatch(userId,plan.id,{status:"retry_wait",error:message,retryDelayMs:Math.min(30_000,1000*2**Math.min(Number(plan.dispatch?.attempts||0),5))});

@@ -103,7 +103,10 @@ async function executePlannedActions(userId,input,{sessionId="native",history=[]
     const directEnrollment=action.tool==="system.create_enrollment_code"&&explicitEnrollmentCode(input);
     const policy=directEmail?"external_side_effect":directMacInspection||directApproval||directEnrollment?"sensitive_write":basePolicy;
     const args=action.tool==="approvals.prepare_plan"||action.tool==="approvals.continue_latest"?{...(action.args||{}),sessionId}:action.args||{};
-    const result=await executeTool({name:action.tool,args,userId,policy});
+    let result;
+    if(action.tool==="email.send"&&!directEmail){
+      result=await executeTool({name:"approvals.prepare_plan",args:{sessionId,title:`Send email to ${action.args?.to||"the approved recipient"}`,summary:`Send exactly one email through ${action.args?.mailboxId||"work"} mail with the bounded recipient, subject, and body retained in this approval.`,steps:["Dispatch the exact retained email once using the approval-bound idempotency key.","Require the SMTP provider message ID and at least one accepted recipient.","Persist the provider receipt before reporting success."],execution:{tool:"email.send",args:action.args||{}},domain:"email",risk:"high",reversible:false,verificationMethod:"SMTP provider acceptance receipt with messageId and accepted recipient.",rollbackPlan:"Email delivery cannot be rolled back; idempotency prevents duplicate replay."},userId,policy:basePolicy});
+    }else result=await executeTool({name:action.tool,args,userId,policy});
     writeResults.push(result);
     emit({type:"status",stage:"tool_complete",message:`${action.tool} ${result?.ok===false?"failed":"finished"}.`,tool:action.tool,ok:result?.ok!==false});
   }
