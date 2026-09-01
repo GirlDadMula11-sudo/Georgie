@@ -14,7 +14,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.61";
+const AGENT_VERSION = "2.2.62";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -336,17 +336,17 @@ end tell`);
   // document. Attach the exact artifact in the initial launch request so the
   // clean session has a durable document from its first process lifecycle.
   let attachmentAttempts = 1;
-  await execFileAsync("/usr/bin/open", ["-n", "-a", "RobloxStudio", expectedArtifactUrl], { timeout: 30000, maxBuffer: 1024 * 1024 });
+  await execFileAsync("/usr/bin/open", ["-n", "-a", "RobloxStudio", expectedArtifact], { timeout: 30000, maxBuffer: 1024 * 1024 });
   if (!await waitForAppProcess("RobloxStudio", 15000)) {
     attachmentAttempts = 2;
-    await execFileAsync("/usr/bin/open", ["-a", "RobloxStudio", expectedArtifactUrl], { timeout: 30000, maxBuffer: 1024 * 1024 });
+    await execFileAsync("/usr/bin/open", ["-a", "RobloxStudio", expectedArtifact], { timeout: 30000, maxBuffer: 1024 * 1024 });
     if (!await waitForAppProcess("RobloxStudio", 15000)) return { stage: "direct_process_wait", error: "ROBLOX_STUDIO_NOT_RUNNING", errorCode: null, topology: "", controlStrategy: "launch_services_file_url_attachment", compiled: false, executionMode: "direct_launch_services", attachmentAttempts };
   }
   await delay(1500);
   let studioWindow = await waitForRobloxStudioArtifactWindow(expectedArtifact, 15000);
   if (!studioWindow.ready && attachmentAttempts < 2) {
     attachmentAttempts = 2;
-    await execFileAsync("/usr/bin/open", ["-a", "RobloxStudio", expectedArtifactUrl], { timeout: 30000, maxBuffer: 1024 * 1024 });
+    await execFileAsync("/usr/bin/open", ["-a", "RobloxStudio", expectedArtifact], { timeout: 30000, maxBuffer: 1024 * 1024 });
     studioWindow = await waitForRobloxStudioArtifactWindow(expectedArtifact, 15000);
   }
   if (!studioWindow.ready) return { stage: "direct_file_url_attachment_wait", error: "ROBLOX_STUDIO_DIRECT_DOCUMENT_NOT_READY", errorCode: null, topology: studioWindow.windowNames.slice(0, 6000), controlStrategy: "launch_services_file_url_attachment", compiled: false, executionMode: "direct_launch_services", attachmentAttempts: 2 };
