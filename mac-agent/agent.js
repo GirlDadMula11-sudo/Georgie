@@ -13,7 +13,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.57";
+const AGENT_VERSION = "2.2.58";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -305,6 +305,11 @@ end tell`);
     await runAppleScript('tell application "RobloxStudio" to quit');
     const quitDeadline = Date.now() + 15000;
     while (Date.now() < quitDeadline && await robloxStudioProcessRunning()) await delay(250);
+    if (await robloxStudioProcessRunning()) {
+      await execFileAsync("/usr/bin/pkill", ["-TERM", "-x", "RobloxStudio"], { timeout: 5000, maxBuffer: 1024 * 1024 }).catch(() => {});
+      const terminateDeadline = Date.now() + 10000;
+      while (Date.now() < terminateDeadline && await robloxStudioProcessRunning()) await delay(250);
+    }
     if (await robloxStudioProcessRunning()) return { stage: "direct_session_quit_blocked", error: "ROBLOX_STUDIO_CLEAN_RESTART_BLOCKED", errorCode: null, topology: "", controlStrategy: "launch_services_clean_session", compiled: false, executionMode: "direct_launch_services" };
   }
   await execFileAsync("/usr/bin/open", ["-n", "-a", "RobloxStudio", expectedArtifact], { timeout: 30000, maxBuffer: 1024 * 1024 });
