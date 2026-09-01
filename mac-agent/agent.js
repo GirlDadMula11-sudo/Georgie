@@ -14,7 +14,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.64";
+const AGENT_VERSION = "2.2.65";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -523,19 +523,45 @@ set value of attribute "AXValue" of pathField to expectedArtifact
 set currentStage to "path_confirm"
 try
 perform action "AXConfirm" of pathField
-on error
-key code 36
 end try
-set currentStage to "go_to_folder_dismiss_wait"
-repeat 30 times
+-- AXConfirm can merely accept the highlighted path completion while leaving
+-- the Go to Folder sheet visible. Confirm the visible sheet separately, then
+-- prove that exact sheet is gone before interacting with the outer panel.
+set currentStage to "go_to_folder_confirm_wait"
+repeat 10 times
+set goSheetStillOpen to false
 try
-if (count of sheets of openPanel) is 0 then exit repeat
+if exists goSheet then set goSheetStillOpen to true
 end try
+if goSheetStillOpen is false then exit repeat
 delay 0.1
 end repeat
+if goSheetStillOpen then
+set currentStage to "go_to_folder_return_confirm"
+key code 36
+end if
+set currentStage to "go_to_folder_dismiss_wait"
+repeat 40 times
+set goSheetStillOpen to false
 try
-if (count of sheets of openPanel) > 0 then error "ROBLOX_STUDIO_GO_TO_FOLDER_SHEET_STUCK"
+if exists goSheet then set goSheetStillOpen to true
 end try
+if goSheetStillOpen is false then exit repeat
+delay 0.1
+end repeat
+if goSheetStillOpen then
+set currentStage to "go_to_folder_second_return_confirm"
+key code 36
+repeat 20 times
+set goSheetStillOpen to false
+try
+if exists goSheet then set goSheetStillOpen to true
+end try
+if goSheetStillOpen is false then exit repeat
+delay 0.1
+end repeat
+end if
+if goSheetStillOpen then error "ROBLOX_STUDIO_GO_TO_FOLDER_SHEET_STUCK"
 -- The exact file is selected after Go to Folder. Native open panels accept
 -- Return as their default Open action even when AXDefaultButton is absent.
 set currentStage to "open_keyboard_default_press"
