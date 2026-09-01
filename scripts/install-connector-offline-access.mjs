@@ -19,7 +19,7 @@ const oauth = patch("src/connector-oauth.js", source => {
 });
 
 if (!oauth.includes('"offline_access"')) throw new Error("offline_access was not installed into OAuth metadata");
-if (!oauth.includes('georgie:command georgie:status offline_access')) throw new Error("offline_access default authorization scope missing");
+if (!oauth.includes('georgie:command georgie:status offline_access') && !oauth.includes('`${READ_SCOPE} offline_access`')) throw new Error("offline_access default authorization scope missing");
 
 const readiness = patch("scripts/check-connector-readiness.mjs", source => {
   if (source.includes('offlineAccessAdvertised')) return source;
