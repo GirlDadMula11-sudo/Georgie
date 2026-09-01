@@ -477,7 +477,7 @@ test("SEO autopilot wake and status remain bound to the scheduling user namespac
 
 test("SEO repair opens only the allowlisted Sierra admin origin before mutation", () => {
   const source=fs.readFileSync(new URL("../mac-agent/agent.js",import.meta.url),"utf8");
-  assert.match(source,/AGENT_VERSION = "2\.2\.67"/);
+  assert.match(source,/AGENT_VERSION = "2\.2\.68"/);
   assert.match(source,/execFileAsync\("open", \["-a", "Google Chrome", "https:\/\/sierramarketinginc\.com\/wp-admin\/"\]/);
   assert.match(source,/WORDPRESS_REPAIR_SITE_REJECTED/);
 });
