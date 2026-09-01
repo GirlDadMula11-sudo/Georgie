@@ -14,7 +14,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.60";
+const AGENT_VERSION = "2.2.61";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -332,15 +332,22 @@ end tell`);
     }
     if (await robloxStudioProcessRunning()) return { stage: "direct_session_quit_blocked", error: "ROBLOX_STUDIO_CLEAN_RESTART_BLOCKED", errorCode: null, topology: "", controlStrategy: "launch_services_clean_session", compiled: false, executionMode: "direct_launch_services" };
   }
-  await execFileAsync("/usr/bin/open", ["-n", "-a", "RobloxStudio"], { timeout: 30000, maxBuffer: 1024 * 1024 });
-  if (!await waitForAppProcess("RobloxStudio", 15000)) return { stage: "direct_process_wait", error: "ROBLOX_STUDIO_NOT_RUNNING", errorCode: null, topology: "", controlStrategy: "launch_services_clean_session", compiled: false, executionMode: "direct_launch_services" };
+  // Studio can exit immediately when Launch Services starts it without a
+  // document. Attach the exact artifact in the initial launch request so the
+  // clean session has a durable document from its first process lifecycle.
+  let attachmentAttempts = 1;
+  await execFileAsync("/usr/bin/open", ["-n", "-a", "RobloxStudio", expectedArtifactUrl], { timeout: 30000, maxBuffer: 1024 * 1024 });
+  if (!await waitForAppProcess("RobloxStudio", 15000)) {
+    attachmentAttempts = 2;
+    await execFileAsync("/usr/bin/open", ["-a", "RobloxStudio", expectedArtifactUrl], { timeout: 30000, maxBuffer: 1024 * 1024 });
+    if (!await waitForAppProcess("RobloxStudio", 15000)) return { stage: "direct_process_wait", error: "ROBLOX_STUDIO_NOT_RUNNING", errorCode: null, topology: "", controlStrategy: "launch_services_file_url_attachment", compiled: false, executionMode: "direct_launch_services", attachmentAttempts };
+  }
   await delay(1500);
-  let studioWindow = { ready: false, matched: false, windowNames: "", windowTitle: "", documentPath: "" };
-  let attachmentAttempts = 0;
-  for (attachmentAttempts = 1; attachmentAttempts <= 2; attachmentAttempts += 1) {
+  let studioWindow = await waitForRobloxStudioArtifactWindow(expectedArtifact, 15000);
+  if (!studioWindow.ready && attachmentAttempts < 2) {
+    attachmentAttempts = 2;
     await execFileAsync("/usr/bin/open", ["-a", "RobloxStudio", expectedArtifactUrl], { timeout: 30000, maxBuffer: 1024 * 1024 });
     studioWindow = await waitForRobloxStudioArtifactWindow(expectedArtifact, 15000);
-    if (studioWindow.ready) break;
   }
   if (!studioWindow.ready) return { stage: "direct_file_url_attachment_wait", error: "ROBLOX_STUDIO_DIRECT_DOCUMENT_NOT_READY", errorCode: null, topology: studioWindow.windowNames.slice(0, 6000), controlStrategy: "launch_services_file_url_attachment", compiled: false, executionMode: "direct_launch_services", attachmentAttempts: 2 };
   return { stage: "direct_document_verified", error: null, errorCode: null, topology: "", controlStrategy: "launch_services_file_url_attachment", compiled: false, executionMode: "direct_launch_services", attachmentAttempts, studioWindow };
