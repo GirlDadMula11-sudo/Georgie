@@ -1,5 +1,6 @@
 const DEFAULT_REQUIRED=20;
 const DEFAULT_MAX_LATENCY_MS=15000;
+export { certifyPremiumCore, premiumCoreCertificationPlan, premiumObjectiveAnchor, objectiveAnchorMatches, PREMIUM_CORE_STANDARD } from "./premium-core-certification.js";
 
 export function certifyReliability(samples=[],options={}){
   const required=Math.max(5,Number(options.required||DEFAULT_REQUIRED));

@@ -12,6 +12,7 @@ import { resourceGovernorStatus } from "./resource-governor.js";
 import { listDomainPacks } from "./domain-packs.js";
 import { investmentCapabilityContract } from "./investment-intelligence.js";
 import { masterCloserContract } from "./master-closer.js";
+import { premiumCoreCertificationPlan } from "./premium-core-certification.js";
 import { seoContentPipelineContract } from "./seo-content-pipeline.js";
 import { deploymentControlStatus } from "./integrations/deployment-control.js";
 import { seoIntegrationStatus, websiteControlStatus } from "./integrations/seo-ops.js";
@@ -111,6 +112,7 @@ export function getCapabilityManifest() {
       explicitUnknownStates: true,
       writesEnabledByThisLayer: false
     },
+    premiumOperatingCore: premiumCoreCertificationPlan(),
     universalCapabilities: {
       reasoning: ["analysis", "planning", "comparison", "scenario_testing", "counterargument", "uncertainty_calibration", "decision_support"],
       knowledgeWork: ["web_research", "document_reasoning", "technical_assistance", "learning_and_explanation", "writing", "creative_development"],
