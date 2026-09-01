@@ -1,0 +1,10 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { handoffConnectorInput, normalizeAgentHandoff, reconcileHandoffStatus } from "../src/agent-handoff-protocol.js";
+
+const base={objectiveId:"obj_sierra_shadow_001",sequenceNumber:2,objective:"Review one Sierra deal using verified evidence only.",requiredCapabilities:["sierra.deal.read"],acceptanceCriteria:["Every material claim has evidence"],evidenceRequirements:["Authoritative deal read-back"],budget:{maxSteps:12,maxRuntimeSeconds:900},expiresAt:"2026-09-02T20:00:00.000Z"};
+
+test("versioned handoff normalizes to a stable bounded connector identity",()=>{const envelope=normalizeAgentHandoff(base,Date.parse("2026-09-01T20:00:00.000Z")),input=handoffConnectorInput(base,Date.parse("2026-09-01T20:00:00.000Z"));assert.equal(envelope.protocol,"georgie-handoff.v1");assert.equal(envelope.idempotencyKey,"handoff:obj_sierra_shadow_001:v2");assert.equal(input.metadata.agent_handoff.integrityHash,envelope.integrityHash);});
+test("expired and secret-bearing handoffs fail closed",()=>{assert.throws(()=>normalizeAgentHandoff({...base,expiresAt:"2026-08-01T00:00:00Z"},Date.parse("2026-09-01T20:00:00Z")),/expired/i);assert.throws(()=>normalizeAgentHandoff({...base,scope:{apiToken:"secret"}},Date.parse("2026-09-01T20:00:00Z")),/secret-shaped/i);});
+test("v1 rejects dynamic or unknown capability requests before dispatch",()=>{assert.throws(()=>normalizeAgentHandoff({...base,requiredCapabilities:["arbitrary.admin.write"]},Date.parse("2026-09-01T20:00:00Z")),/CAPABILITY_MISMATCH/);});
+test("execution is not reported as verified without independent read-back",()=>{const state=reconcileHandoffStatus({id:"cmd_1",objectiveId:base.objectiveId,status:"completed",metadata:{agent_handoff:base},receipts:[{receiptId:"r1"}]});assert.equal(state.state,"executed_unverified");assert.equal(state.completionClaimAllowed,false);const verified=reconcileHandoffStatus({id:"cmd_1",objectiveId:base.objectiveId,status:"completed",verificationState:"verified",receipts:[{receiptId:"r1"}]});assert.equal(verified.state,"verified");assert.equal(verified.completionClaimAllowed,true);});

@@ -62,6 +62,23 @@ test("connector dispatches once and returns objective and evidence receipts", as
   assert.deepEqual(statuses, ["accepted", "running", "completed"]);
 });
 
+test("newer handoff versions fence stale or conflicting sequences", async()=>{
+  const connector=harness({executeCommand:async()=>new Promise(()=>{})});
+  await connector.submit("sequence-test",{source:"chatgpt",objectiveId:"obj_sequence_test",idempotencyKey:"sequence-v2",command:"Run version two",metadata:{agent_handoff:{sequenceNumber:2}}});
+  await assert.rejects(()=>connector.submit("sequence-test",{source:"chatgpt",objectiveId:"obj_sequence_test",idempotencyKey:"sequence-v1",command:"Run stale version",metadata:{agent_handoff:{sequenceNumber:1}}}),/STALE_HANDOFF_SEQUENCE/);
+  await assert.rejects(()=>connector.submit("sequence-test",{source:"chatgpt",objectiveId:"obj_sequence_test",idempotencyKey:"sequence-v2-conflict",command:"Run conflicting version",metadata:{agent_handoff:{sequenceNumber:2}}}),/HANDOFF_SEQUENCE_CONFLICT/);
+});
+
+test("objective revocation fences a running lease from later completion",async()=>{
+  let release;const gate=new Promise(resolve=>{release=resolve;});
+  const connector=harness({executeCommand:async()=>{await gate;return{text:"late result",terminalState:"completed"};}});
+  const accepted=await connector.submit("revoke-test",{source:"chatgpt",objectiveId:"obj_revoke_test",idempotencyKey:"revoke-v1",command:"Run bounded work",metadata:{agent_handoff:{sequenceNumber:1}}});
+  await waitFor(connector,"revoke-test",accepted.commandId,["running"]);
+  const revoked=await connector.revoke("revoke-test","obj_revoke_test","Owner revoked test objective");assert.equal(revoked.status,"revoked");
+  release();await new Promise(resolve=>setTimeout(resolve,20));
+  const stored=await connector.status("revoke-test",accepted.commandId);assert.equal(stored.status,"cancelled");assert.equal(stored.lease.status,"cancelled");
+});
+
 test("typed connector results remain available through the return channel", async () => {
   const connector = harness({ executeCommand: async () => assert.fail("typed command entered prose router") });
   const first = await connector.submit("typed-result-return", mailboxEnvelope({ idempotencyKey: "typed-result-return-1" }));

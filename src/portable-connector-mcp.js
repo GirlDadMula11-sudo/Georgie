@@ -4,12 +4,20 @@ import { createGovernedConnector } from "./governed-connector.js";
 import { verifyConnectorAccessToken } from "./connector-oauth.js";
 import { getMailboxEvidencePacket, listMailboxPacketManifests } from "./mailbox-evidence-bridge.js";
 import { getCapabilityManifest } from "./capability-manifest.js";
+import { AGENT_HANDOFF_CAPABILITIES, handoffConnectorInput, reconcileHandoffStatus } from "./agent-handoff-protocol.js";
 
 const SERVER = { name: "georgie-governed-connector-r2", version: "2.4.3" };
 const PROTOCOL = "2025-03-26";
 const clean = (value, max = 6000) => String(value || "").trim().slice(0, max);
 
 export const GEORGIE_CONNECTOR_TOOLS = Object.freeze([
+  {
+    name: "georgie_submit_handoff",
+    title: "Submit a versioned objective handoff",
+    description: "Commit one bounded, versioned Codex or ChatGPT objective to Georgie's durable executor with explicit capabilities, authority, budgets, expiry, acceptance criteria, and evidence requirements.",
+    inputSchema: { type: "object", additionalProperties: false, required: ["objectiveId", "sequenceNumber", "objective"], properties: { objectiveId:{type:"string",minLength:6,maxLength:160},sequenceNumber:{type:"integer",minimum:1},objective:{type:"string",minLength:1,maxLength:6000},scope:{type:"object"},constraints:{type:"array",items:{type:"string"}},requiredCapabilities:{type:"array",items:{type:"string"}},acceptanceCriteria:{type:"array",items:{type:"string"}},evidenceRequirements:{type:"array",items:{type:"string"}},authority:{type:"object"},budget:{type:"object"},issuedAt:{type:"string"},expiresAt:{type:"string"},leaseSeconds:{type:"integer",minimum:30,maximum:1800},idempotencyKey:{type:"string",maxLength:200} } },
+    annotations: { readOnlyHint:false,destructiveHint:false,openWorldHint:false,idempotentHint:true }
+  },
   {
     name: "georgie_dispatch_command",
     title: "Dispatch a governed Georgie command",
@@ -30,6 +38,20 @@ export const GEORGIE_CONNECTOR_TOOLS = Object.freeze([
     description: "Use this when the user wants the current status, events, or evidence receipts for a previously dispatched Georgie command.",
     inputSchema: { type: "object", additionalProperties: false, required: ["commandId"], properties: { commandId: { type: "string", minLength: 1, maxLength: 160 } } },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false, idempotentHint: true },
+  },
+  {
+    name:"georgie_get_objective",
+    title:"Reconcile a Georgie objective",
+    description:"Return the latest version, lease, history, evidence receipts, and verified-versus-executed state for one durable objective.",
+    inputSchema:{type:"object",additionalProperties:false,required:["objectiveId"],properties:{objectiveId:{type:"string",minLength:6,maxLength:160}}},
+    annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false,idempotentHint:true}
+  },
+  {
+    name:"georgie_revoke_objective",
+    title:"Revoke a Georgie objective",
+    description:"Fence all nonterminal execution for one exact objective at the next durable checkpoint. This does not reverse already completed external effects.",
+    inputSchema:{type:"object",additionalProperties:false,required:["objectiveId"],properties:{objectiveId:{type:"string",minLength:6,maxLength:160},reason:{type:"string",maxLength:1000}}},
+    annotations:{readOnlyHint:false,destructiveHint:true,openWorldHint:false,idempotentHint:true}
   },
   {
     name: "georgie_capability_manifest",
@@ -73,6 +95,10 @@ export function createPortableMcpHandler({ connector, userId = "primary" } = {})
     if (method !== "tools/call") return { jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } };
     const name = clean(message.params?.name, 100); const args = message.params?.arguments || {};
     try {
+      if(name==="georgie_submit_handoff"){
+        const result=await connector.submit(userId,handoffConnectorInput(args));
+        return{jsonrpc:"2.0",id,result:textResult({...result,handoff:reconcileHandoffStatus({...result,id:result.commandId,metadata:{agent_handoff:args}})},result.duplicate?"The existing handoff version was reused without duplicate execution.":"Georgie durably accepted the versioned objective handoff.")};
+      }
       if (name === "georgie_dispatch_command") {
         const result = await connector.submit(userId, { ...args, source: "openai" });
         return { jsonrpc: "2.0", id, result: textResult(result, result.duplicate ? "The existing Georgie command was reused; no duplicate was created." : "Georgie durably accepted the governed command and returned its execution lease before deep work.") };
@@ -86,9 +112,18 @@ export function createPortableMcpHandler({ connector, userId = "primary" } = {})
         if (!command) return { jsonrpc: "2.0", id, result: textResult({ found: false, commandId: clean(args.commandId, 160) }, "That Georgie command was not found.", true) };
         return { jsonrpc: "2.0", id, result: textResult({ found: true, command }, `Georgie command ${command.id} is ${command.status}.`) };
       }
+      if(name==="georgie_get_objective"){
+        const objective=await connector.objectiveStatus(userId,clean(args.objectiveId,160));
+        if(!objective)return{jsonrpc:"2.0",id,result:textResult({found:false,objectiveId:clean(args.objectiveId,160)},"That Georgie objective was not found.",true)};
+        return{jsonrpc:"2.0",id,result:textResult({found:true,objective,reconciliation:reconcileHandoffStatus(objective.current)},`Georgie objective ${objective.objectiveId} is ${objective.current.status}.`)};
+      }
+      if(name==="georgie_revoke_objective"){
+        const result=await connector.revoke(userId,clean(args.objectiveId,160),clean(args.reason,1000)||"Revoked by authorized coordinator");
+        return{jsonrpc:"2.0",id,result:textResult(result,result.revoked?"Georgie fenced the objective at its durable execution boundary.":"The objective was already terminal; no execution was changed.")};
+      }
       if (name === "georgie_capability_manifest") {
         const manifest = getCapabilityManifest();
-        return { jsonrpc: "2.0", id, result: textResult({ manifest }, `Georgie live runtime is ${manifest?.sessionRuntime?.unifiedOperatingRuntime || "unknown"}.`) };
+        return { jsonrpc: "2.0", id, result: textResult({ manifest,agentHandoffV1:{protocol:"georgie-handoff.v1",capabilities:AGENT_HANDOFF_CAPABILITIES,dynamicNegotiation:false,credentialsTransferred:false} }, `Georgie live runtime is ${manifest?.sessionRuntime?.unifiedOperatingRuntime || "unknown"}.`) };
       }
       if (name === "georgie_mailbox_packet_manifests") {
         const manifests = await listMailboxPacketManifests(userId, args);

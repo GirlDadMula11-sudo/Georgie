@@ -595,7 +595,7 @@ export function createGovernedConnector({ executeCommand, emitStatus = async () 
   async function record(userId, command, status, payload = {}, claim = null) {
     const recorded = await exclusive(userId, async () => {
       const state = await read(userId), item = state.commands.find(row => row.id === command.id), lease = leaseFor(state, command.id);
-      if (claim && (!lease || lease.id !== claim.id || lease.owner !== workerId || Number(lease.generation) !== Number(claim.generation))) throw new Error("LEASE_FENCED: execution ownership changed before terminalization");
+      if (claim && (!lease || lease.id !== claim.id || lease.owner !== workerId || Number(lease.generation) !== Number(claim.generation) || lease.status === "cancelled")) throw new Error("LEASE_FENCED: execution ownership changed before terminalization");
       if (item) {
         item.status = status;
         item.updatedAt = now();
@@ -670,7 +670,12 @@ export function createGovernedConnector({ executeCommand, emitStatus = async () 
       const state=await read(userId),id=commandId(userId,envelope.source,envelope.idempotencyKey),existing=state.commands.find(row=>row.id===id);
       if(existing){command=existing;duplicate=true;lease=leaseFor(state,id);return;}
       const objective=objectiveId(userId,envelope.source,envelope.objectiveId,envelope.command);
+      const sequenceNumber=Math.max(1,Math.trunc(Number(envelope.metadata?.agent_handoff?.sequenceNumber||envelope.metadata?.sequenceNumber||1)));
+      const latest=state.commands.filter(row=>row.objectiveId===objective&&row.source===envelope.source).sort((a,b)=>Number(b.sequenceNumber||1)-Number(a.sequenceNumber||1))[0];
+      if(latest&&Number(latest.sequenceNumber||1)>sequenceNumber)throw new Error("STALE_HANDOFF_SEQUENCE");
+      if(latest&&Number(latest.sequenceNumber||1)===sequenceNumber&&latest.id!==id)throw new Error("HANDOFF_SEQUENCE_CONFLICT");
       command={id,objectiveId:objective,operatingNodeId:null,...envelope,status:"accepted",attempts:0,createdAt:now(),updatedAt:now()};
+      command.sequenceNumber=sequenceNumber;
       lease=newLease(command);
       state.commands.push(command);
       state.leases.push(lease);
@@ -717,8 +722,17 @@ export function createGovernedConnector({ executeCommand, emitStatus = async () 
     }
     return response;
   }
+  async function objectiveStatus(userId="primary",objectiveIdValue){
+    const state=await read(userId),objective=clean(objectiveIdValue,160),commands=state.commands.filter(row=>row.objectiveId===objective).sort((a,b)=>Number(b.sequenceNumber||1)-Number(a.sequenceNumber||1)||String(b.createdAt).localeCompare(String(a.createdAt)));
+    if(!commands.length)return null;
+    const current=await status(userId,commands[0].id);
+    return{objectiveId:objective,current,history:commands.map(row=>({commandId:row.id,sequenceNumber:Number(row.sequenceNumber||1),status:row.status,createdAt:row.createdAt,updatedAt:row.updatedAt}))};
+  }
+  async function revoke(userId="primary",objectiveIdValue,reason="Revoked by authorized coordinator"){
+    return exclusive(userId,async()=>{const state=await read(userId),objective=clean(objectiveIdValue,160),targets=state.commands.filter(row=>row.objectiveId===objective&&!['completed','blocked','failed','cancelled'].includes(row.status));if(!targets.length)return{objectiveId:objective,revoked:0,alreadyTerminal:true};const stamp=now();for(const command of targets){command.status="cancelled";command.error=clean(reason,1000);command.updatedAt=stamp;const lease=leaseFor(state,command.id);if(lease){lease.status="cancelled";lease.owner=null;lease.expiresAt=stamp;lease.updatedAt=stamp;}state.events.push({id:crypto.randomUUID(),commandId:command.id,objectiveId:objective,status:"cancelled",createdAt:stamp});state.receipts.push(receiptFor(command,"cancelled",{reason:clean(reason,1000)}));}await persist(userId,state);return{objectiveId:objective,revoked:targets.length,status:"revoked"};});
+  }
   async function resume(userId="primary"){const state=await read(userId),pending=state.commands.filter(row=>["accepted","running","recovering","failed"].includes(row.status)),scheduled=[];for(const command of pending){const lease=leaseFor(state,command.id);if(!activeLease(lease)||lease?.status==="queued"){schedule(userId,command);scheduled.push({commandId:command.id,objectiveId:command.objectiveId});}}return scheduled;}
-  return{submit,status,resume,run,acquireOrReturnLease,heartbeatLease};
+  return{submit,status,objectiveStatus,revoke,resume,run,acquireOrReturnLease,heartbeatLease};
 }
 
 function authorized(req) {
