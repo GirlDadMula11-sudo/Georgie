@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { isExplicitConversationalApproval } from "../src/approval-language.js";
-import { deterministicToolPlan } from "../src/fast-intents.js";
+import { deterministicToolPlan, deterministicToolPlanWithHistory, latestDeterministicApprovalPlan } from "../src/fast-intents.js";
 import { preflightExecution } from "../src/approval-continuation.js";
 import { approvalDispatchReceipt, isApprovalDispatchTool, listToolDefinitions } from "../src/tools.js";
 import { verifyBusinessOutcome } from "../src/outcome-verification.js";
@@ -12,6 +12,21 @@ test("natural approval with a request for the send receipt resumes the governed 
   assert.deepEqual(deterministicToolPlan(utterance), [
     { tool: "approvals.continue_latest", args: { utterance } }
   ]);
+});
+
+test("an already-approved email follow-up reconstructs the exact draft and bypasses memory search", () => {
+  const history=[{role:"assistant",content:`I have the approved message ready for Recipient at **recipient@example.com**, but it has **not been sent**.\n\n**Prepared message**  \n**Subject:** Approved follow-up\n\nHi Recipient,\n\nThis is the exact retained test message.\n\nThank you,  \nGeorgie\n\nYour approval is already clear. The remaining step is the actual provider send.`}];
+  const actions=deterministicToolPlanWithHistory("Send the approved message now; I already approved it.",history);
+  assert.deepEqual(actions.map(item=>item.tool),["approvals.prepare_plan","approvals.continue_latest"]);
+  const plan=actions[0].args;
+  assert.equal(plan.execution.tool,"email.send");
+  assert.equal(plan.execution.args.to,"recipient@example.com");
+  assert.equal(plan.execution.args.subject,"Approved follow-up");
+  assert.match(plan.execution.args.text,/Hi Recipient/);
+  assert.doesNotMatch(plan.execution.args.text,/Your approval is already clear/);
+  assert.match(plan.execution.idempotencyKey,/^approved-email:[0-9a-f]{32}$/);
+  assert.equal(actions.some(item=>item.tool==="memory.search"),false);
+  assert.equal(latestDeterministicApprovalPlan(history)?.args?.execution?.idempotencyKey,plan.execution.idempotencyKey);
 });
 
 test("email approval recovery is dispatchable and requires the real SMTP receipt", () => {

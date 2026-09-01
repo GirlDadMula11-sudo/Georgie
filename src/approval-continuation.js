@@ -33,6 +33,11 @@ export function preflightExecution(execution,availableTools=[]){
 
 async function readState(userId){return readCloudState(userId,NS,{version:1,plans:[]});}
 async function saveState(userId,state){const saved=await writeCloudState(userId,NS,{...state,version:1,updatedAt:now(),plans:(state.plans||[]).slice(-200).map(compactPlan)});if(!saved)throw new Error("Durable approval-continuation storage is unavailable");}
+function dispatchKey(plan,approvalId){
+  const supplied=clean(plan?.execution?.idempotencyKey);
+  if(plan?.execution?.tool==="email.send"&&/^approved-email:[0-9a-f]{32}$/.test(supplied))return supplied;
+  return`approval:${approvalId}:plan:${plan.id}`;
+}
 
 export async function prepareApprovalPlan(userId,{sessionId="native",title,summary,steps=[],execution=null,domain="general",risk="high",reversible=false,verificationMethod="",rollbackPlan=""}={}){
   const uid=clean(userId)||"primary",state=await readState(uid),stableKey=crypto.createHash("sha256").update(`${clean(title)}\n${clean(summary)}`).digest("hex").slice(0,24);
@@ -51,7 +56,7 @@ export async function resolveConversationalApproval(userId,input,{sessionId="nat
   const latest=eligible[0],state=await readState(uid),plan=(state.plans||[]).find(item=>item.id===latest.evidence.planId);
   if(!plan)return{ok:false,status:"plan_record_missing",missingTool:"approval.plan_store",error:`Approval ${latest.id} exists, but its durable plan record is missing.`};
   if(plan.sessionId!==clean(sessionId).slice(0,150)&&eligible.length>1)return{ok:false,status:"ambiguous",error:`Approval is ambiguous across ${eligible.length} pending plans. Use an exact approval ID.`};
-  const idempotencyKey=`approval:${latest.id}:plan:${plan.id}`;
+  const idempotencyKey=dispatchKey(plan,latest.id);
   plan.dispatch=plan.dispatch||{idempotencyKey,status:"pending_authorization",createdAt:now(),attempts:0,nextAttemptAt:null,receipt:null,lastError:null};plan.updatedAt=now();await saveState(uid,state);
   const approval=await decideApproval(uid,latest.id,{decision:"approved",note:"Explicit conversational approval resolved to the latest eligible versioned plan."});
   plan.status="approved_dispatch_pending";plan.dispatch={...plan.dispatch,status:"pending",authorizedAt:approval.decidedAt||now(),nextAttemptAt:now()};plan.updatedAt=now();await saveState(uid,state);
@@ -68,7 +73,7 @@ export async function listRecoverableApprovalDispatches(userId,{limit=10}={}){
 export async function approvePlanById(userId,{planId,approvalId,note="Explicit exact-ID plan approval"}={}){
   const uid=clean(userId)||"primary",state=await readState(uid),plan=(state.plans||[]).find(item=>item.id===clean(planId));if(!plan)throw new Error("Exact approval plan was not found");if(plan.approvalId!==clean(approvalId))throw new Error("Approval ID is not bound to the requested plan");
   const pending=await listApprovals(uid,{status:"pending",limit:100}),request=pending.find(item=>item.id===plan.approvalId&&item.evidence?.planId===plan.id);if(!request){const approved=(await listApprovals(uid,{status:"approved",limit:100})).find(item=>item.id===plan.approvalId&&item.evidence?.planId===plan.id);if(approved&&plan.dispatch)return{ok:true,status:plan.status,plan,approval:approved,execution:plan.execution,idempotentReplay:true};throw new Error("Bound approval is not pending or is no longer eligible");}
-  const idempotencyKey=`approval:${request.id}:plan:${plan.id}`;plan.dispatch=plan.dispatch||{idempotencyKey,status:"pending_authorization",createdAt:now(),attempts:0,nextAttemptAt:null,receipt:null,lastError:null};await saveState(uid,state);
+  const idempotencyKey=dispatchKey(plan,request.id);plan.dispatch=plan.dispatch||{idempotencyKey,status:"pending_authorization",createdAt:now(),attempts:0,nextAttemptAt:null,receipt:null,lastError:null};await saveState(uid,state);
   const approval=await decideApproval(uid,request.id,{decision:"approved",note:clean(note).slice(0,1000)});plan.status="approved_dispatch_pending";plan.dispatch={...plan.dispatch,status:"pending",authorizedAt:approval.decidedAt||now(),nextAttemptAt:now()};plan.updatedAt=now();await saveState(uid,state);return{ok:true,status:"approved_dispatch_pending",plan,approval,execution:plan.execution};
 }
 
