@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { readCloudState, writeCloudState } from "./cloud-state.js";
 import { executeTool } from "./tools.js";
 import { recoveryDecision, resetStepAttempts, reliabilityReceipt } from "./operator-reliability-v2.js";
+import { objectiveReliabilityReport } from "./task-reliability-monitor.js";
 
 const NS = "durable_objective_worker_v1";
 const USER = () => process.env.GEORGIE_EXECUTIVE_USER_ID || process.env.GEORGIE_PRIMARY_USER_ID || "primary";
@@ -90,6 +91,11 @@ export async function listScheduledObjectives(userId, { status = "active", limit
     .sort((a,b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, Math.max(1, Math.min(Number(limit)||50,200)));
 }
 
+export async function getObjectiveReliabilityReport(userId = USER(), options = {}) {
+  const store = await readStore(userId);
+  return objectiveReliabilityReport(store.objectives, options);
+}
+
 function priorityWeight(p) { return ({ urgent: 4, high: 3, normal: 2, low: 1 })[p] || 0; }
 function runnable(o, at = Date.now()) {
   if (!["queued", "running", "waiting", "recovering"].includes(o.status)) return false;
@@ -139,7 +145,12 @@ export async function runObjectiveWorkerCycle(userId = USER()) {
 
     const args = { ...step.args };
     if (objective.approvalId) args._governance = { ...(args._governance || {}), approvalId: objective.approvalId, idempotencyKey: `${objective.stableKey}:${step.id}` };
-    const execution = await executeTool({ name: step.tool, args, userId, policy: objective.approvalId ? "external_side_effect" : step.policy });
+    let execution;
+    try {
+      execution = await executeTool({ name: step.tool, args, userId, policy: objective.approvalId ? "external_side_effect" : step.policy });
+    } catch (error) {
+      execution = { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
     if (!execution.ok) {
       objective.lease = null;
       const recovery = recoveryDecision({ stepId: step.id, attemptsByStep: objective.attemptsByStep, maxAttempts: objective.maxAttempts, error: execution.error || execution.blockedBy || "execution_failed", approvalRequired: execution.approvalRequired });
@@ -155,12 +166,20 @@ export async function runObjectiveWorkerCycle(userId = USER()) {
 
     let verification = null;
     if (step.verification) {
-      verification = await executeTool({ name: step.verification.tool, args: step.verification.args, userId, policy: "read" });
+      try {
+        verification = await executeTool({ name: step.verification.tool, args: step.verification.args, userId, policy: "read" });
+      } catch (error) {
+        verification = { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
       const satisfied = verification.ok && expectationMatches(verification.result, step.verification.expect);
       if (!satisfied) {
-        objective.lease = null; objective.status = objective.attempts >= objective.maxAttempts ? "blocked" : "recovering";
-        objective.nextRunAt = new Date(Date.now() + 30_000).toISOString();
-        objective.checkpoint = { ...objective.checkpoint, lastStepId: step.id, lastStatus: objective.status, lastError: "verification_not_satisfied" };
+        const reason = verification.error || "verification_not_satisfied";
+        const recovery = recoveryDecision({ stepId: step.id, attemptsByStep: objective.attemptsByStep, maxAttempts: objective.maxAttempts, error: reason });
+        objective.lease = null; objective.status = recovery.status;
+        objective.nextRunAt = recovery.nextRunAt || objective.nextRunAt;
+        objective.attemptsByStep = { ...objective.attemptsByStep, [step.id]: recovery.attempts };
+        objective.recoveryTrail = [...objective.recoveryTrail, recovery.recoveryEvent].slice(-100);
+        objective.checkpoint = { ...objective.checkpoint, lastStepId: step.id, lastStatus: objective.status, lastError: clean(reason, 1000), lastFailureClass: recovery.failureClass, stepAttempt: recovery.attempts };
         objective.evidence.push({ at: now(), stepId: step.id, tool: step.tool, verificationTool: step.verification.tool, state: "verification_pending" });
         await persistObjective(userId, objective);
         return { status: objective.status, objectiveId: objective.id, step: step.id };
