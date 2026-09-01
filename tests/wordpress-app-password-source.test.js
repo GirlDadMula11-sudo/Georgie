@@ -14,7 +14,7 @@ test("WordPress Application Password capability is committed to distributable so
   const {agent}=handlerSource();
   const connector=fs.readFileSync(new URL("../src/governed-connector.js",import.meta.url),"utf8");
   assert.match(agent,/case "browser\.wordpress_enable_application_passwords"/);
-  assert.match(agent,/const AGENT_VERSION = "2\.2\.64"/);
+  assert.match(agent,/const AGENT_VERSION = "2\.2\.65"/);
   assert.match(connector,/"primary_mac\.browser\.wordpress_security_repair"/);
   assert.match(connector,/action: "browser\.wordpress_enable_application_passwords"/);
   assert.match(connector,/requiredAgentVersion: "2\.2\.35"/);

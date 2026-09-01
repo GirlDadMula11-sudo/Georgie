@@ -19,7 +19,7 @@ const CLOUD_REFRESH_INTERVAL_MS = Math.max(10_000, Math.min(300_000, Number(proc
 const RECEIPT_DEADLINE_MS = Math.max(2_000, Math.min(60_000, Number(process.env.GEORGIE_MAC_RECEIPT_DEADLINE_MS || 10_000)));
 const CLAIM_LEASE_MS = Math.max(5_000, Math.min(300_000, Number(process.env.GEORGIE_MAC_CLAIM_LEASE_MS || 45_000)));
 const LONG_RUNNING_MAC_ACTIONS=new Set(["roblox.install_rojo_and_build","roblox.play_test_validate"]);
-const MAKAYLA_PLAY_TEST_RECOVERY={jobId:"idem-cb7e9b3ba3d078186977ba33a5a18acc371cb90f",deviceId:"primary-mac",action:"roblox.play_test_validate",projectRoot:"/Users/mac/Documents/Georgie Roblox Projects/makayla-horror-prototype",requiredAgentVersion:"2.2.64"};
+const MAKAYLA_PLAY_TEST_RECOVERY={jobId:"idem-cb7e9b3ba3d078186977ba33a5a18acc371cb90f",deviceId:"primary-mac",action:"roblox.play_test_validate",projectRoot:"/Users/mac/Documents/Georgie Roblox Projects/makayla-horror-prototype",requiredAgentVersion:"2.2.65"};
 function claimLeaseMs(job){return LONG_RUNNING_MAC_ACTIONS.has(String(job?.action||""))?15*60_000:CLAIM_LEASE_MS;}
 
 function safeUserId(userId) { return String(userId || PRIMARY()).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120) || "primary"; }
