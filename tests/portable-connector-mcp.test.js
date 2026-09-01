@@ -10,6 +10,17 @@ test("portable connector exposes the governed handoff lifecycle", () => {
   assert.equal(GEORGIE_CONNECTOR_TOOLS[5].annotations.destructiveHint, true);
 });
 
+test("read-only OAuth access hides and rejects command tools", async () => {
+  const connector = { submit: async () => assert.fail("read-only client dispatched"), status: async () => null, objectiveStatus: async () => null, revoke: async () => assert.fail("read-only client revoked") };
+  const handle = createPortableMcpHandler({ connector });
+  const listed = await handle({ jsonrpc:"2.0",id:1,method:"tools/list" }, { status:true,command:false });
+  assert.equal(listed.result.tools.some(tool => tool.name === "georgie_submit_handoff"), false);
+  assert.equal(listed.result.tools.some(tool => tool.name === "georgie_capability_manifest"), true);
+  const rejected = await handle({ jsonrpc:"2.0",id:2,method:"tools/call",params:{name:"georgie_submit_handoff",arguments:{}} }, { status:true,command:false });
+  assert.equal(rejected.result.isError, true);
+  assert.match(rejected.result.structuredContent.error, /COMMAND_SCOPE_REQUIRED/);
+});
+
 test("portable connector authentication fails closed", () => {
   assert.equal(connectorTokenAuthorized("Bearer secret", "secret"), true);
   assert.equal(connectorTokenAuthorized("Bearer wrong", "secret"), false);

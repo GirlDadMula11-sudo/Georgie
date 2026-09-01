@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import express from "express";
 import { createGovernedConnector } from "./governed-connector.js";
-import { verifyConnectorAccessToken } from "./connector-oauth.js";
+import { connectorAccessClaims } from "./connector-oauth.js";
 import { getMailboxEvidencePacket, listMailboxPacketManifests } from "./mailbox-evidence-bridge.js";
 import { getCapabilityManifest } from "./capability-manifest.js";
 import { AGENT_HANDOFF_CAPABILITIES, handoffConnectorInput, reconcileHandoffStatus } from "./agent-handoff-protocol.js";
@@ -75,6 +75,8 @@ export const GEORGIE_CONNECTOR_TOOLS = Object.freeze([
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false, idempotentHint: true },
   },
 ]);
+const COMMAND_TOOLS = new Set(["georgie_submit_handoff","georgie_dispatch_command","georgie_forward_approval","georgie_revoke_objective"]);
+const scopeSet = value => new Set(String(value || "").split(/\s+/).filter(Boolean));
 
 export function connectorTokenAuthorized(header, expected = process.env.GEORGIE_CONNECTOR_TOKEN) {
   const token = clean(String(header || "").replace(/^Bearer\s+/i, ""), 500); const secret = clean(expected, 500);
@@ -86,15 +88,17 @@ const textResult = (structuredContent, message, isError = false) => ({ structure
 
 export function createPortableMcpHandler({ connector, userId = "primary" } = {}) {
   if (!connector) throw new Error("Portable MCP requires the governed connector");
-  return async function handle(message = {}) {
+  return async function handle(message = {}, access = { command: true, status: true }) {
     const id = message.id ?? null; const method = clean(message.method, 100);
     if (method === "initialize") return { jsonrpc: "2.0", id, result: { protocolVersion: PROTOCOL, capabilities: { tools: { listChanged: false } }, serverInfo: SERVER, instructions: "Dispatch only bounded user-authorized objectives. Reuse objective and idempotency IDs. Consequential actions remain governed inside Georgie; never interpret connector access as blanket execution approval." } };
     if (method === "notifications/initialized") return null;
     if (method === "ping") return { jsonrpc: "2.0", id, result: {} };
-    if (method === "tools/list") return { jsonrpc: "2.0", id, result: { tools: GEORGIE_CONNECTOR_TOOLS } };
+    if (method === "tools/list") return { jsonrpc: "2.0", id, result: { tools: GEORGIE_CONNECTOR_TOOLS.filter(tool => access.command || !COMMAND_TOOLS.has(tool.name)) } };
     if (method !== "tools/call") return { jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } };
     const name = clean(message.params?.name, 100); const args = message.params?.arguments || {};
     try {
+      if (COMMAND_TOOLS.has(name) && !access.command) throw new Error("GEORGIE_COMMAND_SCOPE_REQUIRED");
+      if (!COMMAND_TOOLS.has(name) && !access.status) throw new Error("GEORGIE_STATUS_SCOPE_REQUIRED");
       if(name==="georgie_submit_handoff"){
         const result=await connector.submit(userId,handoffConnectorInput(args));
         return{jsonrpc:"2.0",id,result:textResult({...result,handoff:reconcileHandoffStatus({...result,id:result.commandId,metadata:{agent_handoff:args}})},result.duplicate?"The existing handoff version was reused without duplicate execution.":"Georgie durably accepted the versioned objective handoff.")};
@@ -144,8 +148,8 @@ export function createPortableMcpHandler({ connector, userId = "primary" } = {})
 
 export function createPortableMcpRouter({ executeCommand, userId = "primary" } = {}) {
   const router = express.Router(); const connector = createGovernedConnector({ executeCommand }); const handle = createPortableMcpHandler({ connector, userId }); setImmediate(() => connector.resume(userId).catch(error => console.error("[Georgie] connector startup resume failed:", error instanceof Error ? error.message : error))); const resumePendingConnectorWork=()=>connector.resume(userId).catch(error=>console.error("[Georgie] connector recovery supervisor failed:",error instanceof Error?error.message:error)); setImmediate(resumePendingConnectorWork); const connectorRecoveryTimer=setInterval(resumePendingConnectorWork,45000); connectorRecoveryTimer.unref?.();
-  router.use((req, res, next) => connectorTokenAuthorized(req.headers.authorization) || verifyConnectorAccessToken(req.headers.authorization) ? next() : res.status(401).set("WWW-Authenticate", `Bearer resource_metadata="${String(process.env.GEORGIE_PUBLIC_ORIGIN || "https://georgie.onrender.com").replace(/\/$/, "")}/.well-known/oauth-protected-resource/mcp"`).json({ jsonrpc: "2.0", id: req.body?.id ?? null, error: { code: -32001, message: "Georgie connector authentication required" } }));
-  router.post("/", async (req, res) => { const result = await handle(req.body || {}); if (!result) return res.status(202).end(); res.set("Cache-Control", "no-store").json(result); });
+  router.use((req, res, next) => { const staticAccess=connectorTokenAuthorized(req.headers.authorization),claims=staticAccess?null:connectorAccessClaims(req.headers.authorization);if(!staticAccess&&!claims)return res.status(401).set("WWW-Authenticate", `Bearer resource_metadata="${String(process.env.GEORGIE_PUBLIC_ORIGIN || "https://georgie.onrender.com").replace(/\/$/, "")}/.well-known/oauth-protected-resource/mcp"`).json({ jsonrpc: "2.0", id: req.body?.id ?? null, error: { code: -32001, message: "Georgie connector authentication required" } });const scopes=scopeSet(claims?.scope);req.georgieConnectorAccess={command:staticAccess||scopes.has("georgie:command"),status:staticAccess||scopes.has("georgie:status")};next();});
+  router.post("/", async (req, res) => { const result = await handle(req.body || {},req.georgieConnectorAccess); if (!result) return res.status(202).end(); res.set("Cache-Control", "no-store").json(result); });
   router.get("/", (_req, res) => res.status(405).set("Allow", "POST").json({ error: "Use MCP Streamable HTTP POST" }));
   return router;
 }

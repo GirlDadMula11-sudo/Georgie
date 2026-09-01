@@ -1,7 +1,9 @@
 import crypto from "node:crypto";
 import express from "express";
+import { authenticateNativeRequest } from "./mobile-auth.js";
 
 const codes = new Map();
+const approvals = new Map();
 const clean = (value, max = 1000) => String(value || "").trim().slice(0, max);
 const origin = () => clean(process.env.GEORGIE_PUBLIC_ORIGIN || "https://georgie.onrender.com", 500).replace(/\/$/, "");
 const hmacSecret = () => clean(process.env.GEORGIE_CONNECTOR_TOKEN, 500);
@@ -20,6 +22,30 @@ const safeEqual = (left, right) => {
 const pkce = verifier => crypto.createHash("sha256").update(String(verifier || "")).digest("base64url");
 const accessTtlSeconds = () => Math.max(300, Math.min(86400, Number(process.env.GEORGIE_OAUTH_ACCESS_TTL_SECONDS || 3600)));
 const refreshTtlSeconds = () => Math.max(86400, Math.min(31536000, Number(process.env.GEORGIE_OAUTH_REFRESH_TTL_SECONDS || 2592000)));
+const READ_SCOPE = "georgie:status";
+const COMMAND_SCOPE = "georgie:command";
+const allowedScopes = new Set([READ_SCOPE, COMMAND_SCOPE, "offline_access"]);
+const normalizeScopes = (value, { commands = false } = {}) => {
+  const requested = clean(value, 500).split(/\s+/).filter(scope => allowedScopes.has(scope));
+  const granted = new Set([READ_SCOPE]);
+  if (commands && requested.includes(COMMAND_SCOPE)) granted.add(COMMAND_SCOPE);
+  if (requested.includes("offline_access")) granted.add("offline_access");
+  return [...granted].join(" ");
+};
+const validRedirectUri = value => {
+  try {
+    const url = new URL(clean(value, 1200));
+    if (url.protocol === "https:") return true;
+    return url.protocol === "http:" && url.hostname === "127.0.0.1" && !url.username && !url.password;
+  } catch { return false; }
+};
+const redirectMatches = (registered, actual) => {
+  if (registered === actual) return true;
+  try {
+    const left = new URL(registered), right = new URL(actual);
+    return left.protocol === "http:" && right.protocol === "http:" && left.hostname === "127.0.0.1" && right.hostname === "127.0.0.1" && left.pathname === right.pathname && left.search === right.search;
+  } catch { return false; }
+};
 
 function issueSignedToken({ clientId, scope, ttlSeconds, tokenUse }) {
   const now = Math.floor(Date.now() / 1000);
@@ -103,8 +129,12 @@ export function issueConnectorAccessToken({ clientId, scope = "georgie:command g
 }
 
 export function verifyConnectorAccessToken(header) {
+  return Boolean(connectorAccessClaims(header));
+}
+
+export function connectorAccessClaims(header) {
   const token = clean(String(header || "").replace(/^Bearer\s+/i, ""), 3000);
-  return Boolean(verifySignedToken(token, "access"));
+  return verifySignedToken(token, "access");
 }
 
 export function connectorHeartbeatSnapshot() {
@@ -143,7 +173,12 @@ function clientSecret(req) {
   return clean(req.body?.client_secret, 500);
 }
 
-export function createConnectorOAuthRouter() {
+function approvalPage(requestId, requestedScope) {
+  const commandRequested = clean(requestedScope, 500).split(/\s+/).includes(COMMAND_SCOPE);
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Authorize Georgie</title><style>body{font:16px system-ui;background:#f7f7f8;color:#202123;margin:0}.card{max-width:560px;margin:10vh auto;background:white;padding:28px;border:1px solid #ddd;border-radius:16px}button{width:100%;padding:14px;border:0;border-radius:10px;background:#10a37f;color:white;font-weight:700}label{display:block;margin:18px 0}.muted{color:#666;font-size:14px}</style></head><body><main class="card"><h1>Connect Codex to Georgie</h1><p>Approve read-only access to Georgie's capability and objective status tools.</p>${commandRequested ? '<label><input id="commands" type="checkbox"> Also allow governed handoffs and revocation. Consequential execution remains approval-gated inside Georgie.</label>' : ''}<button id="approve">Approve this connection</button><p id="status" class="muted">This requires an enrolled Georgie device in this browser.</p></main><script>document.getElementById('approve').onclick=async()=>{const status=document.getElementById('status'),token=localStorage.getItem('georgie:deviceToken')||'';status.textContent='Authorizing…';const response=await fetch('/oauth/authorize/approve',{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+token},body:JSON.stringify({requestId:${JSON.stringify(requestId)},allowCommands:Boolean(document.getElementById('commands')?.checked)})});const payload=await response.json().catch(()=>({}));if(response.ok&&payload.redirect){location.assign(payload.redirect);return}status.textContent=payload.error||'Authorization failed. Open Georgie in this browser and enroll the device first.'}</script></body></html>`;
+}
+
+export function createConnectorOAuthRouter({ authenticateOwner = authenticateNativeRequest } = {}) {
   const router = express.Router();
   router.get("/.well-known/georgie-connector-readiness", (_req, res) => {
     const status = connectorHeartbeatSnapshot();
@@ -166,10 +201,11 @@ export function createConnectorOAuthRouter() {
     grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: ["none", "client_secret_basic", "client_secret_post"],
+    authorization_response_iss_parameter_supported: true,
     scopes_supported: ["georgie:command", "georgie:status", "offline_access"]
   }));
   router.post("/oauth/register", express.json({ limit: "64kb" }), (req, res) => {
-    const redirectUris = Array.isArray(req.body?.redirect_uris) ? req.body.redirect_uris.map(value => clean(value, 1200)).filter(value => /^https:\/\//i.test(value)).slice(0, 10) : [];
+    const redirectUris = Array.isArray(req.body?.redirect_uris) ? req.body.redirect_uris.map(value => clean(value, 1200)).filter(validRedirectUri).slice(0, 10) : [];
     if (!redirectUris.length || req.body?.token_endpoint_auth_method && req.body.token_endpoint_auth_method !== "none") return res.status(400).json({ error: "invalid_client_metadata" });
     const clientId = issueDynamicClient({ redirectUris, clientName: req.body?.client_name });
     res.status(201).set("Cache-Control", "no-store").json({ client_id: clientId, client_id_issued_at: Math.floor(Date.now() / 1000), redirect_uris: redirectUris, token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"], response_types: ["code"] });
@@ -178,12 +214,25 @@ export function createConnectorOAuthRouter() {
     const clientId = clean(req.query.client_id, 5000), client = registeredClient(clientId);
     const redirectUri = clean(req.query.redirect_uri, 1200);
     const challenge = clean(req.query.code_challenge, 500), method = clean(req.query.code_challenge_method, 20);
-    const allowedRedirect = client?.public ? client.redirect_uris.includes(redirectUri) : client?.redirectUri === redirectUri;
+    const allowedRedirect = client?.public ? client.redirect_uris.some(value => redirectMatches(value, redirectUri)) : redirectMatches(client?.redirectUri, redirectUri);
     if (req.query.response_type !== "code" || !client || !allowedRedirect || !challenge || method !== "S256" || clean(req.query.resource, 1000) && clean(req.query.resource, 1000) !== `${origin()}/mcp`) return res.status(400).send("Invalid connector authorization request");
-    const code = crypto.randomBytes(32).toString("base64url");
-    codes.set(code, { clientId, redirectUri, challenge, resource: `${origin()}/mcp`, scope: clean(req.query.scope || "georgie:command georgie:status offline_access", 500), expiresAt: Date.now() + 120000 });
-    const target = new URL(redirectUri); target.searchParams.set("code", code); target.searchParams.set("iss", origin()); if (req.query.state) target.searchParams.set("state", clean(req.query.state, 1000));
-    res.redirect(302, target.toString());
+    const requestId = crypto.randomBytes(24).toString("base64url");
+    approvals.set(requestId, { clientId, redirectUri, challenge, resource: `${origin()}/mcp`, requestedScope: clean(req.query.scope || `${READ_SCOPE} offline_access`, 500), state: clean(req.query.state, 1000), expiresAt: Date.now() + 300000 });
+    res.set("Cache-Control", "no-store").type("html").send(approvalPage(requestId, req.query.scope));
+  });
+  router.post("/oauth/authorize/approve", express.json({ limit: "16kb" }), async (req, res) => {
+    try {
+      const owner = await authenticateOwner(req);
+      if (!owner) return res.status(401).json({ error: "Enrolled Georgie device authorization required" });
+      const requestId = clean(req.body?.requestId, 200), item = approvals.get(requestId);
+      approvals.delete(requestId);
+      if (!item || item.expiresAt <= Date.now()) return res.status(400).json({ error: "Authorization request expired" });
+      const scope = normalizeScopes(item.requestedScope, { commands: req.body?.allowCommands === true });
+      const code = crypto.randomBytes(32).toString("base64url");
+      codes.set(code, { clientId: item.clientId, redirectUri: item.redirectUri, challenge: item.challenge, resource: item.resource, scope, expiresAt: Date.now() + 120000 });
+      const target = new URL(item.redirectUri); target.searchParams.set("code", code); target.searchParams.set("iss", origin()); if (item.state) target.searchParams.set("state", item.state);
+      res.set("Cache-Control", "no-store").json({ ok: true, redirect: target.toString(), scope });
+    } catch { res.status(503).json({ error: "Owner authorization unavailable" }); }
   });
   router.post("/oauth/token", express.urlencoded({ extended: false }), (req, res) => {
     const clientId = clean(req.body?.client_id || configuredClient().id, 5000), client = registeredClient(clientId);
