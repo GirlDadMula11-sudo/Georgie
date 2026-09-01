@@ -1,5 +1,6 @@
 import { isExplicitConversationalApproval } from "./approval-language.js";
 import { supabaseAuthHardeningPlan } from "./browser-workflow.js";
+import crypto from "node:crypto";
 
 function referenceFrom(text = "") {
   const explicit = String(text).match(/\b((?:SCA[-_A-Z0-9]+|CM[-_]\d+))\b/i);
@@ -59,6 +60,31 @@ function parseExplicitEmailSend(text = "") {
   const subject=subjectMatch?subjectMatch[1].trim():"";
   const mailboxId=/\b(submissions|submission)\b/i.test(raw)?"submissions":"work";
   return {tool:"email.send",args:{mailboxId,to:email,subject:subject||"",text:body}};
+}
+
+function approvedEmailContinuation(text=""){
+  const value=String(text||"");
+  return /\b(?:send|email|message)\b/i.test(value)&&/\b(?:approved|approval|already approved|my approval)\b/i.test(value);
+}
+
+function preparedEmailPlanFromHistory(history=[]){
+  const turns=Array.isArray(history)?history:[];
+  for(let index=turns.length-1;index>=0;index--){
+    const content=String(turns[index]?.content||turns[index]?.text||"");
+    if(turns[index]?.role!=="assistant"||!/^\s*\*{0,2}Subject:\*{0,2}\s*/im.test(content))continue;
+    const to=(content.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)||[])[0];
+    const subject=content.match(/^\s*\*{0,2}Subject:\*{0,2}\s*(.+?)\s*$/im)?.[1]?.replace(/\*+$/g,"").trim();
+    if(!to||!subject)continue;
+    const subjectLine=content.match(/^\s*\*{0,2}Subject:\*{0,2}\s*.+?\s*$/im);
+    const after=subjectLine?content.slice((subjectLine.index||0)+subjectLine[0].length).replace(/^\s+/,""):"";
+    const body=after.split(/\n\s*(?:Your approval|The remaining step|Approval (?:is|was)|I (?:still )?need your approval)\b/i)[0].trim();
+    if(!body)continue;
+    const mailboxId=/\bsubmissions?\b/i.test(content)?"submissions":"work";
+    const args={mailboxId,to,subject,text:body};
+    const idempotencyKey=`approved-email:${crypto.createHash("sha256").update(JSON.stringify(args)).digest("hex").slice(0,32)}`;
+    return{tool:"approvals.prepare_plan",args:{title:`Send approved email to ${to}`,summary:`Send the exact retained approved email to ${to} with subject ${subject}.`,steps:["Execute the retained email exactly once.","Require an SMTP message ID and accepted recipient.","Persist the provider receipt before reporting completion."],execution:{tool:"email.send",args,idempotencyKey},domain:"email",risk:"high",reversible:false,verificationMethod:"SMTP provider message ID and accepted recipient.",rollbackPlan:"External email cannot be recalled; stable idempotency prevents duplicate replay."}};
+  }
+  return null;
 }
 
 
@@ -555,6 +581,10 @@ export function deterministicToolPlan(input = "") {
 export function deterministicToolPlanWithHistory(input="",history=[]){
   const direct=deterministicToolPlan(input);if(direct.length)return direct;
   const text=String(input||"").trim();
+  if(approvedEmailContinuation(text)){
+    const plan=preparedEmailPlanFromHistory(history);
+    if(plan)return[plan,{tool:"approvals.continue_latest",args:{utterance:"Approved"}}];
+  }
   if(!/^(?:please\s+)?(?:continue|resume|keep going|next(?: section)?|go on)(?:\s+(?:it|the report|the investigation))?[.!]?$/i.test(text))return[];
   const turns=Array.isArray(history)?history:[];
   for(let index=turns.length-1;index>=0;index--){
@@ -568,6 +598,7 @@ export function deterministicToolPlanWithHistory(input="",history=[]){
 
 export function latestDeterministicApprovalPlan(history = []) {
   const turns = Array.isArray(history) ? history : [];
+  const emailPlan=preparedEmailPlanFromHistory(turns);if(emailPlan)return emailPlan;
   for (let index = turns.length - 1; index >= 0; index -= 1) {
     const turn = turns[index];
     if (turn?.role !== "user" || typeof turn?.content !== "string") continue;
