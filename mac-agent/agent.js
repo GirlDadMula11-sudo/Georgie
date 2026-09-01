@@ -14,7 +14,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.62";
+const AGENT_VERSION = "2.2.63";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -655,8 +655,10 @@ async function activateRobloxStudioPlayMode(startedAtMs, artifact) {
   let studioFileOpenAttachmentAttempts = 0;
   if (!studioWindow.ready) {
     studioFileOpenAttempted = true;
+    let directOpenStage = null;
     try {
       const fileOpen = await openRobloxStudioArtifactDirectly(artifact);
+      directOpenStage = fileOpen.stage;
       studioFileOpenStage = fileOpen.stage;
       studioFileOpenError = fileOpen.error;
       studioFileOpenErrorCode = fileOpen.errorCode;
@@ -671,6 +673,27 @@ async function activateRobloxStudioPlayMode(startedAtMs, artifact) {
       studioFileOpenErrorCode = error?.code ? String(error.code).slice(0, 100) : null;
     }
     studioWindow = await waitForRobloxStudioArtifactWindow(artifact, 5000);
+    // Some Studio builds accept the clean Launch Services request but discard
+    // its document attachment and leave only a verified blank shell. In that
+    // precise state, use Studio's own File > Open workflow. Do not use this
+    // fallback for unrelated-document conflicts or a failed process launch.
+    if (!studioWindow.ready && directOpenStage === "direct_file_url_attachment_wait" && await robloxStudioProcessRunning()) {
+      try {
+        const fileOpen = await openRobloxStudioArtifactThroughFileDialog(artifact);
+        studioFileOpenStage = fileOpen.stage;
+        studioFileOpenError = fileOpen.error;
+        studioFileOpenErrorCode = fileOpen.errorCode;
+        studioFileOpenTopology = fileOpen.topology;
+        studioFileOpenControlStrategy = fileOpen.controlStrategy;
+        studioFileOpenCompiled = fileOpen.compiled;
+        studioFileOpenExecutionMode = fileOpen.executionMode;
+      } catch (error) {
+        studioFileOpenStage = "file_dialog_unhandled";
+        studioFileOpenError = String(error instanceof Error ? error.message : error).trim().split("\n").at(-1).slice(0, 1000);
+        studioFileOpenErrorCode = error?.code ? String(error.code).slice(0, 100) : null;
+      }
+      studioWindow = await waitForRobloxStudioArtifactWindow(artifact, 15000);
+    }
   }
   if (!studioWindow.ready) return { observed: false, logPath: null, logBytes: 0, excerpt: "", searchedLogCount: 0, activationAttempts: 0, artifactOpenRequested: true, studioFileOpenAttempted, studioFileOpenError, studioFileOpenErrorCode, studioFileOpenStage, studioFileOpenTopology, studioFileOpenControlStrategy, studioFileOpenCompiled, studioFileOpenExecutionMode, studioFileOpenAttachmentAttempts, studioWindowReady: false, studioWindowMatched: false, studioWindowNames: studioWindow.windowNames, studioWindowTitle: studioWindow.windowTitle, studioDocumentPath: studioWindow.documentPath };
   await delay(1500);
