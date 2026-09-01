@@ -60,7 +60,7 @@ test("Mac agent performs a bounded Studio play test with six gameplay checks", (
   assert.match(agent, /value of attribute "AXDefaultButton" of openPanel/);
   assert.match(agent, /on findOpenButtonRecursively\(elementRef, remainingDepth\)/);
   assert.match(agent, /set childElements to my accessibilityChildren\(elementRef\)/);
-  assert.match(agent, /set openButton to my findOpenButtonRecursively\(openPanel, 12\)/);
+  assert.match(agent, /set openButton to my findOpenButtonRecursively\(openPanel, 5\)/);
   assert.match(agent, /elementRole is "AXButton"/);
   assert.match(agent, /studioFileOpenControlStrategy/);
   assert.match(agent, /execFileAsync\("osacompile"/);
@@ -70,7 +70,9 @@ test("Mac agent performs a bounded Studio play test with six gameplay checks", (
   assert.match(agent, /execFileAsync\("osascript", \[compileTarget\]/);
   assert.match(agent, /open_button_default_wait/);
   assert.match(agent, /open_button_nested_scan/);
-  assert.match(agent, /repeat 3 times/);
+  assert.match(agent, /open_keyboard_default_press/);
+  assert.match(agent, /open_keyboard_close_wait/);
+  assert.match(agent, /keyboard_default_return/);
   assert.match(agent, /studioFileOpenExecutionMode/);
   assert.match(agent, /recursive_ax_button/);
   assert.match(agent, /collectAccessibilityTopology\(elementRef, remainingDepth, remainingBudget\)/);
@@ -90,7 +92,8 @@ test("Mac agent performs a bounded Studio play test with six gameplay checks", (
   assert.match(agent, /studioFileOpenErrorCode/);
   assert.match(agent, /studioFileOpenTopology/);
   assert.doesNotMatch(fileDialog, /entire contents/);
-  assert.match(agent, /collectAccessibilityTopology\(diagnosticPanel, 12, 80\)/);
+  assert.match(agent, /collectAccessibilityTopology\(diagnosticPanel, 6, 40\)/);
+  assert.ok(fileDialog.indexOf("open_keyboard_default_press") < fileDialog.indexOf("open_button_nested_scan"), "native Return must precede the bounded accessibility fallback");
   assert.match(agent, /error\?\.stderr/);
   assert.match(agent, /open_panel_wait/);
   assert.match(agent, /path_field_wait/);
@@ -100,10 +103,10 @@ test("Mac agent performs a bounded Studio play test with six gameplay checks", (
   assert.match(agent, /\["roblox\.install_rojo_and_build","roblox\.play_test_validate"\]\.includes\(job\.action\)/);
   assert.match(queue, /LONG_RUNNING_MAC_ACTIONS=new Set\(\["roblox\.install_rojo_and_build","roblox\.play_test_validate"\]\)/);
   assert.match(queue, /play_test_exact_artifact_window_repaired/);
-  assert.match(queue, /play_test_internal_file_open_repaired/);
+  assert.match(queue, /play_test_keyboard_default_open_repaired/);
   assert.match(queue, /play_test_screenshot_evidence_repaired/);
   assert.match(tools, /name:"roblox\.play_test_validate"/);
-  assert.match(tools, /requiredAgentVersion:"2\.2\.63"/);
+  assert.match(tools, /requiredAgentVersion:"2\.2\.64"/);
   assert.match(tools, /runtimeMarkerObserved/);
   assert.match(tools, /safeResult\.checks/);
   const activation = agent.slice(agent.indexOf("async function activateRobloxStudioPlayMode"), agent.indexOf("async function playTestRobloxPrototype"));
@@ -115,7 +118,7 @@ test("Mac agent performs a bounded Studio play test with six gameplay checks", (
 });
 
 test("exact play-test recovery marker preserves the completed job identity", () => {
-  const request = {jobId:playTestJobId,deviceId:"primary-mac",expectedAction:"roblox.play_test_validate",projectRoot,requiredAgentVersion:"2.2.63"};
+  const request = {jobId:playTestJobId,deviceId:"primary-mac",expectedAction:"roblox.play_test_validate",projectRoot,requiredAgentVersion:"2.2.64"};
   const [action] = deterministicToolPlan(`ROBLOX_PLAY_TEST_RECOVERY_JSON: ${JSON.stringify(request)}`);
   assert.equal(action.tool, "approvals.prepare_plan");
   assert.equal(action.args.execution.tool, "mac.long_running_job_recover");
@@ -124,7 +127,7 @@ test("exact play-test recovery marker preserves the completed job identity", () 
 });
 
 test("exact play-test recovery prepares through the bounded Roblox fast path", async () => {
-  const request = {jobId:playTestJobId,deviceId:"primary-mac",expectedAction:"roblox.play_test_validate",projectRoot,requiredAgentVersion:"2.2.63"};
+  const request = {jobId:playTestJobId,deviceId:"primary-mac",expectedAction:"roblox.play_test_validate",projectRoot,requiredAgentVersion:"2.2.64"};
   const started = Date.now();
   const result = await completeTurnV2({
     userId:`roblox-play-test-fast-path-${Date.now()}`,
@@ -142,7 +145,7 @@ test("exact play-test recovery prepares through the bounded Roblox fast path", a
 });
 
 test("play-test recovery marker rejects identity, path, action, or version expansion", () => {
-  const valid = {jobId:playTestJobId,deviceId:"primary-mac",expectedAction:"roblox.play_test_validate",projectRoot,requiredAgentVersion:"2.2.63"};
+  const valid = {jobId:playTestJobId,deviceId:"primary-mac",expectedAction:"roblox.play_test_validate",projectRoot,requiredAgentVersion:"2.2.64"};
   for (const request of [
     {...valid,deviceId:"secondary-mac"},
     {...valid,expectedAction:"roblox.prototype_build"},
@@ -152,7 +155,7 @@ test("play-test recovery marker rejects identity, path, action, or version expan
 });
 
 test("exact play-test marker prepares one non-publishing plan", () => {
-  const marker = `ROBLOX_PLAY_TEST_JSON: ${JSON.stringify({projectRoot,requiredAgentVersion:"2.2.63"})}`;
+  const marker = `ROBLOX_PLAY_TEST_JSON: ${JSON.stringify({projectRoot,requiredAgentVersion:"2.2.64"})}`;
   const [action] = deterministicToolPlan(marker);
   assert.equal(action.tool, "approvals.prepare_plan");
   assert.equal(action.args.execution.tool, "roblox.play_test_validate");
@@ -162,7 +165,7 @@ test("exact play-test marker prepares one non-publishing plan", () => {
 
 test("play-test marker rejects path or agent expansion", () => {
   for (const request of [
-    {projectRoot:"/Users/mac/Documents/Other",requiredAgentVersion:"2.2.63"},
+    {projectRoot:"/Users/mac/Documents/Other",requiredAgentVersion:"2.2.64"},
     {projectRoot,requiredAgentVersion:"2.2.43"}
   ]) assert.deepEqual(deterministicToolPlan(`ROBLOX_PLAY_TEST_JSON: ${JSON.stringify(request)}`), []);
 });

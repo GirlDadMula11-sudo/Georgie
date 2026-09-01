@@ -14,7 +14,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.63";
+const AGENT_VERSION = "2.2.64";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -527,7 +527,7 @@ on error
 key code 36
 end try
 set currentStage to "go_to_folder_dismiss_wait"
-repeat 50 times
+repeat 30 times
 try
 if (count of sheets of openPanel) is 0 then exit repeat
 end try
@@ -536,10 +536,28 @@ end repeat
 try
 if (count of sheets of openPanel) > 0 then error "ROBLOX_STUDIO_GO_TO_FOLDER_SHEET_STUCK"
 end try
+-- The exact file is selected after Go to Folder. Native open panels accept
+-- Return as their default Open action even when AXDefaultButton is absent.
+set currentStage to "open_keyboard_default_press"
+key code 36
+set currentStage to "open_keyboard_close_wait"
+repeat 30 times
+set panelStillOpen to false
+try
+if exists openPanel then set panelStillOpen to true
+end try
+repeat with candidateWindow in windows
+try
+if (name of candidateWindow as string) contains "Open Roblox File" then set panelStillOpen to true
+end try
+end repeat
+if panelStillOpen is false then return "SUCCESS" & linefeed & "dialog_closed" & linefeed & openInvocationStrategy & ":keyboard_default_return"
+delay 0.1
+end repeat
 set currentStage to "open_button_default_wait"
 set openButton to missing value
 set openControlStrategy to ""
-repeat 30 times
+repeat 15 times
 try
 set candidateButton to value of attribute "AXDefaultButton" of openPanel
 if candidateButton is not missing value then
@@ -554,22 +572,18 @@ delay 0.1
 end repeat
 if openButton is missing value then
 set currentStage to "open_button_nested_scan"
-repeat 3 times
 try
-set openButton to my findOpenButtonRecursively(openPanel, 12)
+set openButton to my findOpenButtonRecursively(openPanel, 5)
 end try
 if openButton is not missing value then
 set openControlStrategy to "recursive_ax_button"
-exit repeat
 end if
-delay 0.5
-end repeat
 end if
 if openButton is missing value then error "ROBLOX_STUDIO_OPEN_BUTTON_NOT_READY"
 set currentStage to "open_button_press_" & openControlStrategy
 perform action "AXPress" of openButton
 set currentStage to "open_panel_close_wait"
-repeat 100 times
+repeat 50 times
 set panelStillOpen to false
 try
 if exists openPanel then set panelStillOpen to true
@@ -605,7 +619,7 @@ end if
 end repeat
 if diagnosticPanel is not missing value then
 try
-set topologyResult to my collectAccessibilityTopology(diagnosticPanel, 12, 80)
+set topologyResult to my collectAccessibilityTopology(diagnosticPanel, 6, 40)
 set diagnosticText to item 1 of topologyResult
 end try
 end if
