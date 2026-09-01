@@ -1,6 +1,7 @@
 import { buildNegotiationPlan, nextBestNegotiationQuestion, normalizeTransactionType } from "./closing-playbooks.js";
+import { buildUniversalClosingStrategy } from "./universal-closer.js";
 
-const CONTRACT = "georgie.master-closer.v2";
+const CONTRACT = "georgie.master-closer.v3";
 
 const OBJECTION_RULES = [
   ["payment", /payment|daily|weekly|cash flow|too high|afford/i],
@@ -108,7 +109,7 @@ export function chooseNegotiationMove({ objection, bestOffer, merchant = {}, len
   };
 }
 
-export function buildClosingBrief({ reference, transactionType = "financing", merchant = {}, offers = [], conversation = [], lender = {}, verifiedFacts = [], constraints = {}, now = new Date().toISOString() } = {}) {
+export function buildClosingBrief({ reference, transactionType = "financing", merchant = {}, prospect = {}, product = {}, offers = [], conversation = [], lender = {}, verifiedFacts = [], constraints = {}, channel = "conversation", now = new Date().toISOString() } = {}) {
   const normalizedType = normalizeTransactionType(transactionType);
   const normalized = offers.map(normalizeVerifiedOffer);
   const ranked = normalized
@@ -126,6 +127,14 @@ export function buildClosingBrief({ reference, transactionType = "financing", me
     verifiedFacts,
     constraints: { ...constraints, ourBindingAuthorityVerified: lender.bindingAuthority === true },
     objection
+  });
+  const universalStrategy = buildUniversalClosingStrategy({
+    product,
+    conversation,
+    buyer: prospect,
+    deal: { primaryGoal: merchant.primaryGoal, constraints },
+    verifiedFacts,
+    channel
   });
   const verifiedOfferCount = normalized.filter(x => x.verified).length;
   const readinessChecks = {
@@ -155,6 +164,7 @@ export function buildClosingBrief({ reference, transactionType = "financing", me
     rankedOffers: ranked.map(({ offer, score }) => ({ ...offer, score: score.score, dimensions: score.dimensions })),
     bestOffer,
     negotiationPlan,
+    universalStrategy,
     nextBestAction: next,
     concessionFrontier: {
       canNegotiateWithinVerifiedAuthority: Boolean(bestOffer?.concessionAuthority),
