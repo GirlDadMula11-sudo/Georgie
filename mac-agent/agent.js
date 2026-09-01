@@ -14,7 +14,7 @@ import { buildSeoPhase2WordpressPageScriptWithRollback, buildSeoPhase2WordpressR
 const execFileAsync = promisify(execFile);
 const BASE = String(process.env.GEORGIE_SERVER_URL || "").replace(/\/$/, "");
 const DEVICE_ID = process.env.GEORGIE_MAC_DEVICE_ID || "primary-mac";
-const AGENT_VERSION = "2.2.65";
+const AGENT_VERSION = "2.2.66";
 const ROJO_RELEASE = Object.freeze({
   version: "7.7.0",
   url: "https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-macos-x86_64.zip",
@@ -497,6 +497,12 @@ end repeat
 end if
 if openPanel is missing value then error "ROBLOX_STUDIO_OPEN_PANEL_NOT_FOUND"
 set currentStage to "go_to_folder_requested"
+try
+perform action "AXRaise" of openPanel
+end try
+try
+set value of attribute "AXMain" of openPanel to true
+end try
 keystroke "g" using {command down, shift down}
 set currentStage to "go_to_folder_wait"
 set goSheet to missing value
@@ -507,7 +513,17 @@ end try
 if goSheet is not missing value then exit repeat
 delay 0.1
 end repeat
-if goSheet is missing value then error "ROBLOX_STUDIO_GO_TO_FOLDER_SHEET_NOT_FOUND"
+if goSheet is missing value then
+-- Some macOS/Studio combinations display Go to Folder without exposing an
+-- AXSheet. Continue through the focused native keyboard flow; AXDocument is
+-- still required to equal the exact artifact before F5 can be sent.
+set currentStage to "go_to_folder_keyboard_path_fallback"
+keystroke expectedArtifact
+delay 0.2
+set currentStage to "go_to_folder_keyboard_confirm"
+key code 36
+delay 0.5
+else
 set currentStage to "path_field_wait"
 set pathField to missing value
 repeat 30 times
@@ -562,6 +578,7 @@ delay 0.1
 end repeat
 end if
 if goSheetStillOpen then error "ROBLOX_STUDIO_GO_TO_FOLDER_SHEET_STUCK"
+end if
 -- The exact file is selected after Go to Folder. Native open panels accept
 -- Return as their default Open action even when AXDefaultButton is absent.
 set currentStage to "open_keyboard_default_press"
