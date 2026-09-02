@@ -8,12 +8,13 @@ if (runtimeOwnsBackgroundWorkers()) {
   // The Smartlead reply closer owns a durable, generation-fenced production
   // authority and must remain alive even when the rest of Georgie's specialist
   // plane is intentionally disabled in kernel mode. Keep this exception narrow:
-  // only the reply closer is selected here; no other specialist wakes up.
-  const smartleadReplyCloser = RUNTIME_COMPONENTS.filter(component => component.id === "smartlead-reply-closer");
-  if (smartleadReplyCloser.length !== 1) {
-    throw new Error(`Smartlead reply closer registry invariant failed: ${smartleadReplyCloser.length}`);
+  // start only the registered closer; do not enable the specialist plane.
+  const smartleadReplyCloser = RUNTIME_COMPONENTS.find(component => component.id === "smartlead-reply-closer");
+  if (!smartleadReplyCloser || smartleadReplyCloser.authority !== "smartlead-replies") {
+    throw new Error("Smartlead reply closer registry invariant failed");
   }
-  startRuntimeProfile("web", { components: smartleadReplyCloser, plane: "specialist", mode: "full" });
+  smartleadReplyCloser.start();
+  console.log("Georgie authoritative Smartlead reply closer started alongside kernel core");
 
   scheduleRuntimePlane("web", "specialist");
 } else {
