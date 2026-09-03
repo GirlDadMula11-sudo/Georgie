@@ -3,6 +3,8 @@ import crypto from "node:crypto";
 import { ingestRecoveryCandidate, ingestSuppressionEvent, receiveRecoveryReply } from "./financing-recovery.js";
 import { completeStatementUpload, createUploadTokenRequest } from "./financing-recovery-engagement.js";
 import { supabaseRecoveryStore } from "./financing-recovery-worker.js";
+import { createSupabaseStatementStorage } from "./integrations/financing-recovery-adapters.js";
+import { recoveryOperationalReport } from "./financing-recovery-observability.js";
 
 function authorized(req) {
   const expected = String(process.env.GEORGIE_FINANCING_RECOVERY_INGEST_TOKEN || "");
@@ -11,7 +13,7 @@ function authorized(req) {
   return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(actual));
 }
 
-export function createFinancingRecoveryRouter({ store = supabaseRecoveryStore(), malwareScan = null, documentValidator = null } = {}) {
+export function createFinancingRecoveryRouter({ store = supabaseRecoveryStore(), malwareScan = null, documentValidator = null, statementStorage = createSupabaseStatementStorage() } = {}) {
   const router = express.Router();
   router.get("/upload-session", async (req, res) => {
     try {
@@ -25,7 +27,7 @@ export function createFinancingRecoveryRouter({ store = supabaseRecoveryStore(),
   router.post("/upload", async (req, res) => {
     try {
       const file = req.body?.file || {};
-      const result = await completeStatementUpload(store, { token: req.get("x-recovery-upload-token") || req.body?.token, file: { name: file.name, mimeType: file.mimeType, buffer: Buffer.from(String(file.base64 || ""), "base64") }, scan: malwareScan, validateDocument: documentValidator });
+      const result = await completeStatementUpload(store, { token: req.get("x-recovery-upload-token") || req.body?.token, file: { name: file.name, mimeType: file.mimeType, buffer: Buffer.from(String(file.base64 || ""), "base64") }, scan: malwareScan, validateDocument: documentValidator, storage: statementStorage });
       res.status(202).json({ ok: true, result });
     } catch (error) { res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "SECURE_UPLOAD_REJECTED" }); }
   });
@@ -34,6 +36,7 @@ export function createFinancingRecoveryRouter({ store = supabaseRecoveryStore(),
     try { res.status(202).json({ ok: true, result: await handler(store, req.body || {}) }); }
     catch (error) { res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "RECOVERY_INGEST_REJECTED" }); }
   };
+  router.get("/readiness", (_req, res) => res.set("Cache-Control", "no-store").json({ ok: true, report: recoveryOperationalReport() }));
   router.post("/intake", route(ingestRecoveryCandidate));
   router.post("/reply", route(receiveRecoveryReply));
   router.post("/suppression", route(ingestSuppressionEvent));

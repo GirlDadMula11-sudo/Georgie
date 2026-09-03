@@ -15,8 +15,9 @@ export function createUploadTokenRequest({ applicantId, episodeId, requestedMont
   return { contract: UPLOAD_TOKEN_CONTRACT, token, tokenHash: hash(token), applicantId, episodeId, requestedMonths, expiresAt: expiry.toISOString(), slots: requestedMonths.map(month => ({ month, status: "open" })) };
 }
 
-export async function completeStatementUpload(store, { token, file, scan, validateDocument }) {
+export async function completeStatementUpload(store, { token, file, scan, validateDocument, storage, now = new Date() }) {
   if (!token || typeof scan !== "function" || typeof validateDocument !== "function") throw new Error("SECURE_UPLOAD_VALIDATORS_REQUIRED");
+  if (storage?.contract !== "georgie.statement-storage.v1" || typeof storage.putImmutable !== "function") throw new Error("PRIVATE_STATEMENT_STORAGE_REQUIRED");
   if (file?.buffer?.length > 10 * 1024 * 1024) throw new Error("SECURE_UPLOAD_10MB_LIMIT");
   const verifiedFile = validateAttachment({ buffer: file.buffer, originalname: file.name, mimetype: file.mimeType });
   const malware = await scan({ buffer: file.buffer, contentHash: verifiedFile.sha256 });
@@ -25,7 +26,10 @@ export async function completeStatementUpload(store, { token, file, scan, valida
   if (!tokenState || tokenState.revoked || Date.parse(tokenState.expiresAt) <= Date.now()) throw new Error("UPLOAD_TOKEN_INVALID");
   const document = await validateDocument({ buffer: file.buffer, contentHash: verifiedFile.sha256, requestedMonths: tokenState.requestedMonths, applicantId: tokenState.applicantId });
   if (document?.verified !== true || !tokenState.requestedMonths.includes(document.statementMonth) || document.businessMatch !== true) throw new Error("STATEMENT_MONTH_OR_BUSINESS_MISMATCH");
-  return store.transactUploadCompletion({ tokenHash: hash(token), applicantId: tokenState.applicantId, episodeId: tokenState.episodeId, contentHash: verifiedFile.sha256, statementMonth: document.statementMonth, evidenceIds: [...new Set([malware.receiptId, ...(document.evidenceIds || [])])], idempotencyKey: `upload:${hash(token)}:${verifiedFile.sha256}` });
+  const retentionUntil = new Date(now.getTime() + 2555 * 86400000).toISOString();
+  const storageReceipt = await storage.putImmutable({ applicantId: tokenState.applicantId, episodeId: tokenState.episodeId, contentHash: verifiedFile.sha256, buffer: file.buffer, mimeType: verifiedFile.mimeType, retentionUntil });
+  if (!storageReceipt?.receiptId || storageReceipt.contentHash !== verifiedFile.sha256 || storageReceipt.immutable !== true) throw new Error("IMMUTABLE_STORAGE_RECEIPT_REQUIRED");
+  return store.transactUploadCompletion({ tokenHash: hash(token), applicantId: tokenState.applicantId, episodeId: tokenState.episodeId, contentHash: verifiedFile.sha256, statementMonth: document.statementMonth, evidenceIds: [...new Set([malware.receiptId, storageReceipt.receiptId, ...(document.evidenceIds || [])])], storageReceipt, retentionUntil, idempotencyKey: `upload:${hash(token)}:${verifiedFile.sha256}` });
 }
 
 export function recoveryTemplates({ channel, firstName, businessIdentity, missingMonths, secureLink, prismPacket }) {
@@ -71,4 +75,17 @@ export const GEORGIE_CLOSER_AUTHORITY = Object.freeze({ owner: "georgie", stages
 export function uploadProgressAction({ requestedMonths, verifiedMonths = [] }) {
   const missingMonths = requestedMonths.filter(month => !verifiedMonths.includes(month));
   return { complete: missingMonths.length === 0, missingMonths, reminderAllowed: missingMonths.length > 0, copy: missingMonths.length ? `No new application is needed. Please upload the complete ${missingMonths.join(" and ")} business bank statement${missingMonths.length === 1 ? "" : "s"}.` : "Both requested statements are verified; no additional application is needed." };
+}
+
+export function communicationGate({ suppression = null, lastContactAt = null, now = new Date(), quietHoursUtc = null } = {}) {
+  if (suppression) return { allowed: false, reason: `suppressed:${suppression}` };
+  if (lastContactAt && now.getTime() - Date.parse(lastContactAt) < 7 * 86400000) return { allowed: false, reason: "frequency_limit" };
+  if (quietHoursUtc) {
+    const match = /^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/.exec(quietHoursUtc);
+    if (!match) return { allowed: false, reason: "quiet_hours_configuration_invalid" };
+    const minute = now.getUTCHours() * 60 + now.getUTCMinutes(), start = Number(match[1]) * 60 + Number(match[2]), end = Number(match[3]) * 60 + Number(match[4]);
+    const quiet = start <= end ? minute >= start && minute < end : minute >= start || minute < end;
+    if (quiet) return { allowed: false, reason: "quiet_hours" };
+  }
+  return { allowed: true };
 }

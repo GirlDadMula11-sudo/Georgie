@@ -1,3 +1,4 @@
+import { createPrismReviewAdapter } from "./integrations/financing-recovery-adapters.js";
 import { processRecoveryIntent } from "./financing-recovery.js";
 
 const url = () => String(process.env.GEORGIE_SUPABASE_URL || "").replace(/\/$/, "");
@@ -42,11 +43,11 @@ export function supabaseRecoveryStore({ rpc = recoveryRpc } = {}) {
   };
 }
 
-export async function runFinancingRecoveryCycle({ store = supabaseRecoveryStore(), claim = body => recoveryRpc("georgie_claim_recovery_intents", body), prismAdapter = null } = {}) {
+export async function runFinancingRecoveryCycle({ store = supabaseRecoveryStore(), claim = body => recoveryRpc("georgie_claim_recovery_intents", body), prismAdapter = null, precontactReviewAdapter = createPrismReviewAdapter() } = {}) {
   const rows = await claim({ p_limit: 10, p_lease_seconds: 60 });
   for (const row of rows || []) {
     const intent = { ...(row.payload || {}), ...row };
-    await processRecoveryIntent(store, intent, { prismAdapter }).catch(error => console.warn("Recovery intent persisted failure:", error.message));
+    await processRecoveryIntent(store, intent, { prismAdapter, precontactReviewAdapter }).catch(error => console.warn("Recovery intent persisted failure:", error.message));
   }
   return { claimed: rows?.length || 0 };
 }

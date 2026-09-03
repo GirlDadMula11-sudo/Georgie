@@ -48,3 +48,16 @@ test("rehash schema deduplicates evidence, upload slots, channel steps, CRM and 
   assert.match(extension, /georgie_revoke_recovery_upload_token_v1/);
   assert.match(extension, /p_event->>'command'='STOP'/);
 });
+
+
+test("live adapter migration keeps storage private and receipts, CRM links, and canaries least-privilege", () => {
+  const live = fs.readFileSync(new URL("../supabase/migrations/202609030003_recovery_live_adapters.sql", import.meta.url), "utf8");
+  assert.match(live, /georgie-recovery-statements/);
+  assert.match(live, /public,file_size_limit/);
+  assert.match(live, /values\('georgie-recovery-statements','georgie-recovery-statements',false/);
+  assert.match(live, /RECOVERY_RECEIPTS_IMMUTABLE/);
+  assert.match(live, /RAW_APPLICATION_CRM_FORBIDDEN/);
+  assert.match(live, /TWO_VERIFIED_STATEMENTS_REQUIRED/);
+  assert.match(live, /storageReceipt,immutable/);
+  assert.match(live, /revoke all on table .* from anon,authenticated/i);
+});

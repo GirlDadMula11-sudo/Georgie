@@ -127,17 +127,23 @@ function verifiedOutboundEvidence(result) {
 export async function processRecoveryIntent(store, intent, {
   release = process.env.GEORGIE_FINANCING_OUTREACH_RELEASE || "hold",
   send = sendClientMessageAndVerify,
-  prismAdapter = null
+  prismAdapter = null,
+  precontactReviewAdapter = null
 } = {}) {
   if (!["statement_request", "prism_wakeup", "prism_precontact"].includes(intent.kind)) return store.recordDownstreamFailure(intent, `UNCONNECTED_INTENT_ADAPTER:${intent.kind || "unknown"}`);
   if (intent.kind === "prism_precontact") {
     const [{ buildPrismPrecontactPacket }, { createUploadTokenRequest }] = await Promise.all([import("./financing-recovery-evidence.js"), import("./financing-recovery-engagement.js")]);
     const packet = buildPrismPrecontactPacket(intent);
+    if (!precontactReviewAdapter?.configured || typeof precontactReviewAdapter.review !== "function") return store.recordDownstreamFailure(intent, "PRISM_REVIEW_NOT_CONFIGURED");
+    let assessment;
+    try { assessment = await precontactReviewAdapter.review(packet); }
+    catch (error) { await store.recordDownstreamFailure(intent, error instanceof Error ? error.message : String(error)); throw error; }
+    const reviewedPacket = { ...packet, assessmentReceipt: assessment };
     const origin = String(process.env.GEORGIE_RECOVERY_UPLOAD_ORIGIN || "").replace(/\/$/, "");
     if (!origin) return store.recordDownstreamFailure(intent, "SECURE_UPLOAD_ORIGIN_UNAVAILABLE");
     const upload = createUploadTokenRequest({ applicantId: intent.applicantId, episodeId: intent.dealId, requestedMonths: intent.missingMonths, expiresAt: new Date(Date.now() + 7 * 86400000) });
     await store.issueUploadToken(upload);
-    return store.recordPrismPrecontact(intent, packet, `${origin}/recovery/#${upload.token}`);
+    return store.recordPrismPrecontact(intent, reviewedPacket, `${origin}/recovery/#${upload.token}`);
   }
   if (intent.kind === "prism_wakeup") {
     if (!prismAdapter || prismAdapter.contract !== PRISM_ADAPTER_CONTRACT || typeof prismAdapter.submit !== "function") return store.recordDownstreamFailure(intent, "PRISM_ADAPTER_UNAVAILABLE");

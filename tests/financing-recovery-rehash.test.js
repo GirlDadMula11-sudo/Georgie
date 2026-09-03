@@ -47,7 +47,7 @@ test("unchanged evidence creates one Prism precontact intent and queues outreach
   process.env.GEORGIE_RECOVERY_UPLOAD_ORIGIN = "https://upload.example";
   let issued = 0, persisted = 0;
   try {
-    await processRecoveryIntent({ issueUploadToken: async request => { issued += 1; assert.equal(request.requestedMonths.length, 2); }, recordPrismPrecontact: async (_intent, packet, link) => { persisted += 1; assert.equal(packet.facts.missingRecentMonths.length, 2); assert.match(link, /^https:\/\/upload\.example/); } }, { kind: "prism_precontact", applicantId: "a", dealId: "d", missingMonths: ["2026-08", "2026-07"], evidenceIds: ["e"], evidenceVersion: "v", confidence: 0.3 });
+    await processRecoveryIntent({ issueUploadToken: async request => { issued += 1; assert.equal(request.requestedMonths.length, 2); }, recordPrismPrecontact: async (_intent, packet, link) => { persisted += 1; assert.equal(packet.facts.missingRecentMonths.length, 2); assert.match(link, /^https:\/\/upload\.example/); } }, { kind: "prism_precontact", applicantId: "a", dealId: "d", missingMonths: ["2026-08", "2026-07"], evidenceIds: ["e"], evidenceVersion: "v", confidence: 0.3 }, { precontactReviewAdapter: { configured: true, review: async packet => ({ contract: "georgie.prism-assessment.v1", receiptId: "p1", evidenceVersion: packet.evidenceVersion, readBack: { verified: true } }) } });
   } finally { if (previous === undefined) delete process.env.GEORGIE_RECOVERY_UPLOAD_ORIGIN; else process.env.GEORGIE_RECOVERY_UPLOAD_ORIGIN = previous; }
   assert.equal(issued, 1); assert.equal(persisted, 1);
 });
@@ -68,7 +68,8 @@ test("opaque upload tokens are scoped to two slots and duplicate uploads cannot 
   assert.equal(request.tokenHash.length, 64); assert.notEqual(request.token, request.tokenHash); assert.equal(request.slots.length, 2);
   const uploads = new Set(); let crmEvents = 0;
   const store = { resolveUploadToken: async tokenHash => tokenHash === request.tokenHash ? request : null, transactUploadCompletion: async upload => { const created = !uploads.has(upload.idempotencyKey); uploads.add(upload.idempotencyKey); if (uploads.size === 2 && created) crmEvents += 1; return { created, complete: uploads.size === 2 }; } };
-  const options = month => ({ token: request.token, file: { buffer: Buffer.concat([pdf, Buffer.from(month)]), name: `${month}.pdf`, mimeType: "application/pdf" }, scan: async () => ({ clean: true, receiptId: "scan-1" }), validateDocument: async () => ({ verified: true, statementMonth: month, businessMatch: true, evidenceIds: [`doc-${month}`] }) });
+  const storage = { contract: "georgie.statement-storage.v1", putImmutable: async ({ contentHash, retentionUntil }) => ({ receiptId: `storage:${contentHash}`, contentHash, retentionUntil, immutable: true }) };
+  const options = month => ({ token: request.token, storage, file: { buffer: Buffer.concat([pdf, Buffer.from(month)]), name: `${month}.pdf`, mimeType: "application/pdf" }, scan: async () => ({ clean: true, receiptId: "scan-1" }), validateDocument: async () => ({ verified: true, statementMonth: month, businessMatch: true, evidenceIds: [`doc-${month}`] }) });
   await Promise.all([completeStatementUpload(store, options("2026-08")), completeStatementUpload(store, options("2026-08"))]);
   assert.equal(uploads.size, 1); assert.equal(crmEvents, 0);
   await Promise.all([completeStatementUpload(store, options("2026-07")), completeStatementUpload(store, options("2026-07"))]);
