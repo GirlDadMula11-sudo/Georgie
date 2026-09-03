@@ -1,5 +1,6 @@
 import { HandsFreeEngine, parseWakeTranscript } from "./handsfree.js";
 import { authHeaders, georgieDeviceReady } from "./device-auth.js";
+import { GEORGIE_VOICE_PROFILE, chooseGeorgieVoice } from "./voice-profile.js";
 
 const voiceButton = document.querySelector("#voiceButton");
 const voiceLabel = document.querySelector("#voiceLabel");
@@ -331,12 +332,12 @@ function browserVoiceFallback(text) {
     }, 20000);
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(String(text || "").slice(0, 1800));
-    utterance.lang = "en-US";
-    utterance.rate = 1.03;
-    utterance.pitch = 0.82;
-    utterance.volume = 1;
+    utterance.lang = GEORGIE_VOICE_PROFILE.locale;
+    utterance.rate = GEORGIE_VOICE_PROFILE.rate;
+    utterance.pitch = GEORGIE_VOICE_PROFILE.pitch;
+    utterance.volume = GEORGIE_VOICE_PROFILE.volume;
     const voices = window.speechSynthesis.getVoices();
-    utterance.voice = voices.find((voice) => /daniel|aaron|evan|reed|male/i.test(voice.name) && /^en/i.test(voice.lang)) || voices.find((voice) => /^en-US/i.test(voice.lang)) || null;
+    utterance.voice = chooseGeorgieVoice(voices);
     utterance.onend = () => finish();
     utterance.onerror = (event) => finish(new Error(event.error || "Browser speech failed"));
     window.speechSynthesis.speak(utterance);
