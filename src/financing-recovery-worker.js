@@ -27,6 +27,15 @@ export function supabaseRecoveryStore({ rpc = recoveryRpc } = {}) {
     blockIntent: (intent, reason) => complete(intent, "suppressed", { reason }),
     recordProviderFailure: (intent, error) => complete(intent, "failed", { error }),
     recordProviderReceipt: (intent, receipt) => complete(intent, "sent", { provider: "neo", ...receipt }),
+    recordPrismPrecontact: (intent, packet, secureLink) => rpc("georgie_complete_prism_precontact_v1", { p_id: intent.id, p_lease: intent.lease_token, p_packet: packet, p_secure_link: secureLink }),
+    issueUploadToken: request => rpc("georgie_issue_recovery_upload_token_v1", { p_request: request }),
+    resolveUploadToken: tokenHash => rpc("georgie_resolve_recovery_upload_token_v1", { p_token_hash: tokenHash }),
+    revokeUploadToken: (tokenHash, evidenceId) => rpc("georgie_revoke_recovery_upload_token_v1", { p_token_hash: tokenHash, p_evidence_id: evidenceId }),
+    transactChannelIntent: event => rpc("georgie_recovery_channel_intent_v1", { p_event: event }),
+    transactSmsEvent: event => rpc("georgie_recovery_sms_event_v1", { p_event: event }),
+    transactUploadCompletion: upload => rpc("georgie_complete_recovery_upload_v1", { p_upload: upload }),
+    persistEvidence: evidence => rpc("georgie_ingest_recovery_evidence_v1", { p_evidence: evidence, p_quarantine_reason: null }),
+    quarantineEvidence: (evidence, reason) => rpc("georgie_ingest_recovery_evidence_v1", { p_evidence: evidence, p_quarantine_reason: reason }),
     recordDownstreamFailure: (intent, error) => complete(intent, "blocked", { contract: "georgie.prism-handoff.v1", error }),
     recordDownstreamReceipt: (intent, receipt) => complete(intent, "completed", { contract: "georgie.prism-handoff.v1", receipt })
   };

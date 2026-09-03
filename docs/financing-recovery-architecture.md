@@ -1,37 +1,46 @@
-# Financing recovery vertical slice
+# Financing recovery architecture
 
-## Verified current-state boundaries
+## Authoritative lane rules
 
-Repository inspection establishes these boundaries rather than inferring them from names:
+Historical **rehash** inventory is a contact-recovery lane, not an underwriting eligibility lane. Every imported record with a resolved canonical identity and verified consent remains eligible for governed outreach unless the global suppression/cadence system blocks it. Expected return changes queue order only; it never excludes a valid rehash. Historical rehashes request exactly the two most recent complete business bank-statement months not already present and verified, regardless of jurisdiction.
 
-* Sierra workforce RPCs are the canonical CRM/deal read boundary. Sierra correspondence RPCs resolve exact deals, ingest NEO replies and attachments, record outbound receipts, and independently read correspondence back.
-* Supabase/PostgreSQL is the existing durable service-role control plane. Recovery intake, suppressions, replies, outbox intents, leases, receipts, and audit evidence therefore live in one transactional schema.
-* NEO SMTP/IMAP is the configured transactional correspondence provider. `sendMessage` already uses the governed outbound boundary with a deterministic idempotency key, durable attempted/sent/failed audit, concurrent singleflight, and uncertain-state quarantine. Smartlead is used for campaign inventory and a separate reply-closer authority; it is not treated as transactional recovery-send authority.
-* Document intelligence and Sierra correspondence already classify and persist applications and bank statements. The recovery handler accepts their verified metadata; it does not fabricate extraction results.
-* No callable, receipt-bearing Prism or Capital Match submission contract exists in this repository. The worker therefore requires the versioned `georgie.prism-handoff.v1` adapter and persists a blocked failure when it is absent. It never reports a handoff as complete without a downstream receipt and verified read-back.
+New completed, integrity-verified CM-100 applications remain a separate lane. They use only authoritative product requirements supplied with the canonical application event. Raw/original applications are rejected, and this subsystem has no CRM deal-creation operation.
 
-## Implemented contracts
+## Proven repository boundaries
 
-`POST /api/financing-recovery/intake` accepts a completed integrity-verified CM-100 or a historical candidate through a dedicated 32-character-minimum shared-secret boundary. Both lanes require consent evidence, source evidence, and proof that Sierra resolved exactly one canonical deal. Raw/original applications are rejected before storage and this service has no CRM-create operation.
+Sierra workforce and correspondence RPCs are the canonical deal, document, inbound attachment, outbound correspondence, and independent read-back boundaries. Supabase/PostgreSQL is the durable service-role control plane. NEO SMTP/IMAP is the configured transactional email provider; its governed send already provides deterministic idempotency, singleflight, durable attempted/sent/failed evidence, and uncertain-state quarantine. Smartlead remains campaign/reply infrastructure and is not represented as the transactional rehash sender.
 
-The intake RPC atomically upserts the canonical recovery projection and inserts one unique outbox intent. Deterministic applicant/deal/thread identities converge duplicate deliveries. Verified current statement months bypass outreach and create the Prism intent directly; NY/CA require four prior months and other jurisdictions require three.
+The provider-neutral `georgie.recovery-evidence-connector.v1` contract permits an authorized folder, object store, or export connector to list/read files without assuming a vendor. Existing attachment signature/type/size validation is reused. Every object is SHA-256 addressed before extraction; duplicate hashes collapse, and ambiguous identity/classification is quarantined. Extraction returns application/statement type, month, bank, account ending, business identity, confidence, and evidence IDs. No source file must already exist in CRM or email.
 
-`POST /api/financing-recovery/reply` requires the exact provider message, thread, and deal identity. Its RPC inserts the immutable reply audit and downstream outbox intent in one transaction. Unique reply and intent keys collapse replay and concurrency to one durable intent. PostgreSQL `FOR UPDATE SKIP LOCKED`, expiring leases, and fenced completion ensure one effective worker execution.
+## Prism before contact
 
-NEO inbound correspondence now derives only suppression evidence actually visible in repository data: explicit opt-out, complaint, dispute, invalid-recipient, and bounce language. Provider webhook feeds for Smartlead complaints/bounces are **not** claimed connected. Duplicate and active-deal suppression events are accepted only from authenticated evidence producers with stable source event and evidence IDs.
+Historical intake creates one `prism_precontact` intent keyed by the sorted evidence version. The deterministic `georgie.prism-precontact.v1` packet exposes only business/contact identity, verified historical months, summarized revenue/cash flow, prior positions/funding evidence, two missing months, confidence/evidence IDs, and safe cues. It excludes raw transactions and any invented offer, approval, rate, or amount. Low/missing confidence produces `generic_factual` personalization. Packet completion, secure-token issuance, and creation of the one downstream outreach intent are durable and replay-safe; unchanged evidence cannot repeat Prism work.
 
-Every NEO success persists provider message ID, accepted and rejected recipients, plus Sierra correspondence read-back. Missing or rejected recipients and missing Sierra verification are exact failures. Sending remains held unless `GEORGIE_FINANCING_OUTREACH_RELEASE=canary`.
+## Secure two-slot upload
 
-## Runtime ownership
+Upload tokens are 256-bit opaque values; only SHA-256 hashes are stored in the token table. They are applicant/episode/two-month scoped, expire within fourteen days, and can be revoked with evidence. Completion reuses file signature/type/20-MB checks and additionally requires a clean malware-scan receipt plus document-month and business-identity validation. Content hash, token, month, and completion keys prevent duplicate documents or slots. Only after both distinct requested months are verified does one unique `crm.canonical_documents_ready` event become visible. That event explicitly says no new application is required; it does not create another deal. Partial-completion copy requests only the remaining month and repeats that no application is needed.
 
-Render defines one long-lived `npm start` web service. Its runtime owns the core kernel and a narrow allowlist of authoritative always-on specialists: the existing Smartlead reply closer and financing recovery. The general specialist scheduler remains disabled in kernel mode. Registry invariants and startup tests prove there is one financing-recovery authority and no direct second scheduler.
+## Georgie closer and omnichannel state
+
+Georgie owns initial outreach, collection, status, objections, verified-offer explanation, negotiation inside configured guardrails, and funding coordination. Humans are exception-only for authority-exceeding binding commitments, ambiguity, compliance risk, or an explicit client request.
+
+Email and future programmable SMS share applicant/deal/episode identity, suppression, cadence, step state, receipts, and stop conditions. A unique `(episode, step)` database constraint prevents redundant same-step email/SMS messages. `georgie.sms.v1` requires a configured provider, programmable number, registration proof, signed webhook verification, provider event IDs, replay-safe receipts, and STOP/HELP handling. TextFree is not automated and no SMS provider or number is claimed live.
+
+Templates are deterministic and brief. They name the exact two months, state Sierra already has the application information, state no new application is needed, use only safe Prism cues, provide the secure link, and make no approval, amount, rate, lender-interest, or funding promise.
+
+## Economics and truthful readiness
+
+Deterministic hashing, matching gates, templates, cadence, upload validation, and routing use no model. Model policy remains Luna → Terra → Sol with pair tiers disabled. Document/OCR work keys on content hash and Prism work keys on evidence version. Per-rehash economics expose email, SMS, model, and document-processing cost alongside recovered packages, funded deals/dollars, and revenue.
+
+`georgie.financing-recovery-readiness.v1` independently reports durable storage, evidence connector, Prism packet integration, secure upload, canonical CRM gate, dedicated Georgie email, SMS provider/number/registration, webhook verification, closer authority, omnichannel suppression, and outreach hold. Missing adapters stay red.
 
 ## External blockers and smallest next actions
 
-1. **Sierra intake producer:** the external Sierra/Supabase service must call the authenticated recovery intake endpoint only after its existing canonical-deal read-back succeeds. Smallest action: send one staff-owned synthetic CM-100 event with application, consent, and canonical-deal evidence IDs while release is held.
-2. **Prism:** its owning service must implement `georgie.prism-handoff.v1` (`dealId`, `idempotencyKey`, evidence IDs in; stable `receiptId` and `{readBack:{verified:true}}` out) and persist the same idempotency key. Smallest action: contract-test one synthetic fully documented deal without lender submission.
-3. **Capital Match:** its owning service must publish a separate versioned result contract preserving Prism evidence IDs/confidence and a durable read-back receipt. Smallest action: agree the schema and add consumer contract tests; no endpoint is invented here.
-4. **Provider suppression webhooks:** configure authenticated Smartlead/NEO provider webhook ingestion only when their signed payload contracts are available. Smallest action: capture and document one vendor-signed synthetic bounce and complaint payload, then add signature and replay tests.
-5. **Metrics:** add read-only projections for recovered statement packages, qualified opportunities, underwriting, offers, calls, funded deals/dollars, revenue, reply/opt-out/complaint/bounce rates, and cost per recovered applicant. Smallest action: map each metric to an authoritative audit/result event before dashboard work.
+1. **Evidence vault connector:** implement `georgie.recovery-evidence-connector.v1` in the service that owns the authorized export/folder/object store. Verify one synthetic application and two statements, including duplicate and ambiguous fixtures.
+2. **Sierra producer:** call authenticated historical/new intake only after canonical deal and consent read-back. Send one staff-owned synthetic historical record while outreach is held.
+3. **Malware scanner/document validator:** bind the secure-upload hooks to approved scanning and Sierra extraction services and return stable receipts/evidence IDs. Validate one harmless synthetic PDF in each slot.
+4. **Prism/Capital Match:** the external owners must implement receipt-bearing, idempotent contracts. Prism must read the pre-contact packet; Capital Match must preserve Prism evidence IDs/confidence. Contract-test synthetic data before any lender action.
+5. **SMS:** select a programmable provider/number, complete registration, and implement signed webhook verification. Test synthetic STOP/HELP/delivery events; do not purchase or port from this repository.
+6. **Metrics projection:** project recovery audit/channel/outcome records into the requested outcome dashboard without using send volume as the objective.
 
-The live canary remains one staff-owned synthetic identity, explicitly allowlisted outside this code, with release held through intake and suppression verification. Temporarily set `canary`, verify exactly one NEO receipt and Sierra read-back, ingest one synthetic attachment reply, verify one Prism intent, then return to hold. Do not load historical inventory or enable unrestricted outreach.
+The smallest safe canary remains one staff-owned synthetic rehash. Keep release held through evidence import, generic/verified Prism packet inspection, token/upload replay tests, suppression checks, and Sierra read-back. No production outreach, migration application, file transmission, number purchase, deployment, or external submission is part of this change.

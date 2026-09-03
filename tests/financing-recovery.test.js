@@ -11,7 +11,7 @@ function intake(lane = "new") {
     lane, tenantId: "sierra", sourceApplicationId: "cm100-1", email: "Owner@Example.com", firstName: "Ava", jurisdiction: "FL",
     applicationType: "CM-100", integrityVerified: true, completed: true, canonicalDealVerified: true,
     canonicalDealEvidenceId: "crm-readback-1", consentBasis: { verified: true, evidenceId: "consent-1" },
-    evidenceIds: ["app-doc-1"], documents: []
+    evidenceIds: ["app-doc-1"], documents: [], authoritativeMissingMonths: ["2026-08", "2026-07", "2026-06"]
   };
 }
 
@@ -38,22 +38,22 @@ function durableStore() {
   };
 }
 
-test("both lanes converge on one canonical deal and deterministic outbox intent", async () => {
+test("historical rehash replay converges on one canonical deal and Prism precontact intent", async () => {
   const store = durableStore(), now = new Date("2026-09-03T00:00:00Z");
-  await Promise.all(Array.from({ length: 20 }, (_, index) => ingestRecoveryCandidate(store, intake(index % 2 ? "historical" : "new"), { now })));
+  await Promise.all(Array.from({ length: 20 }, (_, index) => ingestRecoveryCandidate(store, intake("historical"), { now })));
   assert.equal(store.candidates.size, 1);
   assert.equal(store.intents.size, 1);
-  assert.deepEqual([...store.intents.values()][0].missingMonths, ["2026-08", "2026-07", "2026-06"]);
+  assert.deepEqual([...store.intents.values()][0].missingMonths, ["2026-08", "2026-07"]);
   assert.equal([...store.candidates.values()][0].rawApplicationCrmWrite, false);
 });
 
 test("verified current statements bypass outreach and create one Prism intent", async () => {
   const store = durableStore(), input = intake();
-  input.documents = requiredStatementMonths({ asOf: new Date("2026-09-03"), jurisdiction: "FL" }).map(statementMonth => ({ statementMonth, verified: true }));
+  input.documents = requiredStatementMonths({ asOf: new Date("2026-09-03"), jurisdiction: "FL", lane: "new", authoritativeMissingMonths: input.authoritativeMissingMonths }).map(statementMonth => ({ statementMonth, verified: true }));
   await Promise.all([ingestRecoveryCandidate(store, input, { now: new Date("2026-09-03") }), ingestRecoveryCandidate(store, input, { now: new Date("2026-09-03") })]);
   assert.equal([...store.intents.values()][0].kind, "prism_wakeup");
   assert.equal(store.intents.size, 1);
-  assert.deepEqual(missingStatementMonths(requiredStatementMonths({ asOf: new Date("2026-09-03"), jurisdiction: "FL" }), input.documents), []);
+  assert.deepEqual(missingStatementMonths(requiredStatementMonths({ asOf: new Date("2026-09-03"), jurisdiction: "FL", lane: "new", authoritativeMissingMonths: input.authoritativeMissingMonths }), input.documents), []);
 });
 
 test("raw, unverified, noncanonical, and consent-uncertain applications fail closed", async () => {

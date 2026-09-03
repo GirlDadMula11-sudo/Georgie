@@ -36,3 +36,15 @@ test("versioned intake endpoint authenticates and dispatches only validated cano
     if (prior === undefined) delete process.env.GEORGIE_FINANCING_RECOVERY_INGEST_TOKEN; else process.env.GEORGIE_FINANCING_RECOVERY_INGEST_TOKEN = prior;
   }
 });
+
+test("rehash schema deduplicates evidence, upload slots, channel steps, CRM and Prism work", () => {
+  const extension = fs.readFileSync(new URL("../supabase/migrations/202609030002_rehash_evidence_upload.sql", import.meta.url), "utf8");
+  assert.match(extension, /content_hash text not null unique/i);
+  assert.match(extension, /unique\(episode_id,statement_month\)/i);
+  assert.match(extension, /unique\(episode_id,step\)/i);
+  assert.match(extension, /'crm-intake:'\|\|token\.episode_id/i);
+  assert.match(extension, /on conflict\(event_key\) do nothing/i);
+  assert.match(extension, /'prism-precontact:'\|\|\(p_packet->>'evidenceVersion'\)/i);
+  assert.match(extension, /georgie_revoke_recovery_upload_token_v1/);
+  assert.match(extension, /p_event->>'command'='STOP'/);
+});

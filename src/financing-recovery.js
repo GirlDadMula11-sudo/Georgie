@@ -29,10 +29,21 @@ export function recoveryIdentity({ tenantId = "sierra", sourceApplicationId, ema
   };
 }
 
-export function requiredStatementMonths({ asOf = new Date(), jurisdiction }) {
-  const count = ["NY", "CA"].includes(clean(jurisdiction).toUpperCase()) ? 4 : 3;
+export function requiredStatementMonths({ asOf = new Date(), jurisdiction, lane = "new", authoritativeMissingMonths = null, documents = [] }) {
+  if (lane === "new") {
+    if (!Array.isArray(authoritativeMissingMonths)) throw new Error("AUTHORITATIVE_PRODUCT_STATEMENT_REQUIREMENTS_REQUIRED");
+    const months = [...new Set(authoritativeMissingMonths.map(value => clean(value)).filter(value => MONTH.test(value)))];
+    if (months.length !== authoritativeMissingMonths.length) throw new Error("INVALID_AUTHORITATIVE_STATEMENT_MONTH");
+    return months;
+  }
+  const verified = new Set(documents.filter(document => document.verified === true).map(document => document.statementMonth));
   const start = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), 1));
-  return Array.from({ length: count }, (_, index) => new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - index - 1, 1)).toISOString().slice(0, 7));
+  const missing = [];
+  for (let offset = 1; missing.length < 2 && offset <= 120; offset += 1) {
+    const month = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - offset, 1)).toISOString().slice(0, 7);
+    if (!verified.has(month)) missing.push(month);
+  }
+  return missing;
 }
 
 export function missingStatementMonths(required, documents = [], now = new Date()) {
@@ -65,7 +76,7 @@ export function validateRecoveryIntake(input = {}) {
 export async function ingestRecoveryCandidate(store, input, { now = new Date() } = {}) {
   const value = validateRecoveryIntake(input);
   const identity = recoveryIdentity(value);
-  const requiredMonths = requiredStatementMonths({ asOf: now, jurisdiction: value.jurisdiction });
+  const requiredMonths = requiredStatementMonths({ asOf: now, jurisdiction: value.jurisdiction, lane: value.lane, authoritativeMissingMonths: value.authoritativeMissingMonths, documents: value.documents });
   const missingMonths = missingStatementMonths(requiredMonths, value.documents, now);
   const candidate = {
     ...identity,
@@ -78,12 +89,22 @@ export async function ingestRecoveryCandidate(store, input, { now = new Date() }
     evidenceIds: value.evidenceIds,
     consentEvidenceId: value.consentBasis.evidenceId,
     canonicalDealEvidenceId: value.canonicalDealEvidenceId,
+    documents: value.documents || [],
+    businessIdentity: clean(value.businessIdentity) || null,
+    cashFlowSummary: value.cashFlowSummary || null,
+    priorPositions: value.priorPositions || [],
+    fundingEvidence: value.fundingEvidence || [],
+    safePersonalizationCues: value.safePersonalizationCues || [],
+    confidence: Number(value.confidence || 0),
     canonicalApplicationOnly: true,
     rawApplicationCrmWrite: false
   };
-  const intent = missingMonths.length
-    ? { kind: "statement_request", key: `statement-request:${identity.dealId}:${requiredMonths.join(".")}:${RECOVERY_POLICY.contract}` }
-    : { kind: "prism_wakeup", key: `prism:${identity.dealId}:${requiredMonths.join(".")}` };
+  const evidenceVersion = digest(value.evidenceIds.slice().sort().join(":"));
+  const intent = value.lane === "historical" && missingMonths.length
+    ? { kind: "prism_precontact", key: `prism-precontact:${identity.dealId}:${evidenceVersion}`, evidenceVersion }
+    : missingMonths.length
+      ? { kind: "statement_request", key: `statement-request:${identity.dealId}:${requiredMonths.join(".")}:${RECOVERY_POLICY.contract}` }
+      : { kind: "prism_wakeup", key: `prism:${identity.dealId}:${requiredMonths.join(".")}` };
   return store.transactIntake(candidate, intent);
 }
 
@@ -108,7 +129,16 @@ export async function processRecoveryIntent(store, intent, {
   send = sendClientMessageAndVerify,
   prismAdapter = null
 } = {}) {
-  if (!["statement_request", "prism_wakeup"].includes(intent.kind)) return store.recordDownstreamFailure(intent, `UNCONNECTED_INTENT_ADAPTER:${intent.kind || "unknown"}`);
+  if (!["statement_request", "prism_wakeup", "prism_precontact"].includes(intent.kind)) return store.recordDownstreamFailure(intent, `UNCONNECTED_INTENT_ADAPTER:${intent.kind || "unknown"}`);
+  if (intent.kind === "prism_precontact") {
+    const [{ buildPrismPrecontactPacket }, { createUploadTokenRequest }] = await Promise.all([import("./financing-recovery-evidence.js"), import("./financing-recovery-engagement.js")]);
+    const packet = buildPrismPrecontactPacket(intent);
+    const origin = String(process.env.GEORGIE_RECOVERY_UPLOAD_ORIGIN || "").replace(/\/$/, "");
+    if (!origin) return store.recordDownstreamFailure(intent, "SECURE_UPLOAD_ORIGIN_UNAVAILABLE");
+    const upload = createUploadTokenRequest({ applicantId: intent.applicantId, episodeId: intent.dealId, requestedMonths: intent.missingMonths, expiresAt: new Date(Date.now() + 7 * 86400000) });
+    await store.issueUploadToken(upload);
+    return store.recordPrismPrecontact(intent, packet, `${origin}/recovery/${upload.token}`);
+  }
   if (intent.kind === "prism_wakeup") {
     if (!prismAdapter || prismAdapter.contract !== PRISM_ADAPTER_CONTRACT || typeof prismAdapter.submit !== "function") return store.recordDownstreamFailure(intent, "PRISM_ADAPTER_UNAVAILABLE");
     try {
@@ -124,10 +154,16 @@ export async function processRecoveryIntent(store, intent, {
   if (!gate?.allowed) return store.blockIntent(intent, gate?.reason || "SUPPRESSION_STATE_UNCERTAIN");
   if (release !== "canary") return store.holdIntent(intent, "RELEASE_HOLD");
   try {
+    let message = messageFor(intent);
+    if (intent.prismPacket) {
+      const { recoveryTemplates } = await import("./financing-recovery-engagement.js");
+      const template = recoveryTemplates({ channel: "email", firstName: intent.firstName, businessIdentity: intent.businessIdentity, missingMonths: intent.missingMonths, secureLink: intent.secureLink, prismPacket: intent.prismPacket });
+      message = { version: template.contract, subject: template.subject, text: template.body };
+    }
     const result = await send(intent.userId || "primary", {
       reference: intent.dealId,
       to: intent.email,
-      ...messageFor(intent),
+      ...message,
       idempotencyKey: intent.idempotency_key || intent.key,
       threadId: intent.threadId || intent.thread_id
     });
@@ -155,4 +191,10 @@ export async function ingestSuppressionEvent(store, input = {}) {
   if (!clean(input.evidenceId) || !clean(input.sourceEventId)) throw new Error("SUPPRESSION_EVIDENCE_REQUIRED");
   if (!input.email && !input.applicantId) throw new Error("SUPPRESSION_IDENTITY_REQUIRED");
   return store.transactSuppression({ ...input, reason, email: input.email ? canonicalEmail(input.email) : null, idempotencyKey: `suppression:${input.source}:${input.sourceEventId}` });
+}
+
+export function prioritizeHistoricalRehashes(candidates = []) {
+  return candidates.map((candidate, index) => ({ candidate, index, score: Number(candidate.expectedReturn || 0) * Math.max(0, Math.min(1, Number(candidate.confidence || 0))) }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map(item => item.candidate);
 }
