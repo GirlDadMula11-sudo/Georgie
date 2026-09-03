@@ -1,0 +1,42 @@
+name: Native Voice
+
+on:
+  pull_request:
+    paths:
+      - "native/GeorgieVoiceKit/**"
+      - ".github/workflows/native-voice.yml"
+  push:
+    branches: [main]
+    paths:
+      - "native/GeorgieVoiceKit/**"
+      - ".github/workflows/native-voice.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  swift-package:
+    runs-on: macos-15
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: native/GeorgieVoiceKit
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record toolchain
+        run: swift --version
+      - name: Test shared package on macOS
+        run: swift test --parallel
+      - name: Compile shared package for iOS
+        run: xcodebuild -scheme GeorgieVoiceKit -destination 'generic/platform=iOS' -derivedDataPath .build/xcode-ios CODE_SIGNING_ALLOWED=NO build
+
+  standby-privacy-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Prove standby path has no transport
+        run: node --test tests/native-voice-foundation-contract.test.js
