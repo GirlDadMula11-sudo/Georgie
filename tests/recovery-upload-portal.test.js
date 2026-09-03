@@ -45,8 +45,9 @@ test("portal implements loading, expiry, revocation, invalid, duplicate, interru
   assert.match(js, /\.focus\(\)/);
 });
 
-test("portal does not substitute Georgie artwork as a Sierra logo", () => {
-  assert.match(html, /class="sierra-wordmark"/);
+test("portal uses the approved Sierra Marketing Inc. logo without substituting Georgie artwork", () => {
+  assert.match(html, /class="sierra-wordmark"[^>]*>[\s\S]*src="\/sierra-logo-transparent-header\.png"/);
+  assert.match(html, /alt="Sierra Marketing Inc\."/);
   assert.match(html, /class="georgie-card"/);
-  assert.doesNotMatch(html, /<img[^>]+alt="Sierra/i);
+  assert.match(html, /class="georgie-card">[\s\S]*src="\/georgie-logo-v2\.svg" alt="Georgie"/);
 });
