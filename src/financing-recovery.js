@@ -58,7 +58,7 @@ export function messageFor({ firstName, missingMonths }) {
   return {
     version: "statement-request.v1",
     subject: "Updated business bank statements",
-    text: `Hi ${clean(firstName) || "there"},\n\nTo review current business financing options, please reply with your complete business bank statement${missingMonths.length === 1 ? "" : "s"} for ${missingMonths.join(", ")}. We will review the documents before discussing any potential terms.\n\nThank you,\nSierra Capital Funding`
+    text: `Hi ${clean(firstName) || "there"},\n\nTo review current business financing options, please reply with your complete business bank statement${missingMonths.length === 1 ? "" : "s"} for ${missingMonths.join(", ")}. We will review the documents before discussing any potential terms.\n\nThank you,\nSierra Marketing Inc.`
   };
 }
 

@@ -1,0 +1,29 @@
+.review-toolbar {
+  align-items: center;
+  background: #fffaf0;
+  border: 1px solid rgba(213, 177, 93, .7);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(11, 23, 29, .07);
+  color: #5d4815;
+  display: flex;
+  font-size: .78rem;
+  gap: 16px;
+  justify-content: space-between;
+  margin: 0 0 26px;
+  padding: 12px 16px;
+}
+.review-toolbar[hidden] { display: none; }
+.review-toolbar strong { letter-spacing: .04em; }
+.review-toolbar label { align-items: center; display: flex; gap: 8px; }
+.review-toolbar select {
+  background: white;
+  border: 1px solid #bca76f;
+  border-radius: 7px;
+  color: #121719;
+  padding: 7px 28px 7px 9px;
+}
+@media (max-width: 700px) {
+  .review-toolbar { align-items: flex-start; flex-direction: column; }
+  .review-toolbar label { justify-content: space-between; width: 100%; }
+  .review-toolbar select { max-width: 55%; }
+}

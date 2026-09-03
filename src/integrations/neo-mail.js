@@ -8,7 +8,7 @@ const DEFAULT_IMAP_HOST = process.env.GEORGIE_NEO_IMAP_HOST || "imap0001.neo.spa
 const DEFAULT_IMAP_PORT = Number(process.env.GEORGIE_NEO_IMAP_PORT || 993);
 const DEFAULT_SMTP_HOST = process.env.GEORGIE_NEO_SMTP_HOST || "smtp0001.neo.space";
 const DEFAULT_SMTP_PORT = Number(process.env.GEORGIE_NEO_SMTP_PORT || 465);
-const HUMAN_ESCALATION_DISCLOSURE = "If you would prefer to speak with a person directly, you can contact Sierra Capital Advisory CEO Jason Sierra or Louri Brown.";
+const HUMAN_ESCALATION_DISCLOSURE = "If you would prefer to speak with a person directly, you can contact Sierra Marketing Inc. CEO Jason Sierra or Louri Brown.";
 const BUSINESS_ROLES = new Set(["executive_work", "lender_submissions", "georgie_closer", "client_correspondence"]);
 
 function dedicatedMailboxes() {

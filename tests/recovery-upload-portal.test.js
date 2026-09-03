@@ -6,6 +6,13 @@ const html = fs.readFileSync(new URL("../public/recovery-upload.html", import.me
 const css = fs.readFileSync(new URL("../public/recovery-upload.css", import.meta.url), "utf8");
 const js = fs.readFileSync(new URL("../public/recovery-upload.js", import.meta.url), "utf8");
 
+test("portal review mode is explicitly synthetic and isolated from the real upload API", () => {
+  assert.match(html, /Protected preview — synthetic data/);
+  assert.match(html, /id="reviewState"/);
+  assert.match(js, /review-session/);
+  assert.match(js, /payload\.session\?\.reviewMode !== true/);
+});
+
 test("Sierra portal has a short, accessible two-slot client journey", () => {
   assert.match(html, /No new application is required\./);
   assert.match(html, /id="slotTemplate"/);

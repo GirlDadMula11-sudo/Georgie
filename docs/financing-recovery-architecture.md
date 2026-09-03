@@ -47,7 +47,9 @@ The smallest safe canary remains one staff-owned synthetic rehash. Keep release 
 
 ## Client portal
 
-`/recovery/` is a mobile-first Sierra Capital Funding document journey with safe business/client personalization, Georgie identity, secure-session and expiry state, two exact month cards, drag/drop and native mobile file selection, per-file transfer/scan/validation feedback, partial progress, precise recovery messages, privacy explanation, support, and a restrained completion sequence for Prism review, possible funding-option evaluation, and Georgie follow-up. Raw tokens are removed from browser history immediately and are never rendered; public session data excludes internal applicant/deal/thread IDs and banking details.
+`/recovery/` is a mobile-first Sierra Marketing Inc. document journey with safe business/client personalization, Georgie identity, secure-session and expiry state, two exact month cards, drag/drop and native mobile file selection, per-file transfer/scan/validation feedback, partial progress, precise recovery messages, privacy explanation, support, and a restrained completion sequence for Prism review, possible funding-option evaluation, and Georgie follow-up. Raw tokens are removed from browser history immediately and are never rendered; public session data excludes internal applicant/deal/thread IDs and banking details.
+
+Authorized visual review uses `/recovery/?review=1` only when both `VERCEL_ENV=preview` and `RECOVERY_PORTAL_REVIEW_MODE=true`. It returns hard-coded synthetic data, performs no upload or provider action, and remains unavailable in production or when the explicit flag is absent.
 
 The repository contains authoritative Georgie artwork but no Sierra/SM logo file. The portal therefore uses a typographic Sierra wordmark and does **not** misrepresent the Georgie mark or a fabricated image as Sierra’s logo. Smallest next action: the Sierra brand owner must add the approved transparent SM asset to `public/`; only then should the wordmark be replaced, with an asset provenance review and visual regression approval.
 

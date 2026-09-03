@@ -1,6 +1,6 @@
 const $ = selector => document.querySelector(selector);
 const loading = $("#loadingState"), errorState = $("#errorState"), uploadState = $("#uploadState"), successState = $("#successState");
-let token = "", session = null;
+let token = "", session = null, reviewMode = false;
 
 const monthLabel = value => {
   const [year, month] = String(value).split("-").map(Number);
@@ -68,8 +68,24 @@ async function uploadFile(article, month, file) {
   }
 }
 
+function demonstrateReviewState(state) {
+  const slots = [...document.querySelectorAll('.statement-slot')];
+  if (["expired", "revoked"].includes(state)) return showSessionError(state);
+  showOnly(uploadState);
+  slots.forEach(article => setSlotState(article, "open"));
+  if (state === "uploading") { slots[0].querySelector(".file-name").textContent = "synthetic-statement.pdf"; slots[0].querySelector("progress").value = 64; setSlotState(slots[0], "scanning", "Scanning synthetic preview file…"); }
+  if (state === "invalid_file") setSlotState(slots[0], "error", readableError("invalid_file")[1]);
+  if (state === "duplicate") setSlotState(slots[0], "error", readableError("duplicate")[1]);
+  if (state === "wrong_month") setSlotState(slots[0], "error", readableError("STATEMENT_MONTH_OR_BUSINESS_MISMATCH")[1]);
+  if (["partial", "success"].includes(state)) setSlotState(slots[0], "verified", "Synthetic statement verified");
+  if (state === "success") setSlotState(slots[1], "verified", "Synthetic statement verified");
+  updateProgress();
+}
+
 function renderSession(value) {
   session = value;
+  reviewMode = value.reviewMode === true;
+  if (reviewMode) { $("#reviewToolbar").hidden = false; $("#secureBadge").textContent = "Protected synthetic preview"; }
   if (["expired", "revoked"].includes(value.status)) return showSessionError(value.status);
   if (value.status !== "active") return showSessionError("UPLOAD_TOKEN_INVALID");
   $("#clientGreeting").textContent = value.firstName ? `Welcome, ${value.firstName}` : "Welcome";
@@ -91,6 +107,14 @@ function renderSession(value) {
 }
 
 async function start() {
+  if (new URLSearchParams(location.search).get("review") === "1") {
+    try {
+      const response = await fetch("/api/financing-recovery/review-session", { headers: { accept: "application/json" } });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.ok !== true || payload.session?.reviewMode !== true) throw new Error("UPLOAD_SESSION_NOT_FOUND");
+      return renderSession(payload.session);
+    } catch { return showSessionError("UPLOAD_SESSION_NOT_FOUND"); }
+  }
   token = decodeURIComponent(location.hash.slice(1)); history.replaceState(null, "", "/recovery/");
   if (token.length < 32) return showSessionError("UPLOAD_TOKEN_INVALID");
   try { const payload = await api("/upload-session"); renderSession(payload.session); }
@@ -98,4 +122,5 @@ async function start() {
 }
 
 $("#reissueButton").addEventListener("click", () => { location.href = "mailto:operations@sierracapitalfunding.com?subject=Please reissue my secure statement upload link"; });
+$("#reviewState").addEventListener("change", event => { if (reviewMode) demonstrateReviewState(event.target.value); });
 start();

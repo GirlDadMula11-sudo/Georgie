@@ -41,7 +41,7 @@ export function recoveryTemplates({ channel, firstName, businessIdentity, missin
   const months = missingMonths.join(" and ");
   const common = `Sierra already has your application information${business}; no new application is needed. Please securely upload the complete ${months} business bank statements: ${secureLink}`;
   if (channel === "sms") return { contract: "georgie.recovery-message.v1", channel, body: `Hi ${greeting} — ${common} Reply STOP to opt out or HELP for help.`, claims: [] };
-  if (channel === "email") return { contract: "georgie.recovery-message.v1", channel, subject: "Two updated bank statements needed", body: `Hi ${greeting},\n\n${common}\n\nOnce received, Georgie will keep your review moving and update you here.\n\nBest,\nGeorgie\nSierra Capital Funding`, claims: [] };
+  if (channel === "email") return { contract: "georgie.recovery-message.v1", channel, subject: "Two updated bank statements needed", body: `Hi ${greeting},\n\n${common}\n\nOnce received, Georgie will keep your review moving and update you here.\n\nBest,\nGeorgie\nSierra Marketing Inc.`, claims: [] };
   throw new Error("SUPPORTED_RECOVERY_CHANNEL_REQUIRED");
 }
 

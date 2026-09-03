@@ -4,17 +4,22 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="robots" content="noindex,nofollow,noarchive" />
-  <title>Secure statement upload | Sierra Capital Funding</title>
+  <title>Secure statement upload | Sierra Marketing Inc.</title>
   <link rel="stylesheet" href="/recovery-upload.css" />
+  <link rel="stylesheet" href="/recovery-review.css" />
   <script type="module" src="/recovery-upload.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#portalMain">Skip to secure upload</a>
   <header class="site-header" aria-label="Sierra secure document portal">
-    <div class="sierra-wordmark" aria-label="Sierra Capital Funding"><span aria-hidden="true">SIERRA</span><small>CAPITAL FUNDING</small></div>
+    <div class="sierra-wordmark" aria-label="Sierra Marketing Inc."><span aria-hidden="true">SIERRA</span><small>MARKETING INC.</small></div>
     <div class="secure-badge" id="secureBadge"><span aria-hidden="true">●</span> Secure session</div>
   </header>
   <main id="portalMain" tabindex="-1">
+    <section id="reviewToolbar" class="review-toolbar" hidden aria-label="Synthetic preview controls">
+      <strong>Protected preview — synthetic data</strong>
+      <label>Demonstrate state <select id="reviewState"><option value="ready">Ready</option><option value="uploading">Upload progress</option><option value="invalid_file">Wrong file type</option><option value="duplicate">Duplicate</option><option value="wrong_month">Wrong month</option><option value="partial">One verified</option><option value="success">Both verified</option><option value="expired">Expired</option><option value="revoked">Revoked</option></select></label>
+    </section>
     <section id="loadingState" class="state-panel center" aria-live="polite">
       <div class="spinner" aria-hidden="true"></div><h1>Opening your secure request</h1><p>Confirming the document session…</p>
     </section>
@@ -49,7 +54,7 @@
       <a class="button secondary" href="mailto:operations@sierracapitalfunding.com">Contact Sierra support</a>
     </section>
   </main>
-  <footer>© Sierra Capital Funding · Secure document portal</footer>
+  <footer>© Sierra Marketing Inc. · Secure document portal</footer>
   <template id="slotTemplate"><article class="statement-slot"><div class="slot-top"><div class="month-icon" aria-hidden="true"></div><div><p>BUSINESS BANK STATEMENT</p><h3></h3></div><span class="status-pill">Needed</span></div><label class="drop-zone"><input type="file" accept="application/pdf,.pdf,image/jpeg,image/png" /><span class="upload-icon" aria-hidden="true">↑</span><strong>Choose a file <span>or drag it here</span></strong><small>PDF, JPG or PNG · Maximum 10 MB</small></label><div class="file-progress" hidden><div><strong class="file-name"></strong><small class="file-status">Preparing…</small></div><button type="button" class="remove-file" aria-label="Remove selected file">×</button><progress max="100" value="0">0%</progress></div><p class="slot-error" role="alert" hidden></p></article></template>
 </body>
 </html>

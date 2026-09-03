@@ -5,7 +5,7 @@ import { buildDocumentReceiptReply, containsBindingOrFinancialCommitment, isSafe
 import { classifyCorrespondenceAttachment } from "../src/integrations/sierra-correspondence.js";
 
 test("business NEO disclosure is inserted before signature exactly once", () => {
-  const input = "We received your documents.\n\nBest,\nGeorgie\nSierra Capital Advisory";
+  const input = "We received your documents.\n\nBest,\nGeorgie\nSierra Marketing Inc.";
   const output = neoMailInternals.insertDisclosureBeforeSignature(input);
   assert.match(output, new RegExp(neoHumanEscalationDisclosure.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.ok(output.indexOf(neoHumanEscalationDisclosure) < output.indexOf("Best,"));

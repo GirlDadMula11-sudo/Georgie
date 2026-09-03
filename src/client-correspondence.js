@@ -20,7 +20,7 @@ export function buildDocumentReceiptReply({ businessName, requests = [], receive
   const remaining = open.length
     ? `\n\nTo keep the file moving, we still need:\n${open.map((item) => `• ${clean(item.document_type || item.instructions || "Requested document", 240)}${item.instructions && item.instructions !== item.document_type ? ` — ${clean(item.instructions, 300)}` : ""}`).join("\n")}`
     : "\n\nAt this point, I do not see any additional open document request in Sierra. The file can continue through review based on the evidence currently received.";
-  return `${intro}${remaining}\n\nIf anything is unclear, reply here and I’ll keep the file moving.\n\nBest,\nGeorgie\nSierra Capital Advisory`;
+  return `${intro}${remaining}\n\nIf anything is unclear, reply here and I’ll keep the file moving.\n\nBest,\nGeorgie\nSierra Marketing Inc.`;
 }
 
 export function isSafeAutomaticClientReply({ triage = {}, text = "", target = {}, openRequests = [], receivedCount = 0 } = {}) {

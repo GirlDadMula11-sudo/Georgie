@@ -208,7 +208,7 @@ const disclosureLike = (line) => /Jason Sierra/i.test(line) && /Louri Brown/i.te
 export function enforceHumanAccessText(input = "") {
   const lines = String(input).replace(/\r\n/g, "\n").split("\n").filter((line) => !disclosureLike(line));
   let signature = lines.findIndex((line) => /^\s*(?:--\s*)?(?:Georgie|Best,|Best regards,|Regards,|Sincerely,)\s*$/i.test(line));
-  if (signature < 0) { lines.push("Georgie", "Sierra Capital Advisory"); signature = lines.length - 2; }
+  if (signature < 0) { lines.push("Georgie", "Sierra Marketing Inc."); signature = lines.length - 2; }
   while (signature > 0 && !lines[signature - 1].trim()) { lines.splice(signature - 1, 1); signature -= 1; }
   lines.splice(signature, 0, "", DISCLOSURE, "");
   return lines.join("\n").trim();
@@ -220,7 +220,7 @@ export function enforceHumanAccessHtml(input = "") {
   const disclosure = `<p data-georgie-human-access="v1">${DISCLOSURE}</p>`;
   const signature = /(<(?:p|div)[^>]*>\s*(?:--\s*)?(?:Georgie|Best,|Best regards,|Regards,|Sincerely,)[\s\S]*$)/i;
   if (signature.test(html)) return html.replace(signature, `${disclosure}$1`);
-  return `${html}${disclosure}<p>Georgie<br>Sierra Capital Advisory</p>`;
+  return `${html}${disclosure}<p>Georgie<br>Sierra Marketing Inc.</p>`;
 }
 
 export function prepareOutboundCorrespondence(message = {}) {

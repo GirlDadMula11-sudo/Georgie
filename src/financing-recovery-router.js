@@ -15,6 +15,16 @@ function authorized(req) {
 
 export function createFinancingRecoveryRouter({ store = supabaseRecoveryStore(), malwareScan = null, documentValidator = null, statementStorage = createSupabaseStatementStorage() } = {}) {
   const router = express.Router();
+  router.get("/review-session", (_req, res) => {
+    res.set("Cache-Control", "no-store");
+    const enabled = process.env.VERCEL_ENV === "preview" && process.env.RECOVERY_PORTAL_REVIEW_MODE === "true";
+    if (!enabled) return res.status(404).json({ ok: false, error: "UPLOAD_SESSION_NOT_FOUND" });
+    return res.json({ ok: true, session: {
+      status: "active", reviewMode: true, firstName: "Sierra Review Team", businessName: "Sierra Review Company",
+      expiresAt: "2099-12-31T23:59:59.000Z", complete: false,
+      slots: [{ month: "2026-07", status: "open" }, { month: "2026-08", status: "open" }]
+    } });
+  });
   router.get("/upload-session", async (req, res) => {
     try {
       const token = String(req.get("x-recovery-upload-token") || "");
