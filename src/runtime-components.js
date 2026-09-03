@@ -17,11 +17,12 @@ import { startWorldStateSentinel } from "./world-state-sentinel.js";
 import { startRevenueController } from "./revenue-controller.js";
 import { startIntelligenceControlMap } from "./intelligence-control-map.js";
 import { startConnectorHeartbeatMonitor } from "./connector-oauth.js";
+import { startFinancingRecoveryWorker } from "./financing-recovery-worker.js";
 
 // Phase 1 authority map. Runtime components may start only through this registry.
 // `authority` describes the state a component may own; `observer` components may
 // inspect and recommend but must not become competing objective authorities.
-const SPECIALIST_COMPONENT_IDS = new Set(["seo-monitor", "smartlead-reply-closer", "lender-delivery", "sierra-closing-outreach"]);
+const SPECIALIST_COMPONENT_IDS = new Set(["seo-monitor", "smartlead-reply-closer", "lender-delivery", "sierra-closing-outreach", "financing-recovery"]);
 const KERNEL_COMPONENT_IDS = new Set([
   "cloud-state-recovery",
   "mobile-turn-recovery",
@@ -60,6 +61,7 @@ const COMPONENT_DEFINITIONS = [
   { id: "smartlead-reply-closer", profiles: ["web", "worker"], role: "executor", authority: "smartlead-replies", start: startSmartleadReplyCloserWorker },
   { id: "lender-delivery", profiles: ["web"], role: "executor", authority: "lender-delivery", start: startLenderDeliveryWorker },
   { id: "sierra-closing-outreach", profiles: ["web", "worker"], role: "executor", authority: "closing-outreach", start: startSierraClosingOutreachWorker },
+  { id: "financing-recovery", profiles: ["web", "worker"], role: "executor", authority: "financing-recovery", start: startFinancingRecoveryWorker },
 ];
 
 export const RUNTIME_COMPONENTS = Object.freeze(COMPONENT_DEFINITIONS.map(component => Object.freeze({

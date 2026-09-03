@@ -32,12 +32,12 @@ export function isSafeAutomaticClientReply({ triage = {}, text = "", target = {}
   return false;
 }
 
-export async function sendClientMessageAndVerify(userId, { reference, to, subject, text, eventType = "georgie_client_followup" } = {}) {
+export async function sendClientMessageAndVerify(userId, { reference, to, subject, text, eventType = "georgie_client_followup", idempotencyKey, threadId } = {}) {
   if (!reference || !to || !text) throw new Error("reference, recipient, and message text are required");
   if (containsBindingOrFinancialCommitment(text)) throw new Error("Automatic client correspondence cannot contain binding or financial commitment language");
   const mailbox = selectGeorgieCorrespondenceMailbox();
   if (!mailbox?.id) throw new Error("No configured Georgie NEO correspondence mailbox is available");
-  const receipt = await sendMessage(mailbox.id, { to, subject, text });
+  const receipt = await sendMessage(mailbox.id, { to, subject, text, idempotencyKey, dealId: reference, threadId });
   if (!receipt?.messageId || !Array.isArray(receipt.accepted) || receipt.accepted.length === 0 || (receipt.rejected || []).length > 0) throw new Error("NEO SMTP did not return a clean accepted provider receipt");
   const sierra = await recordOutboundCorrespondence(userId, { reference, receipt, message: { to, subject, text }, eventType });
   return { ok: true, mailbox, receipt, sierra };
