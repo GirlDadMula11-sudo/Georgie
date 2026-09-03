@@ -17,7 +17,7 @@ export function createFinancingRecoveryRouter({ store = supabaseRecoveryStore(),
   const router = express.Router();
   router.get("/review-session", (_req, res) => {
     res.set("Cache-Control", "no-store");
-    const enabled = process.env.VERCEL_ENV === "preview" && process.env.RECOVERY_PORTAL_REVIEW_MODE === "true";
+    const enabled = process.env.VERCEL_ENV === "preview";
     if (!enabled) return res.status(404).json({ ok: false, error: "UPLOAD_SESSION_NOT_FOUND" });
     return res.json({ ok: true, session: {
       status: "active", reviewMode: true, firstName: "Sierra Review Team", businessName: "Sierra Review Company",

@@ -50,14 +50,14 @@ test("rehash schema deduplicates evidence, upload slots, channel steps, CRM and 
 });
 
 test("synthetic portal review is preview-only and never touches the store", async () => {
-  const priorVercel = process.env.VERCEL_ENV, priorReview = process.env.RECOVERY_PORTAL_REVIEW_MODE;
+  const priorVercel = process.env.VERCEL_ENV;
   let calls = 0;
   const store = new Proxy({}, { get: () => async () => { calls += 1; throw new Error("STORE_MUST_NOT_BE_CALLED"); } });
   const app = express().use(express.json()).use("/recovery", createFinancingRecoveryRouter({ store }));
   const server = app.listen(0);
   try {
     const origin = `http://127.0.0.1:${server.address().port}`;
-    process.env.RECOVERY_PORTAL_REVIEW_MODE = "true"; process.env.VERCEL_ENV = "production";
+    process.env.VERCEL_ENV = "production";
     assert.equal((await fetch(`${origin}/recovery/review-session`)).status, 404);
     process.env.VERCEL_ENV = "preview";
     const response = await fetch(`${origin}/recovery/review-session`), body = await response.json();
@@ -66,7 +66,6 @@ test("synthetic portal review is preview-only and never touches the store", asyn
   } finally {
     await new Promise(resolve => server.close(resolve));
     if (priorVercel === undefined) delete process.env.VERCEL_ENV; else process.env.VERCEL_ENV = priorVercel;
-    if (priorReview === undefined) delete process.env.RECOVERY_PORTAL_REVIEW_MODE; else process.env.RECOVERY_PORTAL_REVIEW_MODE = priorReview;
   }
 });
 
