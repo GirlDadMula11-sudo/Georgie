@@ -44,3 +44,9 @@ Deterministic hashing, matching gates, templates, cadence, upload validation, an
 6. **Metrics projection:** project recovery audit/channel/outcome records into the requested outcome dashboard without using send volume as the objective.
 
 The smallest safe canary remains one staff-owned synthetic rehash. Keep release held through evidence import, generic/verified Prism packet inspection, token/upload replay tests, suppression checks, and Sierra read-back. No production outreach, migration application, file transmission, number purchase, deployment, or external submission is part of this change.
+
+## Client portal
+
+`/recovery/` is a mobile-first Sierra Capital Funding document journey with safe business/client personalization, Georgie identity, secure-session and expiry state, two exact month cards, drag/drop and native mobile file selection, per-file transfer/scan/validation feedback, partial progress, precise recovery messages, privacy explanation, support, and a restrained completion sequence for Prism review, possible funding-option evaluation, and Georgie follow-up. Raw tokens are removed from browser history immediately and are never rendered; public session data excludes internal applicant/deal/thread IDs and banking details.
+
+The repository contains authoritative Georgie artwork but no Sierra/SM logo file. The portal therefore uses a typographic Sierra wordmark and does **not** misrepresent the Georgie mark or a fabricated image as Sierra’s logo. Smallest next action: the Sierra brand owner must add the approved transparent SM asset to `public/`; only then should the wordmark be replaced, with an asset provenance review and visual regression approval.

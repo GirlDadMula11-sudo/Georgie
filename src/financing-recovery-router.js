@@ -13,10 +13,19 @@ function authorized(req) {
 
 export function createFinancingRecoveryRouter({ store = supabaseRecoveryStore(), malwareScan = null, documentValidator = null } = {}) {
   const router = express.Router();
+  router.get("/upload-session", async (req, res) => {
+    try {
+      const token = String(req.get("x-recovery-upload-token") || "");
+      if (token.length < 32) throw new Error("UPLOAD_TOKEN_INVALID");
+      const result = await store.getUploadSession(crypto.createHash("sha256").update(token).digest("hex"));
+      if (!result) return res.status(404).json({ ok: false, error: "UPLOAD_SESSION_NOT_FOUND" });
+      res.set("Cache-Control", "no-store").json({ ok: true, session: result });
+    } catch (error) { res.status(400).set("Cache-Control", "no-store").json({ ok: false, error: error instanceof Error ? error.message : "UPLOAD_SESSION_REJECTED" }); }
+  });
   router.post("/upload", async (req, res) => {
     try {
       const file = req.body?.file || {};
-      const result = await completeStatementUpload(store, { token: req.body?.token, file: { name: file.name, mimeType: file.mimeType, buffer: Buffer.from(String(file.base64 || ""), "base64") }, scan: malwareScan, validateDocument: documentValidator });
+      const result = await completeStatementUpload(store, { token: req.get("x-recovery-upload-token") || req.body?.token, file: { name: file.name, mimeType: file.mimeType, buffer: Buffer.from(String(file.base64 || ""), "base64") }, scan: malwareScan, validateDocument: documentValidator });
       res.status(202).json({ ok: true, result });
     } catch (error) { res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "SECURE_UPLOAD_REJECTED" }); }
   });

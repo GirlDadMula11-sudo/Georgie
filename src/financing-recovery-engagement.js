@@ -17,6 +17,7 @@ export function createUploadTokenRequest({ applicantId, episodeId, requestedMont
 
 export async function completeStatementUpload(store, { token, file, scan, validateDocument }) {
   if (!token || typeof scan !== "function" || typeof validateDocument !== "function") throw new Error("SECURE_UPLOAD_VALIDATORS_REQUIRED");
+  if (file?.buffer?.length > 10 * 1024 * 1024) throw new Error("SECURE_UPLOAD_10MB_LIMIT");
   const verifiedFile = validateAttachment({ buffer: file.buffer, originalname: file.name, mimetype: file.mimeType });
   const malware = await scan({ buffer: file.buffer, contentHash: verifiedFile.sha256 });
   if (malware?.clean !== true || !malware.receiptId) throw new Error("MALWARE_SCAN_CLEARANCE_REQUIRED");

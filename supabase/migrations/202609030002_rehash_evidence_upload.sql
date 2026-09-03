@@ -116,3 +116,16 @@ language plpgsql security definer set search_path=public as $$ declare row georg
 end $$;
 revoke all on function georgie_revoke_recovery_upload_token_v1(text,text),georgie_recovery_channel_intent_v1(jsonb),georgie_recovery_sms_event_v1(jsonb) from public,anon,authenticated;
 grant execute on function georgie_revoke_recovery_upload_token_v1(text,text),georgie_recovery_channel_intent_v1(jsonb),georgie_recovery_sms_event_v1(jsonb) to service_role;
+
+create or replace function georgie_recovery_upload_session_v1(p_token_hash text) returns jsonb
+language sql security definer set search_path=public as $$
+  select jsonb_build_object(
+    'status',case when t.revoked_at is not null then 'revoked' when t.expires_at<=now() then 'expired' else 'active' end,
+    'firstName',c.payload->>'firstName','businessName',c.payload->>'businessIdentity',
+    'requestedMonths',t.requested_months,'expiresAt',t.expires_at,
+    'slots',coalesce((select jsonb_agg(jsonb_build_object('month',m,'status',case when u.statement_month is null then 'open' else 'verified' end)) from unnest(t.requested_months) m left join georgie_recovery_uploads u on u.episode_id=t.episode_id and u.statement_month=m),'[]'::jsonb),
+    'complete',(select count(distinct statement_month)=2 from georgie_recovery_uploads where episode_id=t.episode_id and statement_month=any(t.requested_months))
+  ) from georgie_recovery_upload_tokens t join georgie_recovery_candidates c on c.applicant_id=t.applicant_id and c.deal_id=t.episode_id where t.token_hash=p_token_hash
+$$;
+revoke all on function georgie_recovery_upload_session_v1(text) from public,anon,authenticated;
+grant execute on function georgie_recovery_upload_session_v1(text) to service_role;

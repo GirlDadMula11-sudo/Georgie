@@ -137,7 +137,7 @@ export async function processRecoveryIntent(store, intent, {
     if (!origin) return store.recordDownstreamFailure(intent, "SECURE_UPLOAD_ORIGIN_UNAVAILABLE");
     const upload = createUploadTokenRequest({ applicantId: intent.applicantId, episodeId: intent.dealId, requestedMonths: intent.missingMonths, expiresAt: new Date(Date.now() + 7 * 86400000) });
     await store.issueUploadToken(upload);
-    return store.recordPrismPrecontact(intent, packet, `${origin}/recovery/${upload.token}`);
+    return store.recordPrismPrecontact(intent, packet, `${origin}/recovery/#${upload.token}`);
   }
   if (intent.kind === "prism_wakeup") {
     if (!prismAdapter || prismAdapter.contract !== PRISM_ADAPTER_CONTRACT || typeof prismAdapter.submit !== "function") return store.recordDownstreamFailure(intent, "PRISM_ADAPTER_UNAVAILABLE");
