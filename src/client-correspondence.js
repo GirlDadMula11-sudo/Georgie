@@ -1,4 +1,5 @@
 import { sendMessage, selectGeorgieCorrespondenceMailbox } from "./integrations/neo-mail.js";
+import { suppressionFromCorrespondence } from "./recovery-suppression.js";
 import { getOpenDocumentRequests, ingestInboundCorrespondence, recordOutboundCorrespondence, resolveCorrespondenceTarget } from "./integrations/sierra-correspondence.js";
 
 const HIGH_RISK_LANGUAGE = /\b(accept(?:ance)?|agree(?:ment)?|execute|sign(?:ing)?|authorize|commit(?:ment)?|binding|guarantee|guaranteed|approved?|approval|final terms?|rate|factor|apr|fee|pricing|repayment|payback|daily payment|weekly payment|wire|funding instructions?|bank account|routing number)\b/i;
@@ -46,6 +47,12 @@ export async function sendClientMessageAndVerify(userId, { reference, to, subjec
 export async function processSierraInboundCorrespondence(userId, { message, triage = {} } = {}) {
   const target = await resolveCorrespondenceTarget(userId, message);
   if (!target?.ok) return { ok: false, matched: false, reason: target?.error || "deal_identity_unresolved" };
+
+  const suppression = suppressionFromCorrespondence(message);
+  if (suppression) {
+    const [{ ingestSuppressionEvent }, { supabaseRecoveryStore }] = await Promise.all([import("./financing-recovery.js"), import("./financing-recovery-worker.js")]);
+    await ingestSuppressionEvent(supabaseRecoveryStore(), suppression);
+  }
 
   const ingestion = await ingestInboundCorrespondence(userId, { target, message, attachments: message.attachments || [] });
   const requestsSnapshot = await getOpenDocumentRequests(userId, target.reference_number);

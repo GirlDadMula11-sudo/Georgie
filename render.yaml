@@ -46,6 +46,12 @@ services:
         value: "true"
       - key: GEORGIE_AUTOMATION_KILL_SWITCH
         value: "false"
+      - key: GEORGIE_FINANCING_RECOVERY_ENABLED
+        value: "true"
+      - key: GEORGIE_FINANCING_OUTREACH_RELEASE
+        value: hold
+      - key: GEORGIE_FINANCING_RECOVERY_INGEST_TOKEN
+        sync: false
     disk:
       name: georgie-data
       mountPath: /var/data

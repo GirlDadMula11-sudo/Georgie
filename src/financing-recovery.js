@@ -1,19 +1,158 @@
-import crypto from "crypto";
+import crypto from "node:crypto";
 import { sendClientMessageAndVerify } from "./client-correspondence.js";
 
-const MONTH=/^\d{4}-(0[1-9]|1[0-2])$/;
-export const RECOVERY_POLICY=Object.freeze({version:"2026-09-03.v1",maxAttempts:3,minContactDays:7,statementFreshDays:45,models:{default:"luna",escalation:"terra",complex:"sol",pairs:false}});
-const clean=v=>String(v??"").trim();
-const hash=v=>crypto.createHash("sha256").update(String(v)).digest("hex");
-export function canonicalEmail(value){const email=clean(value).toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new Error("VALID_EMAIL_REQUIRED");return email;}
-export function recoveryIdentity({tenantId="sierra",sourceApplicationId,email}){if(!clean(sourceApplicationId))throw new Error("STABLE_SOURCE_APPLICATION_ID_REQUIRED");return {applicantId:`app_${hash(`${tenantId}:${canonicalEmail(email)}`).slice(0,24)}`,dealId:`deal_${hash(`${tenantId}:${sourceApplicationId}`).slice(0,24)}`,threadId:`thread_${hash(`${tenantId}:${sourceApplicationId}:${canonicalEmail(email)}`).slice(0,24)}`};}
-export function requiredStatementMonths({asOf=new Date(),jurisdiction}){const count=["NY","CA"].includes(clean(jurisdiction).toUpperCase())?4:3,months=[];let d=new Date(Date.UTC(asOf.getUTCFullYear(),asOf.getUTCMonth(),1));for(let i=1;i<=count;i++){const x=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()-i,1));months.push(x.toISOString().slice(0,7));}return months;}
-export function missingStatementMonths(required,documents=[]){const current=new Set(documents.filter(d=>d.verified===true&&MONTH.test(d.statementMonth||"")&&(!d.staleAt||Date.parse(d.staleAt)>Date.now())).map(d=>d.statementMonth));return required.filter(month=>!current.has(month));}
-export function messageFor({firstName,missingMonths}){return {version:"statement-request.v1",subject:"Updated business bank statements",text:`Hi ${clean(firstName)||"there"},\n\nTo review current business financing options, please reply with your complete business bank statement${missingMonths.length===1?"":"s"} for ${missingMonths.join(", ")}. We will review the documents before discussing any potential terms.\n\nThank you,\nSierra Capital Funding`};}
-function validateIntake(input){if(!["historical","new"].includes(input.lane))throw new Error("CANONICAL_LANE_REQUIRED");if(input.lane==="new"&&(input.applicationType!=="CM-100"||input.integrityVerified!==true||input.completed!==true))throw new Error("NEW_APPLICATION_NOT_CANONICAL_CM100");if(input.consentBasis?.verified!==true)throw new Error("VERIFIED_CONSENT_BASIS_REQUIRED");return {...input,email:canonicalEmail(input.email)};}
-export async function ingestRecoveryCandidate(store,input,{now=new Date()}={}){const value=validateIntake(input),ids=recoveryIdentity(value),required=requiredStatementMonths({asOf:now,jurisdiction:value.jurisdiction}),missing=missingStatementMonths(required,value.documents),evidenceIds=[...new Set(value.evidenceIds||[])];if(!evidenceIds.length)throw new Error("SOURCE_EVIDENCE_REQUIRED");const candidate={...ids,lane:value.lane,sourceApplicationId:value.sourceApplicationId,email:value.email,firstName:value.firstName||null,requiredMonths:required,missingMonths:missing,evidenceIds,consentEvidenceId:value.consentBasis.evidenceId,canonicalApplicationOnly:true,rawApplicationCrmWrite:false};return store.transactIntake(candidate,missing.length?{kind:"statement_request",key:`statement-request:${ids.dealId}:${required.join(".")}:${RECOVERY_POLICY.version}`}:{kind:"prism_wakeup",key:`prism:${ids.dealId}:${required.join(".")}`});}
-export function suppressionDecision(candidate,suppressions=[],contacts=[],now=new Date()){const hard=new Set(["opt_out","complaint","invalid","bounce","dispute","duplicate","active_deal"]),hit=suppressions.find(x=>hard.has(x.reason)&&(!x.expiresAt||Date.parse(x.expiresAt)>now));if(hit)return {allowed:false,reason:hit.reason};const recent=contacts.filter(x=>Date.parse(x.at)>now.getTime()-RECOVERY_POLICY.minContactDays*86400000);if(recent.length)return {allowed:false,reason:"contact_frequency"};if(Number(candidate.attempts||0)>=RECOVERY_POLICY.maxAttempts)return {allowed:false,reason:"attempt_limit"};return {allowed:true};}
-export async function processRecoveryIntent(store,intent,{release=process.env.GEORGIE_FINANCING_OUTREACH_RELEASE||"hold",send=sendClientMessageAndVerify}={}){if(intent.kind==="prism_wakeup")return store.completePrismWakeup(intent,{idempotencyKey:intent.key,evidenceIds:intent.evidenceIds});const gate=await store.checkGlobalSuppression(intent);if(!gate.allowed)return store.blockIntent(intent,gate.reason);if(release!=="canary")return store.holdIntent(intent,"RELEASE_HOLD");let receipt;try{receipt=await send(intent.userId||"primary",{reference:intent.dealId,to:intent.email,...messageFor(intent),idempotencyKey:intent.key,threadId:intent.threadId});if(!(receipt?.messageId||receipt?.receipt?.messageId))throw new Error("PROVIDER_RECEIPT_MISSING");}catch(error){await store.recordProviderFailure(intent,error instanceof Error?error.message:String(error));throw error;}return store.recordProviderReceipt(intent,receipt);
+const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
+const SUPPRESSION_REASONS = new Set(["opt_out", "complaint", "invalid", "bounce", "dispute", "duplicate", "active_deal", "recent_contact"]);
+export const RECOVERY_POLICY = Object.freeze({
+  contract: "georgie.financing-recovery.v2",
+  maxAttempts: 3,
+  minContactDays: 7,
+  models: { default: "luna", escalation: "terra", complex: "sol", pairs: false }
+});
+export const PRISM_ADAPTER_CONTRACT = "georgie.prism-handoff.v1";
+const clean = (value, max = 500) => String(value ?? "").trim().slice(0, max);
+const digest = value => crypto.createHash("sha256").update(String(value)).digest("hex");
+
+export function canonicalEmail(value) {
+  const email = clean(value).toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("VALID_EMAIL_REQUIRED");
+  return email;
 }
-export async function receiveRecoveryReply(store,input){if(!clean(input.providerMessageId)||!clean(input.threadId)||!clean(input.dealId))throw new Error("EXACT_REPLY_IDENTITY_REQUIRED");const result=await store.recordReplyAndDocuments(input);if(result.ambiguous||result.sensitive||result.qualified)return store.enqueueCloser({...input,evidenceIds:result.evidenceIds},`closer:${input.providerMessageId}`);if(result.complete)return store.enqueuePrism({...input,evidenceIds:result.evidenceIds},`prism:${input.dealId}:${result.coverageVersion}`);return store.enqueueAcknowledgement({...input,missingMonths:result.missingMonths,evidenceIds:result.evidenceIds},`ack:${input.providerMessageId}:${result.coverageVersion}`);
+
+export function recoveryIdentity({ tenantId = "sierra", sourceApplicationId, email }) {
+  if (!clean(sourceApplicationId)) throw new Error("STABLE_SOURCE_APPLICATION_ID_REQUIRED");
+  const normalizedEmail = canonicalEmail(email);
+  return {
+    applicantId: `app_${digest(`${tenantId}:${normalizedEmail}`).slice(0, 24)}`,
+    dealId: `deal_${digest(`${tenantId}:${sourceApplicationId}`).slice(0, 24)}`,
+    threadId: `thread_${digest(`${tenantId}:${sourceApplicationId}:${normalizedEmail}`).slice(0, 24)}`
+  };
+}
+
+export function requiredStatementMonths({ asOf = new Date(), jurisdiction }) {
+  const count = ["NY", "CA"].includes(clean(jurisdiction).toUpperCase()) ? 4 : 3;
+  const start = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), 1));
+  return Array.from({ length: count }, (_, index) => new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - index - 1, 1)).toISOString().slice(0, 7));
+}
+
+export function missingStatementMonths(required, documents = [], now = new Date()) {
+  const current = new Set(documents.filter(document => document.verified === true
+    && MONTH.test(document.statementMonth || "")
+    && (!document.staleAt || Date.parse(document.staleAt) > now.getTime()))
+    .map(document => document.statementMonth));
+  return required.filter(month => !current.has(month));
+}
+
+export function messageFor({ firstName, missingMonths }) {
+  return {
+    version: "statement-request.v1",
+    subject: "Updated business bank statements",
+    text: `Hi ${clean(firstName) || "there"},\n\nTo review current business financing options, please reply with your complete business bank statement${missingMonths.length === 1 ? "" : "s"} for ${missingMonths.join(", ")}. We will review the documents before discussing any potential terms.\n\nThank you,\nSierra Capital Funding`
+  };
+}
+
+export function validateRecoveryIntake(input = {}) {
+  if (!["historical", "new"].includes(input.lane)) throw new Error("CANONICAL_LANE_REQUIRED");
+  if (input.sourceArtifactType === "raw_application" || input.rawApplication === true) throw new Error("RAW_APPLICATION_FORBIDDEN");
+  if (input.canonicalDealVerified !== true || !clean(input.canonicalDealEvidenceId)) throw new Error("CANONICAL_SINGLE_DEAL_PRECONDITION_REQUIRED");
+  if (input.lane === "new" && (input.applicationType !== "CM-100" || input.integrityVerified !== true || input.completed !== true)) throw new Error("NEW_APPLICATION_NOT_CANONICAL_CM100");
+  if (input.consentBasis?.verified !== true || !clean(input.consentBasis?.evidenceId)) throw new Error("VERIFIED_CONSENT_BASIS_REQUIRED");
+  const evidenceIds = [...new Set((input.evidenceIds || []).map(value => clean(value)).filter(Boolean))];
+  if (!evidenceIds.length) throw new Error("SOURCE_EVIDENCE_REQUIRED");
+  return { ...input, email: canonicalEmail(input.email), evidenceIds };
+}
+
+export async function ingestRecoveryCandidate(store, input, { now = new Date() } = {}) {
+  const value = validateRecoveryIntake(input);
+  const identity = recoveryIdentity(value);
+  const requiredMonths = requiredStatementMonths({ asOf: now, jurisdiction: value.jurisdiction });
+  const missingMonths = missingStatementMonths(requiredMonths, value.documents, now);
+  const candidate = {
+    ...identity,
+    lane: value.lane,
+    sourceApplicationId: value.sourceApplicationId,
+    email: value.email,
+    firstName: clean(value.firstName) || null,
+    requiredMonths,
+    missingMonths,
+    evidenceIds: value.evidenceIds,
+    consentEvidenceId: value.consentBasis.evidenceId,
+    canonicalDealEvidenceId: value.canonicalDealEvidenceId,
+    canonicalApplicationOnly: true,
+    rawApplicationCrmWrite: false
+  };
+  const intent = missingMonths.length
+    ? { kind: "statement_request", key: `statement-request:${identity.dealId}:${requiredMonths.join(".")}:${RECOVERY_POLICY.contract}` }
+    : { kind: "prism_wakeup", key: `prism:${identity.dealId}:${requiredMonths.join(".")}` };
+  return store.transactIntake(candidate, intent);
+}
+
+export function suppressionDecision(candidate, suppressions = [], contacts = [], now = new Date()) {
+  const hit = suppressions.find(item => SUPPRESSION_REASONS.has(item.reason) && (!item.expiresAt || Date.parse(item.expiresAt) > now));
+  if (hit) return { allowed: false, reason: hit.reason };
+  if (contacts.some(item => Date.parse(item.at) > now.getTime() - RECOVERY_POLICY.minContactDays * 86400000)) return { allowed: false, reason: "contact_frequency" };
+  if (Number(candidate.attempts || 0) >= RECOVERY_POLICY.maxAttempts) return { allowed: false, reason: "attempt_limit" };
+  return { allowed: true };
+}
+
+function verifiedOutboundEvidence(result) {
+  const receipt = result?.receipt || result;
+  const sierra = result?.sierra;
+  if (!receipt?.messageId || !Array.isArray(receipt.accepted) || receipt.accepted.length === 0 || (receipt.rejected || []).length > 0) throw new Error("CLEAN_PROVIDER_RECEIPT_REQUIRED");
+  if (!sierra?.verification?.ok || sierra.verification.direction !== "outbound" || sierra.verification.notification_exists !== true) throw new Error("SIERRA_OUTBOUND_READBACK_REQUIRED");
+  return { messageId: receipt.messageId, accepted: receipt.accepted, rejected: receipt.rejected || [], sierraReadBack: sierra.verification };
+}
+
+export async function processRecoveryIntent(store, intent, {
+  release = process.env.GEORGIE_FINANCING_OUTREACH_RELEASE || "hold",
+  send = sendClientMessageAndVerify,
+  prismAdapter = null
+} = {}) {
+  if (!["statement_request", "prism_wakeup"].includes(intent.kind)) return store.recordDownstreamFailure(intent, `UNCONNECTED_INTENT_ADAPTER:${intent.kind || "unknown"}`);
+  if (intent.kind === "prism_wakeup") {
+    if (!prismAdapter || prismAdapter.contract !== PRISM_ADAPTER_CONTRACT || typeof prismAdapter.submit !== "function") return store.recordDownstreamFailure(intent, "PRISM_ADAPTER_UNAVAILABLE");
+    try {
+      const result = await prismAdapter.submit({ dealId: intent.dealId, idempotencyKey: intent.idempotency_key || intent.key, evidenceIds: intent.evidenceIds || [] });
+      if (!result?.receiptId || result.readBack?.verified !== true) throw new Error("PRISM_RECEIPT_READBACK_REQUIRED");
+      return store.recordDownstreamReceipt(intent, result);
+    } catch (error) {
+      await store.recordDownstreamFailure(intent, error instanceof Error ? error.message : String(error));
+      throw error;
+    }
+  }
+  const gate = await store.checkGlobalSuppression(intent);
+  if (!gate?.allowed) return store.blockIntent(intent, gate?.reason || "SUPPRESSION_STATE_UNCERTAIN");
+  if (release !== "canary") return store.holdIntent(intent, "RELEASE_HOLD");
+  try {
+    const result = await send(intent.userId || "primary", {
+      reference: intent.dealId,
+      to: intent.email,
+      ...messageFor(intent),
+      idempotencyKey: intent.idempotency_key || intent.key,
+      threadId: intent.threadId || intent.thread_id
+    });
+    return store.recordProviderReceipt(intent, verifiedOutboundEvidence(result));
+  } catch (error) {
+    await store.recordProviderFailure(intent, error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
+
+export async function receiveRecoveryReply(store, input = {}) {
+  if (!clean(input.providerMessageId) || !clean(input.threadId) || !clean(input.dealId)) throw new Error("EXACT_REPLY_IDENTITY_REQUIRED");
+  return store.transactReply({
+    ...input,
+    replyKey: `reply:${digest(`${input.providerMessageId}:${input.threadId}:${input.dealId}`)}`,
+    prismKey: input.complete ? `prism:${input.dealId}:${clean(input.coverageVersion)}` : null,
+    closerKey: input.ambiguous || input.sensitive || input.qualified ? `closer:${input.providerMessageId}` : null,
+    acknowledgementKey: !input.complete && !input.ambiguous && !input.sensitive && !input.qualified ? `ack:${input.providerMessageId}:${clean(input.coverageVersion)}` : null
+  });
+}
+
+export async function ingestSuppressionEvent(store, input = {}) {
+  const reason = clean(input.reason);
+  if (!SUPPRESSION_REASONS.has(reason)) throw new Error("SUPPORTED_SUPPRESSION_REASON_REQUIRED");
+  if (!clean(input.evidenceId) || !clean(input.sourceEventId)) throw new Error("SUPPRESSION_EVIDENCE_REQUIRED");
+  if (!input.email && !input.applicantId) throw new Error("SUPPRESSION_IDENTITY_REQUIRED");
+  return store.transactSuppression({ ...input, reason, email: input.email ? canonicalEmail(input.email) : null, idempotencyKey: `suppression:${input.source}:${input.sourceEventId}` });
 }

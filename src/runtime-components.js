@@ -88,6 +88,16 @@ export function validateRuntimeRegistry(components = RUNTIME_COMPONENTS) {
 
 export const SPECIALIST_START_DELAY_MS = Math.max(250, Math.min(30_000, Number(process.env.GEORGIE_SPECIALIST_START_DELAY_MS || 1_500)));
 
+export const AUTHORITATIVE_WEB_WORKER_IDS = Object.freeze(["smartlead-reply-closer", "financing-recovery"]);
+
+export function authoritativeWebWorkers(components = RUNTIME_COMPONENTS) {
+  return AUTHORITATIVE_WEB_WORKER_IDS.map(id => {
+    const matches = components.filter(component => component.id === id && component.profiles.includes("web") && component.role === "executor");
+    if (matches.length !== 1) throw new Error(`Authoritative web worker ownership invariant failed: ${id}`);
+    return matches[0];
+  });
+}
+
 export function componentsForProfile(profile, components = RUNTIME_COMPONENTS, plane = null, mode = runtimeMode()) {
   return components.filter(component => component.profiles.includes(profile)
     && (!plane || component.plane === plane)

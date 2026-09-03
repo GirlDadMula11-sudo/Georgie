@@ -37,6 +37,7 @@ import { createGithubReceiptRelayRouter } from "./github-receipt-relay.js";
 import { createGithubControlInboundRouter } from "./github-control-inbound.js";
 import { createPortableMcpRouter } from "./portable-connector-mcp.js";
 import { createConnectorOAuthRouter, startConnectorHeartbeatMonitor } from "./connector-oauth.js";
+import { createFinancingRecoveryRouter } from "./financing-recovery-router.js";
 import { buildReadinessSnapshot, readinessHttpStatus } from "./readiness.js";
 import { readFileSync } from "node:fs";
 
@@ -44,6 +45,7 @@ const app=express();const upload=multer({storage:multer.memoryStorage(),limits:{
 app.disable("x-powered-by");app.set("trust proxy",1);app.use(createConnectorOAuthRouter());app.use(helmet({contentSecurityPolicy:{directives:{defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'"],imgSrc:["'self'","data:","blob:"],mediaSrc:["'self'","blob:","data:"],connectSrc:["'self'"],workerSrc:["'self'","blob:"]}}}));app.use(express.json({limit:"10mb"}));app.use("/api",rateLimit({windowMs:60000,limit:Number(process.env.GEORGIE_RATE_LIMIT||90),standardHeaders:"draft-7",legacyHeaders:false}));app.post("/api/mobile/recovery/request",async(req,res)=>{try{const result=await requestOwnerRecovery({clientKey:req.ip||"unknown"});res.set("Cache-Control","no-store").status(202).json({ok:true,...result});}catch(error){const status=error?.code==="rate_limited"?429:503;res.set("Cache-Control","no-store").status(status).json({ok:false,error:error instanceof Error?error.message:"Recovery request failed"});}});app.use("/api/mobile",createMobileRouter());app.use(express.static(publicDir,{maxAge:process.env.NODE_ENV==="production"?"5m":0}));app.get("/",(_req,res)=>res.set("Cache-Control","no-cache").sendFile(path.join(publicDir,"index.html")));
 const protectedLegacyPaths=["/api/profile","/api/memories","/api/tasks","/api/events","/api/session","/api/transcribe","/api/respond","/api/speak","/api/voice-turn","/api/mail","/api/sierra","/api/intelligence-control-map"];
 app.use(protectedLegacyPaths,async(req,res,next)=>{try{const device=await authenticateNativeRequest(req);if(!device)return res.status(401).json({ok:false,error:"Secure enrolled-device authentication required"});req.georgieDevice=device;next();}catch{return res.status(503).json({ok:false,error:"Secure device authentication unavailable"});}});
+app.use("/api/financing-recovery", createFinancingRecoveryRouter());
 app.use("/api/command-center",createCommandRouter());
 function getUserId(req){if(req.georgieDevice)return String(process.env.GEORGIE_PRIMARY_USER_ID||"primary").slice(0,100);return String(req.headers["x-georgie-user"]||req.body?.userId||req.query?.userId||process.env.GEORGIE_PRIMARY_USER_ID||"primary").slice(0,100)}function getSessionId(req){return String(req.headers["x-georgie-session"]||req.body?.sessionId||req.query?.sessionId||"default").slice(0,150)}
 app.use("/api/sierra",(req,_res,next)=>{req.georgieUserId=getUserId(req);next();},createSierraRouter());

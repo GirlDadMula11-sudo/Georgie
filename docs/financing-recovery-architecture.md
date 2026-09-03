@@ -1,19 +1,37 @@
 # Financing recovery vertical slice
 
-## Current-state assessment
+## Verified current-state boundaries
 
-The canonical application/document boundary is Sierra's governed evidence and document-intelligence layer. It already distinguishes applications and bank statements, but no repository code proves a live intake webhook or CRM writer. The CM-100 rule therefore remains an explicit input precondition: only a completed, integrity-verified CM-100 may enter the new lane, and this slice never writes a raw application or a second CRM deal.
+Repository inspection establishes these boundaries rather than inferring them from names:
 
-Supabase is the established durable control plane and fail-closed readiness dependency. Neo SMTP is the transactional correspondence provider; Smartlead code is campaign inventory/reply infrastructure and is not assumed to be the send authority. Prism and Capital Match are evidenced concepts and downstream boundaries, but no verified callable contract exists in this repository. This slice consequently emits a durable, idempotent `prism_wakeup` intent and does not pretend to submit it. A production adapter must preserve evidence IDs, confidence, and a read-back receipt before enabling that handoff.
+* Sierra workforce RPCs are the canonical CRM/deal read boundary. Sierra correspondence RPCs resolve exact deals, ingest NEO replies and attachments, record outbound receipts, and independently read correspondence back.
+* Supabase/PostgreSQL is the existing durable service-role control plane. Recovery intake, suppressions, replies, outbox intents, leases, receipts, and audit evidence therefore live in one transactional schema.
+* NEO SMTP/IMAP is the configured transactional correspondence provider. `sendMessage` already uses the governed outbound boundary with a deterministic idempotency key, durable attempted/sent/failed audit, concurrent singleflight, and uncertain-state quarantine. Smartlead is used for campaign inventory and a separate reply-closer authority; it is not treated as transactional recovery-send authority.
+* Document intelligence and Sierra correspondence already classify and persist applications and bank statements. The recovery handler accepts their verified metadata; it does not fabricate extraction results.
+* No callable, receipt-bearing Prism or Capital Match submission contract exists in this repository. The worker therefore requires the versioned `georgie.prism-handoff.v1` adapter and persists a blocked failure when it is absent. It never reports a handoff as complete without a downstream receipt and verified read-back.
 
-## Implemented boundary
+## Implemented contracts
 
-Both lanes normalize applicant/deal/thread IDs, calculate the exact prior three statement months (four for NY/CA), reuse verified current documents, and transact a unique statement-request or Prism intent. A single suppression system and attempt cap gate every send. Claims use PostgreSQL row locks, leases, and unique idempotency keys. Terminal send state requires a Neo provider message ID. Replies require exact provider/thread/deal identity and deterministically choose acknowledgement, Prism, or closer intents.
+`POST /api/financing-recovery/intake` accepts a completed integrity-verified CM-100 or a historical candidate through a dedicated 32-character-minimum shared-secret boundary. Both lanes require consent evidence, source evidence, and proof that Sierra resolved exactly one canonical deal. Raw/original applications are rejected before storage and this service has no CRM-create operation.
 
-Sending defaults to `hold`; `GEORGIE_FINANCING_OUTREACH_RELEASE=canary` is required. Model policy is Luna-first, Terra escalation, Sol complex/high-risk, with pair tiers disabled; statement math, identity, suppression, and routing are deterministic.
+The intake RPC atomically upserts the canonical recovery projection and inserts one unique outbox intent. Deterministic applicant/deal/thread identities converge duplicate deliveries. Verified current statement months bypass outreach and create the Prism intent directly; NY/CA require four prior months and other jurisdictions require three.
 
-## Remaining contracts and smallest canary
+`POST /api/financing-recovery/reply` requires the exact provider message, thread, and deal identity. Its RPC inserts the immutable reply audit and downstream outbox intent in one transaction. Unique reply and intent keys collapse replay and concurrency to one durable intent. PostgreSQL `FOR UPDATE SKIP LOCKED`, expiring leases, and fenced completion ensure one effective worker execution.
 
-Before production: deploy the migration; implement the authoritative Sierra intake transaction/RPC and verified reply attachment adapter; certify CRM single-deal read-back; implement Prism and Capital Match adapters with schema/version, evidence IDs/confidence, idempotency, receipts, and failure persistence; connect delivery/bounce/complaint webhooks; and expose outcome metrics (packages, qualified opportunities, underwriting, offers, calls, funding/revenue, reply/opt-out/complaint/bounce rates, and cost per recovery).
+NEO inbound correspondence now derives only suppression evidence actually visible in repository data: explicit opt-out, complaint, dispute, invalid-recipient, and bounce language. Provider webhook feeds for Smartlead complaints/bounces are **not** claimed connected. Duplicate and active-deal suppression events are accepted only from authenticated evidence producers with stable source event and evidence IDs.
 
-The smallest safe canary is one staff-owned synthetic completed CM-100 with a unique email, explicit consent evidence, no suppressions, and known statement fixtures. Keep the worker enabled but release held, verify candidate/intent/audit rows and suppression behavior, then set `canary` for only that allowlisted identity, verify the exact Neo receipt, ingest one synthetic reply, verify a single Prism wakeup, and return to hold. Do not load historical inventory or enable unrestricted outreach.
+Every NEO success persists provider message ID, accepted and rejected recipients, plus Sierra correspondence read-back. Missing or rejected recipients and missing Sierra verification are exact failures. Sending remains held unless `GEORGIE_FINANCING_OUTREACH_RELEASE=canary`.
+
+## Runtime ownership
+
+Render defines one long-lived `npm start` web service. Its runtime owns the core kernel and a narrow allowlist of authoritative always-on specialists: the existing Smartlead reply closer and financing recovery. The general specialist scheduler remains disabled in kernel mode. Registry invariants and startup tests prove there is one financing-recovery authority and no direct second scheduler.
+
+## External blockers and smallest next actions
+
+1. **Sierra intake producer:** the external Sierra/Supabase service must call the authenticated recovery intake endpoint only after its existing canonical-deal read-back succeeds. Smallest action: send one staff-owned synthetic CM-100 event with application, consent, and canonical-deal evidence IDs while release is held.
+2. **Prism:** its owning service must implement `georgie.prism-handoff.v1` (`dealId`, `idempotencyKey`, evidence IDs in; stable `receiptId` and `{readBack:{verified:true}}` out) and persist the same idempotency key. Smallest action: contract-test one synthetic fully documented deal without lender submission.
+3. **Capital Match:** its owning service must publish a separate versioned result contract preserving Prism evidence IDs/confidence and a durable read-back receipt. Smallest action: agree the schema and add consumer contract tests; no endpoint is invented here.
+4. **Provider suppression webhooks:** configure authenticated Smartlead/NEO provider webhook ingestion only when their signed payload contracts are available. Smallest action: capture and document one vendor-signed synthetic bounce and complaint payload, then add signature and replay tests.
+5. **Metrics:** add read-only projections for recovered statement packages, qualified opportunities, underwriting, offers, calls, funded deals/dollars, revenue, reply/opt-out/complaint/bounce rates, and cost per recovered applicant. Smallest action: map each metric to an authoritative audit/result event before dashboard work.
+
+The live canary remains one staff-owned synthetic identity, explicitly allowlisted outside this code, with release held through intake and suppression verification. Temporarily set `canary`, verify exactly one NEO receipt and Sierra read-back, ingest one synthetic attachment reply, verify one Prism intent, then return to hold. Do not load historical inventory or enable unrestricted outreach.
