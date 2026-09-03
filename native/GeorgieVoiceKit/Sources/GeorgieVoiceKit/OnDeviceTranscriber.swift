@@ -14,7 +14,7 @@ public actor OnDeviceTranscriber {
         let request = SFSpeechURLRecognitionRequest(url: fileURL)
         request.requiresOnDeviceRecognition = true
         request.contextualStrings = Array(contextualVocabulary.prefix(100))
-        let text = try await withCheckedThrowingContinuation { continuation in
+        let text = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
             var task: SFSpeechRecognitionTask?
             task = recognizer.recognitionTask(with: request) { result, error in
                 if let error { task?.cancel(); continuation.resume(throwing: error); return }
