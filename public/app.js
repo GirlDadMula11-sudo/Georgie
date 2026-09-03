@@ -16,6 +16,7 @@ const presenceState = document.querySelector("#presenceState");
 const voiceOutputToggle = document.querySelector("#voiceOutputToggle");
 const voiceOutputState = document.querySelector("#voiceOutputState");
 const continuityState = document.querySelector("#continuityState");
+const companionButton = document.querySelector("#companionButton");
 
 let mediaRecorder;
 let mediaStream;
@@ -45,6 +46,11 @@ function setStatus(text) {
 function setPresence(state, label) {
   document.body.dataset.voiceState = state;
   presenceState.textContent = label;
+  companionButton?.setAttribute("aria-label", `Georgie is ${String(label || state).toLowerCase()}. Tap to talk.`);
+}
+
+function setCompanionState(state) {
+  document.body.dataset.voiceState = state;
 }
 
 function appendMessage(role, text, attachments = []) {
@@ -111,6 +117,7 @@ function updateExecutionPanel(panel,event){
   if(!panel||!event)return;
   const stage=event.stage||event.type;
   const operational=Boolean(event.tool)||["plan_ready","tool_running","tool_complete","verification","repair_plan","planning_failed","plan_recovered"].includes(stage);
+  if(operational||stage==="heartbeat")setCompanionState("working");
   if(operational)panel.hidden=false;
   if(stage==="heartbeat"&&panel.hidden)return;
   const key=event.tool?`tool:${event.tool}`:`stage:${stage}`;
@@ -151,6 +158,7 @@ function finishExecutionPanel(panel,payload,{failed=false}={}){
   const failedActions=actions.filter(action=>action?.ok===false);
   const rawTerminalState=failed?"blocked":payload?.terminalState||(payload?.completed===false?(payload?.terminal===true?"retained":"in_progress"):failedActions.length?"blocked":"completed");
   const terminalState=["verified","partial"].includes(rawTerminalState)&&payload?.completed!==false?"completed":rawTerminalState;
+  setCompanionState(terminalState);
   panel.classList.remove("running","complete","completed","blocked","approval_needed","in_progress","failed");
   panel.classList.add(terminalState);
   if(terminalState==="completed")panel.classList.add("complete");
@@ -224,7 +232,10 @@ function stopActiveAudio({ interrupted = false } = {}) {
   if (activeAudioUrl) URL.revokeObjectURL(activeAudioUrl);
   activeAudioUrl = null;
   handsFree.setAssistantSpeaking(false);
-  if (interrupted) setStatus("I’m listening — go ahead.");
+  if (interrupted) {
+    setCompanionState("listening");
+    setStatus("I’m listening — go ahead.");
+  }
 }
 
 async function playWakeChime() {
@@ -250,6 +261,7 @@ async function playAudioBlob(blob) {
   stopActiveAudio();
   activeAudioUrl = URL.createObjectURL(blob);
   activeAudio = new Audio(activeAudioUrl);
+  setCompanionState("speaking");
   handsFree.setAssistantSpeaking(true);
 
   activeAudio.addEventListener("ended", () => {
@@ -261,6 +273,7 @@ async function playAudioBlob(blob) {
       handsFree.activateFollowUp();
       setStatus("I’m still listening for a follow-up.");
     } else {
+      setPresence("off", "Manual mode");
       setStatus("Ready when you are.");
     }
   }, { once: true });
@@ -324,6 +337,7 @@ function browserVoiceFallback(text) {
       if (settled) return;
       settled = true;
       clearTimeout(deadline);
+      if (!handsFree.enabled) setPresence("off", "Manual mode");
       error ? reject(error) : resolve();
     };
     const deadline = setTimeout(() => {
@@ -338,6 +352,7 @@ function browserVoiceFallback(text) {
     utterance.volume = GEORGIE_VOICE_PROFILE.volume;
     const voices = window.speechSynthesis.getVoices();
     utterance.voice = chooseGeorgieVoice(voices);
+    setCompanionState("speaking");
     utterance.onend = () => finish();
     utterance.onerror = (event) => finish(new Error(event.error || "Browser speech failed"));
     window.speechSynthesis.speak(utterance);
@@ -387,6 +402,7 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
   if (display) appendMessage("user", effectiveInput, attachments);
   pushHistory("user", attachments.length?`${effectiveInput}\n\n[Attached files: ${attachments.map(file=>file.name).join(", ")}]`:effectiveInput);
   setStatus("Thinking…");
+  setCompanionState("thinking");
   const requestStarted = performance.now();
   let headersAt = 0, firstEventAt = 0, firstDeltaAt = 0;
   let durableRequestId = null;
@@ -449,6 +465,7 @@ async function sendTextTurn(input, { display = true, speakResponse = true, allow
     if(durableRequestId){
       try{
         setStatus("Connection interrupted. Reconnecting…");
+        setCompanionState("working");
         const recovered=await recoverDurableTurn(durableRequestId);
         if(recovered){
           if(!assistantItem)assistantItem=appendMessage("assistant",recovered.text||"Task result recovered.");else updateMessage(assistantItem,recovered.text||"Task result recovered.");
@@ -583,10 +600,12 @@ async function runVoiceTurn(audioBlob) {
 
   try {
     setStatus("Got it — hearing you now…");
+    setCompanionState("hearing");
     playWakeChime().catch(() => {});
     const transcript = await transcribeBlob(audioBlob);
     appendMessage("user", transcript);
     setStatus("Understood — responding…");
+    setCompanionState("thinking");
     await sendTextTurn(transcript, { display: false, speakResponse: true, allowBusy: true });
   } catch (error) {
     console.error(error);
@@ -637,6 +656,7 @@ async function startRecording(event) {
     voiceButton.classList.add("recording");
     voiceLabel.textContent = "Release to send";
     setStatus("I’m listening…");
+    setCompanionState("listening");
   } catch (error) {
     console.error(error);
     if (manualSuspendedHandsFree) {
@@ -653,6 +673,17 @@ function stopRecording(event) {
 }
 
 handsFreeToggle.addEventListener("click", toggleHandsFree);
+companionButton?.addEventListener("click", async () => {
+  if (!handsFree.enabled) {
+    await toggleHandsFree();
+    return;
+  }
+  stopActiveAudio({ interrupted: true });
+  handsFree.activateFollowUp();
+  await playWakeChime().catch(() => {});
+  setPresence("active", "Awake");
+  setStatus("Yes? I’m listening.");
+});
 voiceButton.addEventListener("pointerdown", startRecording);
 voiceButton.addEventListener("pointerup", stopRecording);
 voiceButton.addEventListener("pointercancel", stopRecording);
