@@ -11,6 +11,15 @@ test("shared Apple package targets current Mac and iPhone baselines", () => {
   assert.match(manifest, /\.macOS\(\.v14\)/);
 });
 
+test("Apple CI compiles macOS and iOS without signing or production mutation", () => {
+  const workflow = fs.readFileSync(new URL("../.github/workflows/native-voice.yml", import.meta.url), "utf8");
+  assert.match(workflow, /runs-on: macos-15/);
+  assert.match(workflow, /swift test --parallel/);
+  assert.match(workflow, /generic\/platform=iOS/);
+  assert.match(workflow, /CODE_SIGNING_ALLOWED=NO/);
+  assert.doesNotMatch(workflow, /deploy|release|upload-artifact/);
+});
+
 test("standby buffer is bounded, encrypted and exposes no network transport", () => {
   const source = read("Sources/GeorgieVoiceKit/EncryptedStandbyBuffer.swift");
   assert.match(source, /AES\.GCM\.seal/);
