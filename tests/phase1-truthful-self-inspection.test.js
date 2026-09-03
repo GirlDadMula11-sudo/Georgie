@@ -16,7 +16,7 @@ test("Georgie runtime self-inspection remains local and truthful", () => {
 
   const authority = getCapabilityManifest().sessionRuntime.runtimeAuthority;
   assert.equal(authority.valid, true);
-  assert.equal(authority.componentCount, 19);
+  assert.equal(authority.componentCount, 20);
   assert.equal(authority.objectiveLifecycleKernel, "objective-worker");
   assert.equal(authority.objectiveKernelCount, 1);
   assert.equal(authority.sourceMutationDuringStartup, false);

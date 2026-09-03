@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { componentsForProfile, RUNTIME_COMPONENTS, runtimeMode, runtimeOwnsBackgroundWorkers, validateRuntimeRegistry } from "../src/runtime-components.js";
+import { authoritativeWebWorkers, componentsForProfile, RUNTIME_COMPONENTS, runtimeMode, runtimeOwnsBackgroundWorkers, validateRuntimeRegistry } from "../src/runtime-components.js";
 
 test("runtime registry declares exactly one objective lifecycle kernel", () => {
   const result = validateRuntimeRegistry();
@@ -54,4 +54,15 @@ test("server delegates every background lifecycle to the runtime registry", asyn
   const directStarts = server.match(/^start[A-Z][A-Za-z0-9]*\(\);$/gm) || [];
   assert.deepEqual(directStarts, []);
   assert.ok(RUNTIME_COMPONENTS.some(component => component.id === "email-intelligence"));
+});
+
+
+test("the one deployed long-lived web process owns each allowlisted financing worker exactly once", async () => {
+  const owners = authoritativeWebWorkers();
+  assert.deepEqual(owners.map(component => component.id), ["smartlead-reply-closer", "financing-recovery"]);
+  assert.equal(owners.filter(component => component.authority === "financing-recovery").length, 1);
+  assert.equal(RUNTIME_COMPONENTS.filter(component => component.authority === "financing-recovery").length, 1);
+  const runtime = await import("node:fs/promises").then(fs => fs.readFile(new URL("../src/runtime.js", import.meta.url), "utf8"));
+  assert.match(runtime, /for \(const component of authoritativeWebWorkers\(\)\) component\.start\(\)/);
+  assert.doesNotMatch(runtime, /startFinancingRecoveryWorker\(/);
 });

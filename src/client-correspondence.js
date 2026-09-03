@@ -1,4 +1,5 @@
 import { sendMessage, selectGeorgieCorrespondenceMailbox } from "./integrations/neo-mail.js";
+import { suppressionFromCorrespondence } from "./recovery-suppression.js";
 import { getOpenDocumentRequests, ingestInboundCorrespondence, recordOutboundCorrespondence, resolveCorrespondenceTarget } from "./integrations/sierra-correspondence.js";
 
 const HIGH_RISK_LANGUAGE = /\b(accept(?:ance)?|agree(?:ment)?|execute|sign(?:ing)?|authorize|commit(?:ment)?|binding|guarantee|guaranteed|approved?|approval|final terms?|rate|factor|apr|fee|pricing|repayment|payback|daily payment|weekly payment|wire|funding instructions?|bank account|routing number)\b/i;
@@ -19,7 +20,7 @@ export function buildDocumentReceiptReply({ businessName, requests = [], receive
   const remaining = open.length
     ? `\n\nTo keep the file moving, we still need:\n${open.map((item) => `• ${clean(item.document_type || item.instructions || "Requested document", 240)}${item.instructions && item.instructions !== item.document_type ? ` — ${clean(item.instructions, 300)}` : ""}`).join("\n")}`
     : "\n\nAt this point, I do not see any additional open document request in Sierra. The file can continue through review based on the evidence currently received.";
-  return `${intro}${remaining}\n\nIf anything is unclear, reply here and I’ll keep the file moving.\n\nBest,\nGeorgie\nSierra Capital Advisory`;
+  return `${intro}${remaining}\n\nIf anything is unclear, reply here and I’ll keep the file moving.\n\nBest,\nGeorgie\nSierra Marketing Inc.`;
 }
 
 export function isSafeAutomaticClientReply({ triage = {}, text = "", target = {}, openRequests = [], receivedCount = 0 } = {}) {
@@ -32,12 +33,12 @@ export function isSafeAutomaticClientReply({ triage = {}, text = "", target = {}
   return false;
 }
 
-export async function sendClientMessageAndVerify(userId, { reference, to, subject, text, eventType = "georgie_client_followup" } = {}) {
+export async function sendClientMessageAndVerify(userId, { reference, to, subject, text, eventType = "georgie_client_followup", idempotencyKey, threadId } = {}) {
   if (!reference || !to || !text) throw new Error("reference, recipient, and message text are required");
   if (containsBindingOrFinancialCommitment(text)) throw new Error("Automatic client correspondence cannot contain binding or financial commitment language");
   const mailbox = selectGeorgieCorrespondenceMailbox();
   if (!mailbox?.id) throw new Error("No configured Georgie NEO correspondence mailbox is available");
-  const receipt = await sendMessage(mailbox.id, { to, subject, text });
+  const receipt = await sendMessage(mailbox.id, { to, subject, text, idempotencyKey, dealId: reference, threadId });
   if (!receipt?.messageId || !Array.isArray(receipt.accepted) || receipt.accepted.length === 0 || (receipt.rejected || []).length > 0) throw new Error("NEO SMTP did not return a clean accepted provider receipt");
   const sierra = await recordOutboundCorrespondence(userId, { reference, receipt, message: { to, subject, text }, eventType });
   return { ok: true, mailbox, receipt, sierra };
@@ -46,6 +47,12 @@ export async function sendClientMessageAndVerify(userId, { reference, to, subjec
 export async function processSierraInboundCorrespondence(userId, { message, triage = {} } = {}) {
   const target = await resolveCorrespondenceTarget(userId, message);
   if (!target?.ok) return { ok: false, matched: false, reason: target?.error || "deal_identity_unresolved" };
+
+  const suppression = suppressionFromCorrespondence(message);
+  if (suppression) {
+    const [{ ingestSuppressionEvent }, { supabaseRecoveryStore }] = await Promise.all([import("./financing-recovery.js"), import("./financing-recovery-worker.js")]);
+    await ingestSuppressionEvent(supabaseRecoveryStore(), suppression);
+  }
 
   const ingestion = await ingestInboundCorrespondence(userId, { target, message, attachments: message.attachments || [] });
   const requestsSnapshot = await getOpenDocumentRequests(userId, target.reference_number);

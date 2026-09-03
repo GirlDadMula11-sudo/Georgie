@@ -1,0 +1,53 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+
+const html = fs.readFileSync(new URL("../public/recovery-upload.html", import.meta.url), "utf8");
+const css = fs.readFileSync(new URL("../public/recovery-upload.css", import.meta.url), "utf8");
+const js = fs.readFileSync(new URL("../public/recovery-upload.js", import.meta.url), "utf8");
+
+test("portal review mode is explicitly synthetic and isolated from the real upload API", () => {
+  assert.match(html, /Protected preview — synthetic data/);
+  assert.match(html, /id="reviewState"/);
+  assert.match(js, /review-session/);
+  assert.match(js, /payload\.session\?\.reviewMode !== true/);
+});
+
+test("Sierra portal has a short, accessible two-slot client journey", () => {
+  assert.match(html, /No new application is required\./);
+  assert.match(html, /id="slotTemplate"/);
+  assert.match(html, /type="file"/);
+  assert.match(html, /aria-live="assertive"/);
+  assert.match(html, /role="alert"/);
+  assert.match(html, /Skip to secure upload/);
+  assert.match(html, /Prism review/);
+  assert.match(html, /Funding options/);
+  assert.match(html, /Georgie follow-up/);
+  assert.match(html, /operations@sierracapitalfunding\.com/);
+  assert.doesNotMatch(html, /account number|routing number|SOC 2|HIPAA|guaranteed|approved amount/i);
+});
+
+test("portal styling is mobile-first, high contrast, focus-visible and reduced-motion aware", () => {
+  assert.match(css, /--navy:#101b22/);
+  assert.match(css, /--gold:#d5b15d/);
+  assert.match(css, /button:focus-visible/);
+  assert.match(css, /@media\(max-width:700px\)/);
+  assert.match(css, /@media\(prefers-reduced-motion:reduce\)/);
+  assert.match(css, /grid-template-columns:1fr 1fr/);
+});
+
+test("portal implements loading, expiry, revocation, invalid, duplicate, interruption and success states without exposing tokens", () => {
+  for (const state of ["loadingState", "errorState", "uploadState", "successState"]) assert.match(html, new RegExp(`id="${state}"`));
+  for (const state of ["expired", "revoked", "invalid_file", "duplicate", "network", "STATEMENT_MONTH_OR_BUSINESS_MISMATCH"]) assert.match(js, new RegExp(state));
+  assert.match(js, /history\.replaceState\(null, "", "\/recovery\/"\)/);
+  assert.doesNotMatch(js, /localStorage|sessionStorage|innerHTML/);
+  assert.match(js, /dragenter/);
+  assert.match(js, /\.focus\(\)/);
+});
+
+test("portal uses the approved Sierra Marketing Inc. logo without substituting Georgie artwork", () => {
+  assert.match(html, /class="sierra-wordmark"[^>]*>[\s\S]*src="\/sierra-logo-transparent-header\.png"/);
+  assert.match(html, /alt="Sierra Marketing Inc\."/);
+  assert.match(html, /class="georgie-card"/);
+  assert.match(html, /class="georgie-card">[\s\S]*src="\/georgie-logo-v2\.svg" alt="Georgie"/);
+});

@@ -1,20 +1,15 @@
 import "dotenv/config";
 import "./server.js";
-import { runtimeOwnsBackgroundWorkers, scheduleRuntimePlane, startRuntimeProfile, RUNTIME_COMPONENTS } from "./runtime-components.js";
+import { runtimeOwnsBackgroundWorkers, scheduleRuntimePlane, startRuntimeProfile, authoritativeWebWorkers } from "./runtime-components.js";
 
 if (runtimeOwnsBackgroundWorkers()) {
   startRuntimeProfile("web", { plane: "core" });
 
-  // The Smartlead reply closer owns a durable, generation-fenced production
-  // authority and must remain alive even when the rest of Georgie's specialist
-  // plane is intentionally disabled in kernel mode. Keep this exception narrow:
-  // start only the registered closer; do not enable the specialist plane.
-  const smartleadReplyCloser = RUNTIME_COMPONENTS.find(component => component.id === "smartlead-reply-closer");
-  if (!smartleadReplyCloser || smartleadReplyCloser.authority !== "smartlead-replies") {
-    throw new Error("Smartlead reply closer registry invariant failed");
-  }
-  smartleadReplyCloser.start();
-  console.log("Georgie authoritative Smartlead reply closer started alongside kernel core");
+  // Render deploys one long-lived web process. These narrowly allowlisted,
+  // generation-fenced specialists are owned here even in kernel mode; the
+  // general specialist plane remains disabled and no second scheduler starts.
+  for (const component of authoritativeWebWorkers()) component.start();
+  console.log("Georgie authoritative web workers started alongside kernel core");
 
   scheduleRuntimePlane("web", "specialist");
 } else {
