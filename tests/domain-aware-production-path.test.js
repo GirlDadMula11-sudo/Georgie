@@ -14,7 +14,8 @@ test("production prestart verifies the materialized domain-aware runtime",()=>{
 test("service worker advances the stale shell cache",()=>{
   const sw=fs.readFileSync(new URL("../public/sw.js",import.meta.url),"utf8");
   assert.doesNotMatch(sw,/georgie-shell-v8/);
-  assert.match(sw,/georgie-shell-v11/);
+  assert.match(sw,/georgie-shell-v12/);
   assert.match(sw,/georgie-v2\.css/);
   assert.match(sw,/georgie-logo-v2\.svg/);
+  assert.match(sw,/georgie-companion\.png/);
 });

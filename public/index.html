@@ -19,7 +19,7 @@
   <link rel="stylesheet" href="/activity.css" />
   <link rel="stylesheet" href="/chat-layout.css" />
 </head>
-<body>
+<body data-voice-state="off">
   <section id="enrollmentGate" class="enrollment-gate" hidden><form id="enrollmentForm" class="enrollment-card"><img src="/georgie-logo-v2.svg" alt="" /><span class="eyebrow">PRIVATE EXECUTIVE OS</span><h1>Activate Georgie</h1><p>Enter your one-time secure enrollment code. This connects only this device and can be revoked.</p><input id="enrollmentCode" autocomplete="one-time-code" placeholder="Enrollment code" required /><button type="submit">Activate this device</button><button id="recoveryCodeButton" type="button" class="secondary-action">Send recovery code</button><small id="enrollmentMessage">Your private information stays locked until activation.</small></form></section>
   <main class="app-shell">
     <header class="topbar">
@@ -31,7 +31,13 @@
     <div class="workspace-layout">
       <aside class="identity-rail">
         <section class="identity-card compact-identity">
-          <div class="avatar-ring" aria-label="Georgie logo"><img src="/georgie-logo-v2.svg" alt="Georgie" /></div>
+          <button id="companionButton" class="companion-stage" type="button" aria-label="Talk to Georgie" title="Talk to Georgie">
+            <span class="companion-halo" aria-hidden="true"></span>
+            <span class="companion-orbit orbit-one" aria-hidden="true"></span>
+            <span class="companion-orbit orbit-two" aria-hidden="true"></span>
+            <img class="georgie-companion" src="/georgie-companion.png" alt="Georgie" />
+            <span class="companion-shadow" aria-hidden="true"></span>
+          </button>
           <div class="identity-copy"><span class="eyebrow">YOUR OPERATING INTELLIGENCE</span><h1>Georgie</h1><div class="presence-row"><span id="presenceDot" class="presence-dot"></span><span id="presenceState" class="presence-state">Online</span><span class="presence-divider"></span><span>Protected</span></div></div>
         </section>
         <div class="operating-strip"><span class="live-pulse"></span><div><strong>Live continuity</strong><span id="continuityState">Restoring conversation</span></div></div>
