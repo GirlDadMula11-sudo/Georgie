@@ -3,118 +3,15 @@ import { sendMessage, selectGeorgieCorrespondenceMailbox, neoMailConfigured } fr
 import { recordOutboundCorrespondence } from "./sierra-correspondence.js";
 import { executeApprovedSierraChange, getSierraDeal } from "./sierra-workforce.js";
 
-export const STATEMENT_BUCKET = "georgie-recovery-statements";
-export const STORAGE_CONTRACT = "georgie.statement-storage.v1";
-export const MALWARE_CONTRACT = "georgie.malware-scanner.v1";
-export const PRISM_REVIEW_CONTRACT = "georgie.prism-precontact.v1";
-export const CRM_CONTRACT = "georgie.recovery-crm.v1";
-export const EMAIL_CONTRACT = "georgie.recovery-email.neo.v1";
-export const SMS_CONTRACT = "georgie.sms.v1";
-const clean = (value, max = 500) => String(value ?? "").trim().slice(0, max);
-const encodePath = value => String(value).split("/").map(encodeURIComponent).join("/");
-
-function supabaseConfig(env = process.env) {
-  const url = clean(env.GEORGIE_SUPABASE_URL, 1000).replace(/\/$/, ""), key = clean(env.GEORGIE_SUPABASE_SERVICE_ROLE_KEY, 12000);
-  if (!url || !key) throw new Error("SUPABASE_STORAGE_NOT_CONFIGURED");
-  return { url, key, headers: { apikey: key, authorization: `Bearer ${key}` } };
-}
-
-export function createSupabaseStatementStorage({ env = process.env, fetchImpl = fetch } = {}) {
-  const request = async (path, options = {}) => {
-    const { url, headers } = supabaseConfig(env);
-    const response = await fetchImpl(`${url}${path}`, { ...options, headers: { ...headers, ...(options.headers || {}) }, signal: options.signal || AbortSignal.timeout(20000) });
-    const body = await response.text().catch(() => "");
-    if (!response.ok) { const error = new Error(`STATEMENT_STORAGE_${response.status}`); error.status = response.status; throw error; }
-    try { return body ? JSON.parse(body) : null; } catch { return body; }
-  };
-  return {
-    contract: STORAGE_CONTRACT,
-    configured() { try { supabaseConfig(env); return true; } catch { return false; } },
-    async ensurePrivateBucket() {
-      try { const bucket = await request(`/storage/v1/bucket/${STATEMENT_BUCKET}`); if (bucket?.public === true) throw new Error("STATEMENT_BUCKET_MUST_BE_PRIVATE"); return { bucket: STATEMENT_BUCKET, private: true }; }
-      catch (error) {
-        if (error.status !== 404) throw error;
-        await request("/storage/v1/bucket", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: STATEMENT_BUCKET, name: STATEMENT_BUCKET, public: false, file_size_limit: 10 * 1024 * 1024, allowed_mime_types: ["application/pdf", "image/jpeg", "image/png"] }) });
-        return { bucket: STATEMENT_BUCKET, private: true, created: true };
-      }
-    },
-    async putImmutable({ applicantId, episodeId, contentHash, buffer, mimeType, retentionUntil }) {
-      if (!/^[a-f0-9]{64}$/.test(contentHash) || !applicantId || !episodeId || !retentionUntil) throw new Error("IMMUTABLE_STORAGE_METADATA_REQUIRED");
-      await this.ensurePrivateBucket();
-      const objectPath = `${encodeURIComponent(applicantId)}/${encodeURIComponent(episodeId)}/${contentHash}`;
-      try {
-        const provider = await request(`/storage/v1/object/${STATEMENT_BUCKET}/${encodePath(objectPath)}`, { method: "POST", headers: { "content-type": mimeType, "x-upsert": "false", "cache-control": "private, max-age=31536000, immutable" }, body: buffer });
-        return { contract: STORAGE_CONTRACT, receiptId: `storage:${contentHash}`, bucket: STATEMENT_BUCKET, objectPath, contentHash, immutable: true, retentionUntil, providerId: provider?.Key || provider?.key || null, deduplicated: false };
-      } catch (error) {
-        if (error.status !== 400 && error.status !== 409) throw error;
-        await request(`/storage/v1/object/info/${STATEMENT_BUCKET}/${encodePath(objectPath)}`);
-        return { contract: STORAGE_CONTRACT, receiptId: `storage:${contentHash}`, bucket: STATEMENT_BUCKET, objectPath, contentHash, immutable: true, retentionUntil, providerId: null, deduplicated: true };
-      }
-    }
-  };
-}
-
-export function createStatementValidator({ malwareScanner, extract, duplicateLookup }) {
-  return async function validate({ buffer, contentHash, requestedMonths, applicantId }) {
-    if (malwareScanner?.contract !== MALWARE_CONTRACT || typeof malwareScanner.scan !== "function") throw new Error("MALWARE_SCANNER_ADAPTER_REQUIRED");
-    if (typeof extract !== "function" || typeof duplicateLookup !== "function") throw new Error("STATEMENT_VALIDATOR_ADAPTERS_REQUIRED");
-    const malware = await malwareScanner.scan({ buffer, contentHash });
-    if (malware?.clean !== true || !malware.receiptId) throw new Error("MALWARE_SCAN_CLEARANCE_REQUIRED");
-    const duplicate = await duplicateLookup(contentHash);
-    if (duplicate?.uncertain === true) throw new Error("DUPLICATE_STATE_UNCERTAIN");
-    const facts = await extract({ buffer, contentHash });
-    if (!facts?.evidenceIds?.length || Number(facts.confidence || 0) < 0.8) throw new Error("STATEMENT_EXTRACTION_CONFIDENCE_REQUIRED");
-    if (!requestedMonths.includes(facts.statementMonth) || facts.applicantId !== applicantId || facts.businessMatch !== true) throw new Error("STATEMENT_MONTH_OR_BUSINESS_MISMATCH");
-    return { ...facts, verified: true, malwareReceiptId: malware.receiptId, duplicate: duplicate?.found === true };
-  };
-}
-
-export function createPrismReviewAdapter({ endpoint = process.env.GEORGIE_PRISM_REVIEW_URL, credential = process.env.GEORGIE_PRISM_REVIEW_TOKEN, fetchImpl = fetch } = {}) {
-  const configured = Boolean(/^https:\/\//.test(endpoint || "") && credential);
-  return { contract: PRISM_REVIEW_CONTRACT, configured, async review(packet) {
-    if (!configured) throw new Error("PRISM_REVIEW_NOT_CONFIGURED");
-    const response = await fetchImpl(endpoint, { method: "POST", headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" }, body: JSON.stringify(packet), signal: AbortSignal.timeout(15000) });
-    const result = await response.json().catch(() => null);
-    if (!response.ok || result?.contract !== "georgie.prism-assessment.v1" || !result.receiptId || result.readBack?.verified !== true || result.evidenceVersion !== packet.evidenceVersion) throw new Error("PRISM_ASSESSMENT_RECEIPT_INVALID");
-    return { contract: "georgie.prism-assessment.v1", receiptId: result.receiptId, evidenceVersion: result.evidenceVersion, confidence: Number(result.confidence || 0), safeCues: result.safeCues || [], evidenceIds: result.evidenceIds || [], readBack: result.readBack };
-  } };
-}
-
-export function createSierraCrmAdapter({ execute = executeApprovedSierraChange, readBack = getSierraDeal } = {}) {
-  return { contract: CRM_CONTRACT, async upsertCanonical(userId, input) {
-    if (input.rawApplication === true || input.verifiedStatementCount !== 2 || !input.approvalId || !input.idempotencyKey) throw new Error("CRM_CANONICAL_GATE_REQUIRED");
-    const result = await execute(userId, { approvalId: input.approvalId, actionType: "recovery_documents_ready", idempotencyKey: input.idempotencyKey, provenance: { evidenceIds: input.evidenceIds }, payload: { canonicalDealId: input.canonicalDealId, statementEvidenceIds: input.evidenceIds, rawApplication: false } });
-    const observed = await readBack(userId, input.canonicalDealId);
-    const externalId = clean(result?.external_id || result?.deal_id || observed?.deal_id || observed?.id);
-    if (!externalId || !observed) throw new Error("CRM_READBACK_REQUIRED");
-    return { contract: CRM_CONTRACT, receiptId: result?.receipt_id || `crm:${input.idempotencyKey}`, externalId, idempotencyKey: input.idempotencyKey, readBack: { verified: true } };
-  } };
-}
-
-export function createNeoRecoveryEmailAdapter({ send = sendMessage, record = recordOutboundCorrespondence } = {}) {
-  return { contract: EMAIL_CONTRACT, provider: "neo", configured: neoMailConfigured(), async send(userId, message) {
-    const mailbox = selectGeorgieCorrespondenceMailbox();
-    if (!mailbox?.id || !message.idempotencyKey) throw new Error("NEO_RECOVERY_EMAIL_NOT_CONFIGURED");
-    const receipt = await send(mailbox.id, { ...message, correlationId: message.idempotencyKey, dealId: message.dealId, threadId: message.threadId, audience: "client", rationale: "Request exactly the verified missing rehash statements", evidenceState: { claims: [], evidenceIds: message.evidenceIds || [] }, escalation: { required: false, approved: false } });
-    if (!receipt?.messageId || !receipt.accepted?.length || receipt.rejected?.length) throw new Error("NEO_DELIVERY_RECEIPT_INVALID");
-    const crm = await record(userId, { reference: message.dealId, receipt, message: { to: message.to, subject: message.subject, text: message.text }, eventType: "georgie_rehash_statement_request" });
-    if (crm?.verification?.ok !== true) throw new Error("NEO_SIERRA_READBACK_INVALID");
-    return { contract: EMAIL_CONTRACT, provider: "neo", messageId: receipt.messageId, accepted: receipt.accepted, rejected: receipt.rejected || [], idempotencyKey: message.idempotencyKey, readBack: crm.verification };
-  } };
-}
-
-export function createUnconfiguredSmsAdapter(env = process.env) {
-  return { contract: SMS_CONTRACT, configured: false, provider: clean(env.GEORGIE_RECOVERY_SMS_PROVIDER) || null, number: clean(env.GEORGIE_RECOVERY_SMS_NUMBER) || null, registrationVerified: false, webhookVerificationConfigured: false, async send() { throw new Error("PROGRAMMABLE_SMS_PROVIDER_NOT_CONFIGURED"); }, verifyWebhook() { return false; } };
-}
-
-export function normalizeChannelWebhook({ channel, event, signatureVerified }) {
-  if (signatureVerified !== true || !event?.eventId || !["email", "sms"].includes(channel)) throw new Error("SIGNED_CHANNEL_WEBHOOK_REQUIRED");
-  const raw = clean(event.type).toLowerCase(), body = clean(event.body);
-  const type = channel === "sms" && /^stop\b/i.test(body) ? "opt_out" : raw === "bounce" ? "bounce" : raw === "complaint" ? "complaint" : raw === "delivered" ? "delivered" : raw === "help" || /^help\b/i.test(body) ? "help" : "reply";
-  return { contract: "georgie.channel-event.v1", channel, providerEventId: clean(event.eventId), type, idempotencyKey: `${channel}:${clean(event.eventId)}`, occurredAt: event.occurredAt || new Date().toISOString(), evidenceId: clean(event.receiptId || event.eventId) };
-}
-
-export function adapterInventory({ env = process.env } = {}) {
-  const storage = createSupabaseStatementStorage({ env }), prism = createPrismReviewAdapter({ endpoint: env.GEORGIE_PRISM_REVIEW_URL, credential: env.GEORGIE_PRISM_REVIEW_TOKEN }), sms = createUnconfiguredSmsAdapter(env);
-  return { database: Boolean(env.GEORGIE_SUPABASE_URL && env.GEORGIE_SUPABASE_SERVICE_ROLE_KEY), storage: storage.configured(), storageBucket: STATEMENT_BUCKET, storagePublic: false, malware: Boolean(env.GEORGIE_MALWARE_SCANNER_URL && env.GEORGIE_MALWARE_SCANNER_TOKEN), prism: prism.configured, crm: env.GEORGIE_RECOVERY_CRM_GATE_VERIFIED === "true", email: neoMailConfigured(), sms: sms.configured, webhooks: { email: env.GEORGIE_RECOVERY_EMAIL_WEBHOOK_VERIFIED === "true", sms: false } };
-}
+export const STATEMENT_BUCKET="georgie-recovery-statements",STORAGE_CONTRACT="georgie.statement-storage.v1",MALWARE_CONTRACT="georgie.malware-scanner.v1",PRISM_REVIEW_CONTRACT="georgie.prism-precontact.v1",CRM_CONTRACT="georgie.recovery-crm.v1",EMAIL_CONTRACT="georgie.recovery-email.neo.v1",SMS_CONTRACT="georgie.sms.v1";
+const clean=(value,max=500)=>String(value??"").trim().slice(0,max),encodePath=value=>String(value).split("/").map(encodeURIComponent).join("/");
+function supabaseConfig(env=process.env){const url=clean(env.GEORGIE_SUPABASE_URL,1000).replace(/\/$/,""),key=clean(env.GEORGIE_SUPABASE_SERVICE_ROLE_KEY,12000);if(!url||!key)throw new Error("SUPABASE_STORAGE_NOT_CONFIGURED");return{url,key,headers:{apikey:key,authorization:`Bearer ${key}`}};}
+export function createSupabaseStatementStorage({env=process.env,fetchImpl=fetch}={}){const request=async(path,options={})=>{const{url,headers}=supabaseConfig(env),response=await fetchImpl(`${url}${path}`,{...options,headers:{...headers,...(options.headers||{})},signal:options.signal||AbortSignal.timeout(20000)}),body=await response.text().catch(()=>"");if(!response.ok){const error=new Error(`STATEMENT_STORAGE_${response.status}`);error.status=response.status;throw error;}try{return body?JSON.parse(body):null}catch{return body}};return{contract:STORAGE_CONTRACT,configured(){try{supabaseConfig(env);return true}catch{return false}},async ensurePrivateBucket(){try{const bucket=await request(`/storage/v1/bucket/${STATEMENT_BUCKET}`);if(bucket?.public===true)throw new Error("STATEMENT_BUCKET_MUST_BE_PRIVATE");return{bucket:STATEMENT_BUCKET,private:true}}catch(error){if(error.status!==404)throw error;await request("/storage/v1/bucket",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({id:STATEMENT_BUCKET,name:STATEMENT_BUCKET,public:false,file_size_limit:10*1024*1024,allowed_mime_types:["application/pdf","image/jpeg","image/png"]})});return{bucket:STATEMENT_BUCKET,private:true,created:true}}},async putImmutable({applicantId,episodeId,contentHash,buffer,mimeType,retentionUntil}){if(!/^[a-f0-9]{64}$/.test(contentHash)||!applicantId||!episodeId||!retentionUntil)throw new Error("IMMUTABLE_STORAGE_METADATA_REQUIRED");await this.ensurePrivateBucket();const objectPath=`${encodeURIComponent(applicantId)}/${encodeURIComponent(episodeId)}/${contentHash}`;try{const provider=await request(`/storage/v1/object/${STATEMENT_BUCKET}/${encodePath(objectPath)}`,{method:"POST",headers:{"content-type":mimeType,"x-upsert":"false","cache-control":"private, max-age=31536000, immutable"},body:buffer});return{contract:STORAGE_CONTRACT,receiptId:`storage:${contentHash}`,bucket:STATEMENT_BUCKET,objectPath,contentHash,immutable:true,retentionUntil,providerId:provider?.Key||provider?.key||null,deduplicated:false}}catch(error){if(error.status!==400&&error.status!==409)throw error;await request(`/storage/v1/object/info/${STATEMENT_BUCKET}/${encodePath(objectPath)}`);return{contract:STORAGE_CONTRACT,receiptId:`storage:${contentHash}`,bucket:STATEMENT_BUCKET,objectPath,contentHash,immutable:true,retentionUntil,providerId:null,deduplicated:true}}}};}
+export function createStatementValidator({malwareScanner,extract,duplicateLookup}){return async function validate({buffer,contentHash,requestedMonths,applicantId}){if(malwareScanner?.contract!==MALWARE_CONTRACT||typeof malwareScanner.scan!=="function")throw new Error("MALWARE_SCANNER_ADAPTER_REQUIRED");if(typeof extract!=="function"||typeof duplicateLookup!=="function")throw new Error("STATEMENT_VALIDATOR_ADAPTERS_REQUIRED");const malware=await malwareScanner.scan({buffer,contentHash});if(malware?.clean!==true||!malware.receiptId)throw new Error("MALWARE_SCAN_CLEARANCE_REQUIRED");const duplicate=await duplicateLookup(contentHash);if(duplicate?.uncertain===true)throw new Error("DUPLICATE_STATE_UNCERTAIN");const facts=await extract({buffer,contentHash});if(!facts?.evidenceIds?.length||Number(facts.confidence||0)<.8)throw new Error("STATEMENT_EXTRACTION_CONFIDENCE_REQUIRED");if(!requestedMonths.includes(facts.statementMonth)||facts.applicantId!==applicantId||facts.businessMatch!==true)throw new Error("STATEMENT_MONTH_OR_BUSINESS_MISMATCH");return{...facts,verified:true,malwareReceiptId:malware.receiptId,duplicate:duplicate?.found===true};};}
+export function createPrismReviewAdapter({endpoint=process.env.GEORGIE_PRISM_REVIEW_URL,credential=process.env.GEORGIE_PRISM_REVIEW_TOKEN,fetchImpl=fetch}={}){const configured=Boolean(/^https:\/\//.test(endpoint||"")&&credential);return{contract:PRISM_REVIEW_CONTRACT,configured,async review(packet){if(!configured)throw new Error("PRISM_REVIEW_NOT_CONFIGURED");const response=await fetchImpl(endpoint,{method:"POST",headers:{authorization:`Bearer ${credential}`,"content-type":"application/json"},body:JSON.stringify(packet),signal:AbortSignal.timeout(15000)}),result=await response.json().catch(()=>null);if(!response.ok||result?.contract!=="georgie.prism-assessment.v1"||!result.receiptId||result.readBack?.verified!==true||result.evidenceVersion!==packet.evidenceVersion)throw new Error("PRISM_ASSESSMENT_RECEIPT_INVALID");return{contract:"georgie.prism-assessment.v1",receiptId:result.receiptId,evidenceVersion:result.evidenceVersion,confidence:Number(result.confidence||0),safeCues:result.safeCues||[],evidenceIds:result.evidenceIds||[],readBack:result.readBack}}};}
+export function createSierraCrmAdapter({execute=executeApprovedSierraChange,readBack=getSierraDeal}={}){return{contract:CRM_CONTRACT,async upsertCanonical(userId,input){if(input.rawApplication===true||input.verifiedStatementCount!==2||!input.approvalId||!input.idempotencyKey)throw new Error("CRM_CANONICAL_GATE_REQUIRED");const result=await execute(userId,{approvalId:input.approvalId,actionType:"recovery_documents_ready",idempotencyKey:input.idempotencyKey,provenance:{evidenceIds:input.evidenceIds},payload:{canonicalDealId:input.canonicalDealId,statementEvidenceIds:input.evidenceIds,rawApplication:false}}),observed=await readBack(userId,input.canonicalDealId),externalId=clean(result?.external_id||result?.deal_id||observed?.deal_id||observed?.id);if(!externalId||!observed)throw new Error("CRM_READBACK_REQUIRED");return{contract:CRM_CONTRACT,receiptId:result?.receipt_id||`crm:${input.idempotencyKey}`,externalId,idempotencyKey:input.idempotencyKey,readBack:{verified:true}}}};}
+function premiumSignature(){const src=String(process.env.GEORGIE_PUBLIC_BASE_URL||"https://georgie-kappa.vercel.app").replace(/\/$/,"")+"/georgie-email-signature.jpg";return`<div style="margin-top:26px;padding-top:18px;border-top:1px solid #d5c39a"><img src="${src}" alt="Georgie — AI Financing Concierge, Sierra Marketing Inc." width="620" style="display:block;width:100%;max-width:620px;height:auto;border:0"><p style="font-size:11px;color:#687378;margin:10px 0 0">Georgie is Sierra Marketing, Inc.’s AI financing concierge. A Sierra team member is available whenever you prefer human assistance.</p></div>`;}
+export function createNeoRecoveryEmailAdapter({send=sendMessage,record=recordOutboundCorrespondence}={}){return{contract:EMAIL_CONTRACT,provider:"neo",configured:neoMailConfigured(),async send(userId,message){const mailbox=selectGeorgieCorrespondenceMailbox();if(!mailbox?.id||!message.idempotencyKey)throw new Error("NEO_RECOVERY_EMAIL_NOT_CONFIGURED");const html=message.html?`${message.html}${premiumSignature()}`:`<div style="font-family:Arial,sans-serif;white-space:pre-wrap">${clean(message.text,20000).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}</div>${premiumSignature()}`;const receipt=await send(mailbox.id,{...message,html,replyTo:message.replyTo||mailbox.email,correlationId:message.idempotencyKey,dealId:message.dealId,threadId:message.threadId,audience:"client",rationale:"Request exactly the verified missing rehash statements",evidenceState:{claims:[],evidenceIds:message.evidenceIds||[]},escalation:{required:false,approved:false}});if(!receipt?.messageId||!receipt.accepted?.length||receipt.rejected?.length)throw new Error("NEO_DELIVERY_RECEIPT_INVALID");const crm=await record(userId,{reference:message.dealId,receipt,message:{to:message.to,subject:message.subject,text:message.text},eventType:"georgie_rehash_statement_request"});if(crm?.verification?.ok!==true)throw new Error("NEO_SIERRA_READBACK_INVALID");return{contract:EMAIL_CONTRACT,provider:"neo",messageId:receipt.messageId,accepted:receipt.accepted,rejected:receipt.rejected||[],idempotencyKey:message.idempotencyKey,readBack:crm.verification}}};}
+export function createUnconfiguredSmsAdapter(env=process.env){return{contract:SMS_CONTRACT,configured:false,provider:clean(env.GEORGIE_RECOVERY_SMS_PROVIDER)||null,number:clean(env.GEORGIE_RECOVERY_SMS_NUMBER)||null,registrationVerified:false,webhookVerificationConfigured:false,async send(){throw new Error("PROGRAMMABLE_SMS_PROVIDER_NOT_CONFIGURED")},verifyWebhook(){return false}};}
+export function normalizeChannelWebhook({channel,event,signatureVerified}){if(signatureVerified!==true||!event?.eventId||!["email","sms"].includes(channel))throw new Error("SIGNED_CHANNEL_WEBHOOK_REQUIRED");const raw=clean(event.type).toLowerCase(),body=clean(event.body),type=channel==="sms"&&/^stop\b/i.test(body)?"opt_out":raw==="bounce"?"bounce":raw==="complaint"?"complaint":raw==="delivered"?"delivered":raw==="help"||/^help\b/i.test(body)?"help":"reply";return{contract:"georgie.channel-event.v1",channel,providerEventId:clean(event.eventId),type,idempotencyKey:`${channel}:${clean(event.eventId)}`,occurredAt:event.occurredAt||new Date().toISOString(),evidenceId:clean(event.receiptId||event.eventId)};}
+export function adapterInventory({env=process.env}={}){const storage=createSupabaseStatementStorage({env}),prism=createPrismReviewAdapter({endpoint:env.GEORGIE_PRISM_REVIEW_URL,credential:env.GEORGIE_PRISM_REVIEW_TOKEN}),sms=createUnconfiguredSmsAdapter(env);return{database:Boolean(env.GEORGIE_SUPABASE_URL&&env.GEORGIE_SUPABASE_SERVICE_ROLE_KEY),storage:storage.configured(),storageBucket:STATEMENT_BUCKET,storagePublic:false,malware:Boolean(env.GEORGIE_MALWARE_SCANNER_URL&&env.GEORGIE_MALWARE_SCANNER_TOKEN),prism:prism.configured,crm:env.GEORGIE_RECOVERY_CRM_GATE_VERIFIED==="true",email:neoMailConfigured(),sms:sms.configured,webhooks:{email:env.GEORGIE_RECOVERY_EMAIL_WEBHOOK_VERIFIED==="true",sms:false}};}
