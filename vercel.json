@@ -1,4 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "fluid": true
+  "fluid": true,
+  "rewrites": [
+    {
+      "source": "/sierra-logo-official.webp",
+      "destination": "https://sierramarketinginc.com/wp-content/uploads/2026/08/Sierra-Marketing-Inc-logo.webp"
+    }
+  ]
 }
