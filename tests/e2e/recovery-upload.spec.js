@@ -48,9 +48,9 @@ test("mobile keyboard-accessible two-statement journey reaches polished confirma
   await expect(page.getByText("1 of 2 verified")).toBeVisible();
   await inputs.nth(1).setInputFiles({ name: "July-statement.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-July") });
   await expect(page.getByRole("heading", { name: /statements are securely received/i })).toBeVisible();
-  await expect(page.getByText("Prism review")).toBeVisible();
-  await expect(page.getByText("Funding options")).toBeVisible();
-  await expect(page.getByText("Georgie follow-up")).toBeVisible();
+  await expect(page.getByText("Prism review", { exact: true })).toBeVisible();
+  await expect(page.getByText("Funding options", { exact: true })).toBeVisible();
+  await expect(page.getByText("Georgie follow-up", { exact: true })).toBeVisible();
   await page.screenshot({ path: "test-results/recovery-upload-success.png", fullPage: true });
 });
 
