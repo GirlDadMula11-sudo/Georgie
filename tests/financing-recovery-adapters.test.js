@@ -11,10 +11,11 @@ import { communicationGate } from "../src/financing-recovery-engagement.js";
 
 const env = { GEORGIE_SUPABASE_URL: "https://project.supabase.co", GEORGIE_SUPABASE_SERVICE_ROLE_KEY: "secret-test-value" };
 const response = (status, body) => ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(body) });
+const recoveryBucket = { public: false, file_size_limit: 50 * 1024 * 1024 };
 
-test("Supabase adapter enforces a private bucket and immutable content-addressed receipts", async () => {
+test("Supabase adapter enforces a private 50 MB bucket and immutable content-addressed receipts", async () => {
   const calls = [];
-  const fetchImpl = async (url, options = {}) => { calls.push({ url, options }); if (url.endsWith(`/bucket/${STATEMENT_BUCKET}`)) return response(200, { public: false }); return response(200, { Key: "provider-object" }); };
+  const fetchImpl = async (url, options = {}) => { calls.push({ url, options }); if (url.endsWith(`/bucket/${STATEMENT_BUCKET}`)) return response(200, recoveryBucket); return response(200, { Key: "provider-object" }); };
   const storage = createSupabaseStatementStorage({ env, fetchImpl });
   const hash = "a".repeat(64), receipt = await storage.putImmutable({ applicantId: "app", episodeId: "deal", contentHash: hash, buffer: Buffer.from("file"), mimeType: "application/pdf", retentionUntil: "2033-09-03T00:00:00Z" });
   assert.equal(storage.contract, STORAGE_CONTRACT); assert.equal(receipt.immutable, true); assert.equal(receipt.contentHash, hash); assert.equal(receipt.bucket, STATEMENT_BUCKET);
@@ -25,7 +26,7 @@ test("Supabase adapter enforces a private bucket and immutable content-addressed
 
 test("storage deduplicates only after authoritative object read-back", async () => {
   let upload = 0, info = 0;
-  const storage = createSupabaseStatementStorage({ env, fetchImpl: async (url, options = {}) => { if (url.includes("/bucket/")) return response(200, { public: false }); if (url.includes("/object/info/")) { info += 1; return response(200, {}); } if (options.method === "POST") { upload += 1; return response(409, {}); } return response(200, {}); } });
+  const storage = createSupabaseStatementStorage({ env, fetchImpl: async (url, options = {}) => { if (url.includes("/bucket/")) return response(200, recoveryBucket); if (url.includes("/object/info/")) { info += 1; return response(200, {}); } if (options.method === "POST") { upload += 1; return response(409, {}); } return response(200, {}); } });
   const receipt = await storage.putImmutable({ applicantId: "a", episodeId: "d", contentHash: "b".repeat(64), buffer: Buffer.from("x"), mimeType: "application/pdf", retentionUntil: "2033-01-01" });
   assert.equal(receipt.deduplicated, true); assert.equal(upload, 1); assert.equal(info, 1);
 });
@@ -75,7 +76,6 @@ test("observability is structured, secret-free and red at exact first missing bo
   assert.equal(report.ready, false); assert.equal(report.sendsEnabled, false); assert.equal(report.storage.public, false); assert.ok(report.blockers.includes("validators_not_verified")); assert.equal(report.secretsExposed, false);
   assert.equal(adapterInventory({ env: {} }).storagePublic, false);
 });
-
 
 test("suppression precedes frequency and quiet-hour gates fail closed", () => {
   assert.equal(communicationGate({ suppression: "complaint", lastContactAt: new Date().toISOString(), quietHoursUtc: "bad" }).reason, "suppressed:complaint");
