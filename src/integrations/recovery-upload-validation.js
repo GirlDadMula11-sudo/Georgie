@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import pdf from "pdf-parse";
+import pdf from "pdf-parse/lib/pdf-parse.js";
 import { MALWARE_CONTRACT } from "./financing-recovery-adapters.js";
 
 const clean = (v, max = 1000) => String(v ?? "").trim().slice(0, max);

@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import pdf from "pdf-parse";
+import pdf from "pdf-parse/lib/pdf-parse.js";
 
 const clean=(v,max=1000)=>String(v??"").trim().slice(0,max);
 const encPath=v=>String(v).split("/").map(encodeURIComponent).join("/");
