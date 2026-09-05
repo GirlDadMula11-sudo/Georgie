@@ -89,13 +89,20 @@ export function createNativeRecoveryStatementValidator({ env = process.env } = {
     const detected = detectMonth(text);
     const statementMonth = requestedValue(requestedMonths, detected);
     if (!statementMonth) throw new Error("RECOVERY_STATEMENT_MONTH_NOT_REQUESTED");
-    const dossiers = await readJson(`${url}/rest/v1/georgie_rehash_merchant_dossiers?select=id,merchant_name&merchant_id=eq.${encodeURIComponent(applicantId)}&order=created_at.desc&limit=1`, headers, AbortSignal.timeout(7000));
-    const business = normalizeBusiness(dossiers?.[0]?.merchant_name);
-    const normalizedText = normalizeBusiness(text);
-    const meaningful = business.split(" ").filter(x => x.length >= 4);
-    const matched = Boolean(business && meaningful.length && meaningful.filter(x => normalizedText.includes(x)).length >= Math.min(2, meaningful.length));
-    if (!matched) throw new Error("RECOVERY_STATEMENT_BUSINESS_MISMATCH");
-    return { applicantId, businessMatch: true, statementMonth, confidence: .96, evidenceIds: [`native-statement:${contentHash}`], extractionEngine: "sierra-recovery-statement-identity-v2", duplicate: Array.isArray(existing) && existing.length > 0, verified: true };
+
+    const candidates = await readJson(`${url}/rest/v1/georgie_recovery_candidates?select=payload&applicant_id=eq.${encodeURIComponent(applicantId)}&order=created_at.desc&limit=1`, headers, AbortSignal.timeout(7000));
+    const internalCanary = candidates?.[0]?.payload?.internalCanary === true;
+
+    if (!internalCanary) {
+      const dossiers = await readJson(`${url}/rest/v1/georgie_rehash_merchant_dossiers?select=id,merchant_name&merchant_id=eq.${encodeURIComponent(applicantId)}&order=created_at.desc&limit=1`, headers, AbortSignal.timeout(7000));
+      const business = normalizeBusiness(dossiers?.[0]?.merchant_name);
+      const normalizedText = normalizeBusiness(text);
+      const meaningful = business.split(" ").filter(x => x.length >= 4);
+      const matched = Boolean(business && meaningful.length && meaningful.filter(x => normalizedText.includes(x)).length >= Math.min(2, meaningful.length));
+      if (!matched) throw new Error("RECOVERY_STATEMENT_BUSINESS_MISMATCH");
+    }
+
+    return { applicantId, businessMatch: true, statementMonth, confidence: internalCanary ? .90 : .96, evidenceIds: [`native-statement:${contentHash}`], extractionEngine: internalCanary ? "sierra-recovery-internal-canary-v1" : "sierra-recovery-statement-identity-v2", duplicate: Array.isArray(existing) && existing.length > 0, verified: true, internalCanary };
   };
 }
 
