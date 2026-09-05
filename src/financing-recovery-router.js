@@ -4,6 +4,7 @@ import { ingestRecoveryCandidate, ingestSuppressionEvent, receiveRecoveryReply }
 import { completeStatementUpload, createUploadTokenRequest } from "./financing-recovery-engagement.js";
 import { supabaseRecoveryStore } from "./financing-recovery-worker.js";
 import { createSupabaseStatementStorage } from "./integrations/financing-recovery-adapters.js";
+import { createProductionRecoveryUploadAdapters } from "./integrations/recovery-upload-validation.js";
 import { recoveryOperationalReport } from "./financing-recovery-observability.js";
 
 function authorized(req) {
@@ -15,6 +16,9 @@ function authorized(req) {
 
 export function createFinancingRecoveryRouter({ store = supabaseRecoveryStore(), malwareScan = null, documentValidator = null, statementStorage = createSupabaseStatementStorage() } = {}) {
   const router = express.Router();
+  const production = createProductionRecoveryUploadAdapters();
+  const scan = malwareScan || production.scan;
+  const validateDocument = documentValidator || production.validateDocument;
   router.get("/review-session", (_req, res) => {
     res.set("Cache-Control", "no-store");
     const enabled = process.env.VERCEL_ENV === "preview";
@@ -37,7 +41,7 @@ export function createFinancingRecoveryRouter({ store = supabaseRecoveryStore(),
   router.post("/upload", async (req, res) => {
     try {
       const file = req.body?.file || {};
-      const result = await completeStatementUpload(store, { token: req.get("x-recovery-upload-token") || req.body?.token, file: { name: file.name, mimeType: file.mimeType, buffer: Buffer.from(String(file.base64 || ""), "base64") }, scan: malwareScan, validateDocument: documentValidator, storage: statementStorage });
+      const result = await completeStatementUpload(store, { token: req.get("x-recovery-upload-token") || req.body?.token, file: { name: file.name, mimeType: file.mimeType, buffer: Buffer.from(String(file.base64 || ""), "base64") }, scan, validateDocument, storage: statementStorage });
       res.status(202).json({ ok: true, result });
     } catch (error) { res.status(400).json({ ok: false, error: error instanceof Error ? error.message : "SECURE_UPLOAD_REJECTED" }); }
   });
