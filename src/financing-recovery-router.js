@@ -5,7 +5,6 @@ import { completeStatementUpload, createUploadTokenRequest } from "./financing-r
 import { supabaseRecoveryStore } from "./financing-recovery-worker.js";
 import { createSupabaseStatementStorage } from "./integrations/financing-recovery-adapters.js";
 import { recoveryOperationalReport } from "./financing-recovery-observability.js";
-import { runRecoveryPublicCanary } from "./recovery-public-canary.js";
 
 function authorized(req) {
   const expected = String(process.env.GEORGIE_FINANCING_RECOVERY_INGEST_TOKEN || "");
@@ -16,7 +15,6 @@ function authorized(req) {
 
 export function createFinancingRecoveryRouter({ store = supabaseRecoveryStore(), malwareScan = null, documentValidator = null, statementStorage = createSupabaseStatementStorage() } = {}) {
   const router = express.Router();
-  router.get("/qa-public-canary-4ed2e91a7c6b", async (_req,res)=>{try{res.set("Cache-Control","no-store").json(await runRecoveryPublicCanary())}catch(error){res.status(500).json({ok:false,error:error instanceof Error?error.message:"CANARY_FAILED"})}});
   router.get("/review-session", (_req, res) => {
     res.set("Cache-Control", "no-store");
     const enabled = process.env.VERCEL_ENV === "preview";
