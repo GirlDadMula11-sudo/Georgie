@@ -1,11 +1,12 @@
 import crypto from "node:crypto";
+import { CanvasFactory } from "pdf-parse/worker";
 import { PDFParse } from "pdf-parse";
 
 const clean=(v,max=1000)=>String(v??"").trim().slice(0,max);
 const encPath=v=>String(v).split("/").map(encodeURIComponent).join("/");
 function cfg(env=process.env){const url=clean(env.GEORGIE_SUPABASE_URL,1000).replace(/\/$/,""),key=clean(env.GEORGIE_SUPABASE_SERVICE_ROLE_KEY,12000);if(!url||!key)throw new Error("RECOVERY_PRISM_HANDOFF_STORE_REQUIRED");return{url,key,headers:{apikey:key,authorization:`Bearer ${key}`}}}
 async function jsonFetch(url,options={}){const r=await fetch(url,{...options,signal:options.signal||AbortSignal.timeout(12000)}),text=await r.text();let body=null;try{body=text?JSON.parse(text):null}catch{body=text}if(!r.ok){const e=new Error(`RECOVERY_PRISM_HANDOFF_${r.status}:${typeof body==='string'?body.slice(0,160):body?.message||'failed'}`);e.status=r.status;throw e}return body}
-async function pdfText(buffer){const parser=new PDFParse({data:new Uint8Array(buffer)});try{const info=await parser.getInfo();const total=Number(info?.total||info?.pages?.length||0);if(!Number.isInteger(total)||total<1||total>80)throw new Error("RECOVERY_PRISM_PDF_STRUCTURE_INVALID");const result=await parser.getText({first:1,last:total});return String(result?.text||"")}finally{await parser.destroy().catch(()=>undefined)}}
+async function pdfText(buffer){const parser=new PDFParse({data:new Uint8Array(buffer),CanvasFactory});try{const info=await parser.getInfo();const total=Number(info?.total||info?.pages?.length||0);if(!Number.isInteger(total)||total<1||total>80)throw new Error("RECOVERY_PRISM_PDF_STRUCTURE_INVALID");const result=await parser.getText({first:1,last:total});return String(result?.text||"")}finally{await parser.destroy().catch(()=>undefined)}}
 function last4(text){for(const re of [/(?:account|acct)(?:\s*(?:number|no\.?|#))?\s*:?\s*(?:x{2,}|\*{2,}|ending\s+in\s+)?\s*([0-9][0-9\-\s]{3,26})\b/i,/(?:ending\s+in|last\s+four)\D{0,18}(\d{4})\b/i,/\b(?:xxxx|\*{4})(\d{4})\b/i]){const m=re.exec(text.slice(0,70000));if(m){const d=m[1].replace(/\D/g,"");if(d.length>=4)return d.slice(-4)}}return null}
 export async function handoffRecoveryStatementToPrism({store,token,file,env=process.env}){
  if(!store||!token||!Buffer.isBuffer(file?.buffer))throw new Error("RECOVERY_PRISM_HANDOFF_INPUT_REQUIRED");
