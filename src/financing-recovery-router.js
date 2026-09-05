@@ -46,7 +46,9 @@ export function createFinancingRecoveryRouter({ store = supabaseRecoveryStore(),
       res.status(202).json({ ok: true, result, prism });
     } catch (error) {
       const message = error instanceof Error ? error.message : "SECURE_UPLOAD_REJECTED";
-      res.status(400).json({ ok: false, error: message === "Cannot find package 'pdf-parse' imported from /var/task/src/integrations/recovery-upload-validation.js" ? "RECOVERY_UPLOAD_VALIDATION_UNAVAILABLE" : message });
+      const safeCode = message === "Cannot find package 'pdf-parse' imported from /var/task/src/integrations/recovery-upload-validation.js" ? "RECOVERY_UPLOAD_VALIDATION_UNAVAILABLE" : message;
+      console.warn("[Georgie][recovery-upload] rejected", { code: safeCode });
+      res.status(400).json({ ok: false, error: safeCode });
     }
   });
   router.use((req, res, next) => authorized(req) ? next() : res.status(401).json({ ok: false, error: "RECOVERY_INGEST_AUTH_REQUIRED" }));
