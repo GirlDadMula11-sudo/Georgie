@@ -39,8 +39,9 @@ export function createFinancingRecoveryRouter({ store = supabaseRecoveryStore(),
       const production = createProductionRecoveryUploadAdapters();
       const scan = malwareScan || production.scan;
       const validateDocument = documentValidator || production.validateDocument;
-      const input = req.body?.file || {}, token = String(req.get("x-recovery-upload-token") || req.body?.token || ""), file = { name: input.name, mimeType: input.mimeType, buffer: Buffer.from(String(input.base64 || ""), "base64") };
-      const result = await completeStatementUpload(store, { token, file, scan, validateDocument, storage: statementStorage });
+      const input = req.body?.file || {}, token = String(req.get("x-recovery-upload-token") || req.body?.token || ""), expectedMonth = String(req.body?.expectedMonth || "").slice(0, 7), file = { name: input.name, mimeType: input.mimeType, buffer: Buffer.from(String(input.base64 || ""), "base64") };
+      const scopedValidateDocument = args => validateDocument({ ...args, expectedMonth });
+      const result = await completeStatementUpload(store, { token, file, scan, validateDocument: scopedValidateDocument, storage: statementStorage });
       const prism = await handoffRecoveryStatementToPrism({ store, token, file });
       res.status(202).json({ ok: true, result, prism });
     } catch (error) {

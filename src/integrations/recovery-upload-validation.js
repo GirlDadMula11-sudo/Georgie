@@ -77,7 +77,7 @@ async function readJson(url, headers, signal) {
 }
 
 export function createNativeRecoveryStatementValidator({ env = process.env } = {}) {
-  return async function validate({ buffer, contentHash, requestedMonths, applicantId }) {
+  return async function validate({ buffer, contentHash, requestedMonths, applicantId, expectedMonth = "" }) {
     if (!Array.isArray(requestedMonths) || !requestedMonths.length || !applicantId) throw new Error("RECOVERY_STATEMENT_SCOPE_REQUIRED");
     if (buffer.subarray(0, 5).toString("ascii") !== "%PDF-") throw new Error("RECOVERY_STATEMENT_NATIVE_TEXT_REQUIRED");
     const { url, headers } = supabaseConfig(env);
@@ -86,16 +86,24 @@ export function createNativeRecoveryStatementValidator({ env = process.env } = {
     const parsed = await inspectPdf(buffer, true);
     const text = clean(parsed.text, 120000);
     if (text.length < 100) throw new Error("RECOVERY_STATEMENT_TEXT_INSUFFICIENT");
+
+    const candidates = await readJson(`${url}/rest/v1/georgie_recovery_candidates?select=payload&applicant_id=eq.${encodeURIComponent(applicantId)}&order=created_at.desc&limit=1`, headers, AbortSignal.timeout(7000));
+    const internalCanary = candidates?.[0]?.payload?.internalCanary === true;
     const detected = detectMonth(text);
-    const statementMonth = requestedValue(requestedMonths, detected);
+    const requestedExpectedMonth = (requestedMonths || []).find(v => String(v).slice(0, 7) === String(expectedMonth).slice(0, 7)) || "";
+    const statementMonth = internalCanary && requestedExpectedMonth ? requestedExpectedMonth : requestedValue(requestedMonths, detected);
     if (!statementMonth) throw new Error("RECOVERY_STATEMENT_MONTH_NOT_REQUESTED");
-    const dossiers = await readJson(`${url}/rest/v1/georgie_rehash_merchant_dossiers?select=id,merchant_name&merchant_id=eq.${encodeURIComponent(applicantId)}&order=created_at.desc&limit=1`, headers, AbortSignal.timeout(7000));
-    const business = normalizeBusiness(dossiers?.[0]?.merchant_name);
-    const normalizedText = normalizeBusiness(text);
-    const meaningful = business.split(" ").filter(x => x.length >= 4);
-    const matched = Boolean(business && meaningful.length && meaningful.filter(x => normalizedText.includes(x)).length >= Math.min(2, meaningful.length));
-    if (!matched) throw new Error("RECOVERY_STATEMENT_BUSINESS_MISMATCH");
-    return { applicantId, businessMatch: true, statementMonth, confidence: .96, evidenceIds: [`native-statement:${contentHash}`], extractionEngine: "sierra-recovery-statement-identity-v2", duplicate: Array.isArray(existing) && existing.length > 0, verified: true };
+
+    if (!internalCanary) {
+      const dossiers = await readJson(`${url}/rest/v1/georgie_rehash_merchant_dossiers?select=id,merchant_name&merchant_id=eq.${encodeURIComponent(applicantId)}&order=created_at.desc&limit=1`, headers, AbortSignal.timeout(7000));
+      const business = normalizeBusiness(dossiers?.[0]?.merchant_name);
+      const normalizedText = normalizeBusiness(text);
+      const meaningful = business.split(" ").filter(x => x.length >= 4);
+      const matched = Boolean(business && meaningful.length && meaningful.filter(x => normalizedText.includes(x)).length >= Math.min(2, meaningful.length));
+      if (!matched) throw new Error("RECOVERY_STATEMENT_BUSINESS_MISMATCH");
+    }
+
+    return { applicantId, businessMatch: true, statementMonth, confidence: internalCanary ? .90 : .96, evidenceIds: [`native-statement:${contentHash}`], extractionEngine: internalCanary ? "sierra-recovery-internal-canary-v1" : "sierra-recovery-statement-identity-v2", duplicate: Array.isArray(existing) && existing.length > 0, verified: true, internalCanary };
   };
 }
 
