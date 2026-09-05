@@ -45,7 +45,22 @@ function requestedValue(requestedMonths, detected) {
 
 function activePdfTokens(buffer) {
   const raw = buffer.toString("latin1");
-  return ["/JavaScript", "/JS", "/Launch", "/EmbeddedFile", "/RichMedia", "/OpenAction", "/AA", "/AcroForm", "/XFA"].filter(token => raw.includes(token));
+  const riskyTokens = [
+    "/JavaScript", "/JS", "/Launch", "/EmbeddedFile", "/RichMedia", "/OpenAction",
+    "/AcroForm", "/XFA", "/SubmitForm", "/ImportData", "/GoToR", "/Rendition"
+  ];
+  const active = riskyTokens.filter(token => raw.includes(token));
+
+  // /AA means "Additional Actions" in the PDF spec. It is a container/key and can
+  // legitimately appear in bank-generated PDFs without carrying executable content.
+  // Only treat /AA itself as dangerous when the nearby action dictionary names a
+  // risky action subtype. Explicit risky tokens above remain fail-closed everywhere.
+  const riskyAction = "(?:JavaScript|Launch|SubmitForm|ImportData|GoToR|Rendition)";
+  const aaBeforeAction = new RegExp(`/AA\\b[\\s\\S]{0,512}/S\\s*/${riskyAction}\\b`);
+  const actionBeforeAa = new RegExp(`/S\\s*/${riskyAction}\\b[\\s\\S]{0,512}/AA\\b`);
+  if ((aaBeforeAction.test(raw) || actionBeforeAa.test(raw)) && !active.includes("/AA:risky-action")) active.push("/AA:risky-action");
+
+  return active;
 }
 
 export function createNativeRecoveryDocumentScanner() {
@@ -64,7 +79,7 @@ export function createNativeRecoveryDocumentScanner() {
         if (active.length) throw new Error(`RECOVERY_PDF_ACTIVE_CONTENT_BLOCKED:${active.join(",")}`);
         await inspectPdf(buffer, false);
       }
-      return { clean: true, receiptId: `native-safety:${contentHash}`, engine: "sierra-passive-document-safety-v2" };
+      return { clean: true, receiptId: `native-safety:${contentHash}`, engine: "sierra-passive-document-safety-v3" };
     }
   };
 }
