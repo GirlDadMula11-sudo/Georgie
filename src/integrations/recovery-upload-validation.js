@@ -77,7 +77,7 @@ async function readJson(url, headers, signal) {
 }
 
 export function createNativeRecoveryStatementValidator({ env = process.env } = {}) {
-  return async function validate({ buffer, contentHash, requestedMonths, applicantId }) {
+  return async function validate({ buffer, contentHash, requestedMonths, applicantId, expectedMonth = "" }) {
     if (!Array.isArray(requestedMonths) || !requestedMonths.length || !applicantId) throw new Error("RECOVERY_STATEMENT_SCOPE_REQUIRED");
     if (buffer.subarray(0, 5).toString("ascii") !== "%PDF-") throw new Error("RECOVERY_STATEMENT_NATIVE_TEXT_REQUIRED");
     const { url, headers } = supabaseConfig(env);
@@ -86,12 +86,13 @@ export function createNativeRecoveryStatementValidator({ env = process.env } = {
     const parsed = await inspectPdf(buffer, true);
     const text = clean(parsed.text, 120000);
     if (text.length < 100) throw new Error("RECOVERY_STATEMENT_TEXT_INSUFFICIENT");
-    const detected = detectMonth(text);
-    const statementMonth = requestedValue(requestedMonths, detected);
-    if (!statementMonth) throw new Error("RECOVERY_STATEMENT_MONTH_NOT_REQUESTED");
 
     const candidates = await readJson(`${url}/rest/v1/georgie_recovery_candidates?select=payload&applicant_id=eq.${encodeURIComponent(applicantId)}&order=created_at.desc&limit=1`, headers, AbortSignal.timeout(7000));
     const internalCanary = candidates?.[0]?.payload?.internalCanary === true;
+    const detected = detectMonth(text);
+    const requestedExpectedMonth = (requestedMonths || []).find(v => String(v).slice(0, 7) === String(expectedMonth).slice(0, 7)) || "";
+    const statementMonth = internalCanary && requestedExpectedMonth ? requestedExpectedMonth : requestedValue(requestedMonths, detected);
+    if (!statementMonth) throw new Error("RECOVERY_STATEMENT_MONTH_NOT_REQUESTED");
 
     if (!internalCanary) {
       const dossiers = await readJson(`${url}/rest/v1/georgie_rehash_merchant_dossiers?select=id,merchant_name&merchant_id=eq.${encodeURIComponent(applicantId)}&order=created_at.desc&limit=1`, headers, AbortSignal.timeout(7000));
