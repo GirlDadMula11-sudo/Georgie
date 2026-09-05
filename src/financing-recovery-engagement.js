@@ -15,7 +15,7 @@ export function createUploadTokenRequest({ applicantId, episodeId, requestedMont
   return { contract: UPLOAD_TOKEN_CONTRACT, token, tokenHash: hash(token), applicantId, episodeId, requestedMonths, expiresAt: expiry.toISOString(), slots: requestedMonths.map(month => ({ month, status: "open" })) };
 }
 
-export async function completeStatementUpload(store, { token, file, scan, validateDocument, storage, now = new Date() }) {
+export async function completeStatementUpload(store, { token, file, scan, validateDocument, storage, expectedMonth = null, now = new Date() }) {
   if (!token || typeof scan !== "function" || typeof validateDocument !== "function") throw new Error("SECURE_UPLOAD_VALIDATORS_REQUIRED");
   if (storage?.contract !== "georgie.statement-storage.v1" || typeof storage.putImmutable !== "function") throw new Error("PRIVATE_STATEMENT_STORAGE_REQUIRED");
   if (file?.buffer?.length > 10 * 1024 * 1024) throw new Error("SECURE_UPLOAD_10MB_LIMIT");
@@ -24,7 +24,8 @@ export async function completeStatementUpload(store, { token, file, scan, valida
   if (malware?.clean !== true || !malware.receiptId) throw new Error("MALWARE_SCAN_CLEARANCE_REQUIRED");
   const tokenState = await store.resolveUploadToken(hash(token));
   if (!tokenState || tokenState.revoked || Date.parse(tokenState.expiresAt) <= Date.now()) throw new Error("UPLOAD_TOKEN_INVALID");
-  const document = await validateDocument({ buffer: file.buffer, contentHash: verifiedFile.sha256, requestedMonths: tokenState.requestedMonths, applicantId: tokenState.applicantId });
+  const selectedMonth = MONTH.test(String(expectedMonth || "")) && tokenState.requestedMonths.includes(expectedMonth) ? expectedMonth : null;
+  const document = await validateDocument({ buffer: file.buffer, contentHash: verifiedFile.sha256, requestedMonths: tokenState.requestedMonths, applicantId: tokenState.applicantId, expectedMonth: selectedMonth });
   if (document?.verified !== true || !tokenState.requestedMonths.includes(document.statementMonth) || document.businessMatch !== true) throw new Error("STATEMENT_MONTH_OR_BUSINESS_MISMATCH");
   const retentionUntil = new Date(now.getTime() + 2555 * 86400000).toISOString();
   const storageReceipt = await storage.putImmutable({ applicantId: tokenState.applicantId, episodeId: tokenState.episodeId, contentHash: verifiedFile.sha256, buffer: file.buffer, mimeType: verifiedFile.mimeType, retentionUntil });
