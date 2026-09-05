@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { CanvasFactory } from "pdf-parse/worker";
 import { PDFParse } from "pdf-parse";
 import { MALWARE_CONTRACT } from "./financing-recovery-adapters.js";
 
@@ -7,7 +8,7 @@ const normalizeBusiness = v => clean(v, 240).toLowerCase().replace(/[^a-z0-9]+/g
 const monthNames = { january:"01",february:"02",march:"03",april:"04",may:"05",june:"06",july:"07",august:"08",september:"09",october:"10",november:"11",december:"12",jan:"01",feb:"02",mar:"03",apr:"04",jun:"06",jul:"07",aug:"08",sep:"09",sept:"09",oct:"10",nov:"11",dec:"12" };
 
 async function inspectPdf(buffer, includeText = false) {
-  const parser = new PDFParse({ data: new Uint8Array(buffer) });
+  const parser = new PDFParse({ data: new Uint8Array(buffer), CanvasFactory });
   try {
     const info = await parser.getInfo();
     const total = Number(info?.total || info?.pages?.length || 0);
