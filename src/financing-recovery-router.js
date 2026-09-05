@@ -37,7 +37,7 @@ async function signDirectUpload({ objectPath }) {
   });
   const data = await response.json().catch(() => null);
   if (!response.ok || !data?.url) throw new Error(`RECOVERY_SIGNED_UPLOAD_${response.status}`);
-  const signedUrl = new URL(data.url, `${url}/storage/v1`).toString();
+  const signedUrl = /^https:\/\//.test(data.url) ? data.url : `${url}/storage/v1${String(data.url).startsWith("/") ? "" : "/"}${data.url}`;
   return { signedUrl, objectPath, expiresInSeconds: 7200 };
 }
 
@@ -58,9 +58,10 @@ async function fetchPrivateObject(objectPath) {
 
 async function deletePrivateObject(objectPath) {
   const { url, headers } = storageConfig();
-  const response = await fetch(`${url}/storage/v1/object/${RECOVERY_BUCKET}/${encodePath(objectPath)}`, {
+  const response = await fetch(`${url}/storage/v1/object/${RECOVERY_BUCKET}`, {
     method: "DELETE",
-    headers,
+    headers: { ...headers, "content-type": "application/json" },
+    body: JSON.stringify({ prefixes: [objectPath] }),
     signal: AbortSignal.timeout(10000)
   });
   if (!response.ok && response.status !== 404) throw new Error(`RECOVERY_STAGING_CLEANUP_${response.status}`);
@@ -102,7 +103,7 @@ export function createFinancingRecoveryRouter({ store = supabaseRecoveryStore(),
     try {
       const token = String(req.get("x-recovery-upload-token") || "");
       if (token.length < 32) throw new Error("UPLOAD_TOKEN_INVALID");
-      const meta = validateUploadMetadata({ ...(req.body || {}), expectedMonth: req.body?.expectedMonth });
+      const meta = validateUploadMetadata(req.body || {});
       const hash = tokenHash(token);
       const session = await store.getUploadSession(hash);
       if (!session || session.status !== "active") throw new Error("UPLOAD_TOKEN_INVALID");
@@ -149,7 +150,6 @@ export function createFinancingRecoveryRouter({ store = supabaseRecoveryStore(),
       res.status(400).set("Cache-Control", "no-store").json({ ok: false, error: message });
     }
   });
-  // Legacy small-file endpoint remains temporarily for old clients. The production portal uses direct signed storage uploads.
   router.post("/upload", async (req, res) => {
     try {
       const [{ createProductionRecoveryUploadAdapters }, { handoffRecoveryStatementToPrism }] = await Promise.all([
