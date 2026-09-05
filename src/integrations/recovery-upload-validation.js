@@ -43,7 +43,7 @@ function requestedValue(requestedMonths, detected) {
   return (requestedMonths || []).find(v => String(v).slice(0, 7) === detected) || "";
 }
 
-function activePdfTokens(buffer) {
+export function activePdfTokens(buffer) {
   const raw = buffer.toString("latin1");
   const riskyTokens = [
     "/JavaScript", "/JS", "/Launch", "/EmbeddedFile", "/RichMedia", "/OpenAction",
