@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import pdf from "pdf-parse";
-import { MALWARE_CONTRACT, createStatementValidator } from "./financing-recovery-adapters.js";
+import { MALWARE_CONTRACT } from "./financing-recovery-adapters.js";
 
 const clean = (v, max = 1000) => String(v ?? "").trim().slice(0, max);
 const normalizeBusiness = v => clean(v, 240).toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\b(?:llc|inc|incorporated|corp|corporation|ltd|limited|company|co|pllc|llp)\b/g, " ").replace(/\s+/g, " ").trim();
@@ -63,32 +63,26 @@ async function readJson(url, headers, signal) {
 }
 
 export function createNativeRecoveryStatementValidator({ env = process.env } = {}) {
-  const scanner = createNativeRecoveryDocumentScanner();
-  return createStatementValidator({
-    malwareScanner: scanner,
-    duplicateLookup: async contentHash => {
-      const { url, headers } = supabaseConfig(env);
-      const rows = await readJson(`${url}/rest/v1/georgie_recovery_evidence?select=id,status&content_hash=eq.${encodeURIComponent(contentHash)}&limit=1`, headers, AbortSignal.timeout(7000));
-      return { found: Array.isArray(rows) && rows.length > 0, uncertain: false };
-    },
-    extract: async ({ buffer, contentHash, requestedMonths, applicantId }) => {
-      if (buffer.subarray(0, 5).toString("ascii") !== "%PDF-") throw new Error("RECOVERY_STATEMENT_NATIVE_TEXT_REQUIRED");
-      const parsed = await pdf(buffer, { max: 80 });
-      const text = clean(parsed?.text, 120000);
-      if (text.length < 100) throw new Error("RECOVERY_STATEMENT_TEXT_INSUFFICIENT");
-      const detected = detectMonth(text);
-      const statementMonth = requestedValue(requestedMonths, detected);
-      if (!statementMonth) throw new Error("RECOVERY_STATEMENT_MONTH_NOT_REQUESTED");
-      const { url, headers } = supabaseConfig(env);
-      const dossiers = await readJson(`${url}/rest/v1/georgie_rehash_merchant_dossiers?select=id,merchant_name&merchant_id=eq.${encodeURIComponent(applicantId)}&order=created_at.desc&limit=1`, headers, AbortSignal.timeout(7000));
-      const business = normalizeBusiness(dossiers?.[0]?.merchant_name);
-      const normalizedText = normalizeBusiness(text);
-      const meaningful = business.split(" ").filter(x => x.length >= 4);
-      const matched = Boolean(business && meaningful.length && meaningful.filter(x => normalizedText.includes(x)).length >= Math.min(2, meaningful.length));
-      if (!matched) throw new Error("RECOVERY_STATEMENT_BUSINESS_MISMATCH");
-      return { applicantId, businessMatch: true, statementMonth, confidence: .96, evidenceIds: [`native-statement:${contentHash}`], extractionEngine: "sierra-recovery-statement-identity-v1" };
-    }
-  });
+  return async function validate({ buffer, contentHash, requestedMonths, applicantId }) {
+    if (!Array.isArray(requestedMonths) || !requestedMonths.length || !applicantId) throw new Error("RECOVERY_STATEMENT_SCOPE_REQUIRED");
+    if (buffer.subarray(0, 5).toString("ascii") !== "%PDF-") throw new Error("RECOVERY_STATEMENT_NATIVE_TEXT_REQUIRED");
+    const { url, headers } = supabaseConfig(env);
+    const existing = await readJson(`${url}/rest/v1/georgie_recovery_evidence?select=id,status&content_hash=eq.${encodeURIComponent(contentHash)}&limit=1`, headers, AbortSignal.timeout(7000));
+    if (Array.isArray(existing) && existing.some(row => row?.status === "quarantined")) throw new Error("RECOVERY_DUPLICATE_QUARANTINED");
+    const parsed = await pdf(buffer, { max: 80 });
+    const text = clean(parsed?.text, 120000);
+    if (text.length < 100) throw new Error("RECOVERY_STATEMENT_TEXT_INSUFFICIENT");
+    const detected = detectMonth(text);
+    const statementMonth = requestedValue(requestedMonths, detected);
+    if (!statementMonth) throw new Error("RECOVERY_STATEMENT_MONTH_NOT_REQUESTED");
+    const dossiers = await readJson(`${url}/rest/v1/georgie_rehash_merchant_dossiers?select=id,merchant_name&merchant_id=eq.${encodeURIComponent(applicantId)}&order=created_at.desc&limit=1`, headers, AbortSignal.timeout(7000));
+    const business = normalizeBusiness(dossiers?.[0]?.merchant_name);
+    const normalizedText = normalizeBusiness(text);
+    const meaningful = business.split(" ").filter(x => x.length >= 4);
+    const matched = Boolean(business && meaningful.length && meaningful.filter(x => normalizedText.includes(x)).length >= Math.min(2, meaningful.length));
+    if (!matched) throw new Error("RECOVERY_STATEMENT_BUSINESS_MISMATCH");
+    return { applicantId, businessMatch: true, statementMonth, confidence: .96, evidenceIds: [`native-statement:${contentHash}`], extractionEngine: "sierra-recovery-statement-identity-v1", duplicate: Array.isArray(existing) && existing.length > 0, verified: true };
+  };
 }
 
 export function createProductionRecoveryUploadAdapters() {
