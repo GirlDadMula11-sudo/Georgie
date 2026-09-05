@@ -31,7 +31,7 @@ export function supabaseRecoveryStore({ rpc = recoveryRpc } = {}) {
     recordPrismPrecontact: (intent, packet, secureLink) => rpc("georgie_complete_prism_precontact_v1", { p_id: intent.id, p_lease: intent.lease_token, p_packet: packet, p_secure_link: secureLink }),
     issueUploadToken: request => rpc("georgie_issue_recovery_upload_token_v1", { p_request: request }),
     resolveUploadToken: tokenHash => rpc("georgie_resolve_recovery_upload_token_v1", { p_token_hash: tokenHash }),
-    getUploadSession: tokenHash => rpc("georgie_recovery_upload_session_v1", { p_token_hash: tokenHash }),
+    getUploadSession: tokenHash => rpc("georgie_recovery_upload_session_v2", { p_token_hash: tokenHash }),
     revokeUploadToken: (tokenHash, evidenceId) => rpc("georgie_revoke_recovery_upload_token_v1", { p_token_hash: tokenHash, p_evidence_id: evidenceId }),
     transactChannelIntent: event => rpc("georgie_recovery_channel_intent_v1", { p_event: event }),
     transactSmsEvent: event => rpc("georgie_recovery_sms_event_v1", { p_event: event }),
