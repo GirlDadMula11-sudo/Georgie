@@ -17,6 +17,104 @@ function tokenHash(token) {
   return crypto.createHash("sha256").update(String(token || "")).digest("hex");
 }
 
+function supabaseConfig() {
+  return {
+    url: String(process.env.GEORGIE_SUPABASE_URL || "").replace(/\/$/, ""),
+    key: String(process.env.GEORGIE_SUPABASE_SERVICE_ROLE_KEY || "")
+  };
+}
+
+async function readSupabase(path, key, url) {
+  const response = await fetch(`${url}/rest/v1/${path}`, {
+    headers: { apikey: key, authorization: `Bearer ${key}` },
+    signal: AbortSignal.timeout(8000)
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(`STAFF_DATA_${response.status}:${data?.message || "unavailable"}`);
+  return data;
+}
+
+async function requireSierraAdmin(req) {
+  const bearer = String(req.get("authorization") || "");
+  const accessToken = bearer.startsWith("Bearer ") ? bearer.slice(7).trim() : "";
+  const { url, key } = supabaseConfig();
+  if (!url || !key || !accessToken) return null;
+
+  const userResponse = await fetch(`${url}/auth/v1/user`, {
+    headers: { apikey: key, authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(7000)
+  });
+  const user = await userResponse.json().catch(() => null);
+  if (!userResponse.ok || !user?.id) return null;
+
+  const profiles = await readSupabase(`partner_profiles?select=is_sierra_admin,account_status&id=eq.${encodeURIComponent(user.id)}&limit=1`, key, url);
+  const profile = profiles?.[0];
+  if (!profile?.is_sierra_admin || profile?.account_status !== "active") return null;
+  return { user, url, key };
+}
+
+async function staffRehashSnapshot(req) {
+  const auth = await requireSierraAdmin(req);
+  if (!auth) return { unauthorized: true };
+  const { url, key } = auth;
+
+  const [dossiers, contacts, dispatch, funnel] = await Promise.all([
+    readSupabase("georgie_rehash_merchant_dossiers?select=id,merchant_id,merchant_name,contact_resolution_state,created_at,updated_at&order=updated_at.desc&limit=300", key, url),
+    readSupabase("georgie_contact_resolution?select=dossier_id,status,confidence,candidate_email&order=updated_at.desc&limit=600", key, url).catch(() => []),
+    readSupabase("georgie_rehash_email_dispatch?select=dossier_id,status,created_at&order=created_at.desc&limit=1000", key, url).catch(() => []),
+    readSupabase("georgie_recovery_funnel_events?select=episode_id,event_type,created_at&order=created_at.desc&limit=1500", key, url).catch(() => [])
+  ]);
+
+  const contactByDossier = new Map();
+  for (const row of contacts || []) if (!contactByDossier.has(row.dossier_id)) contactByDossier.set(row.dossier_id, row);
+  const dispatchByDossier = new Map();
+  for (const row of dispatch || []) if (!dispatchByDossier.has(row.dossier_id)) dispatchByDossier.set(row.dossier_id, row);
+  const eventsByEpisode = new Map();
+  for (const row of funnel || []) {
+    const list = eventsByEpisode.get(row.episode_id) || [];
+    list.push(row);
+    eventsByEpisode.set(row.episode_id, list);
+  }
+
+  const rows = (dossiers || []).map(dossier => {
+    const contact = contactByDossier.get(dossier.id) || null;
+    const latestDispatch = dispatchByDossier.get(dossier.id) || null;
+    const events = eventsByEpisode.get(String(dossier.merchant_id)) || [];
+    return {
+      id: dossier.id,
+      merchantId: dossier.merchant_id,
+      merchantName: dossier.merchant_name,
+      contactState: dossier.contact_resolution_state,
+      updatedAt: dossier.updated_at,
+      contact: contact ? {
+        status: contact.status,
+        confidence: contact.confidence,
+        email: contact.candidate_email
+      } : null,
+      outreach: latestDispatch ? { status: latestDispatch.status, at: latestDispatch.created_at } : null,
+      engagement: {
+        opened: events.some(e => e.event_type === "secure_link_opened"),
+        attemptedUpload: events.some(e => e.event_type === "upload_attempted"),
+        statementVerified: events.some(e => e.event_type === "statement_verified"),
+        packageComplete: events.some(e => e.event_type === "package_complete"),
+        prismHandoff: events.some(e => e.event_type === "prism_handoff")
+      }
+    };
+  });
+
+  const counts = {
+    total: rows.length,
+    verified: rows.filter(r => r.contact?.status === "verified" && Number(r.contact?.confidence || 0) >= 0.85).length,
+    needsResearch: rows.filter(r => !(r.contact?.status === "verified" && Number(r.contact?.confidence || 0) >= 0.85)).length,
+    sent: rows.filter(r => ["delivered", "provider_accepted"].includes(String(r.outreach?.status || ""))).length,
+    opened: rows.filter(r => r.engagement.opened).length,
+    uploadAttempted: rows.filter(r => r.engagement.attemptedUpload).length,
+    complete: rows.filter(r => r.engagement.packageComplete).length
+  };
+
+  return { unauthorized: false, counts, rows };
+}
+
 async function trackFunnel(store, token, eventType, metadata = {}) {
   if (!token || token.length < 32 || typeof store.recordFunnelEvent !== "function") return null;
   try {
@@ -27,7 +125,6 @@ async function trackFunnel(store, token, eventType, metadata = {}) {
       metadata
     });
   } catch (error) {
-    // Analytics must never break secure upload, Prism, or recovery processing.
     console.warn("[Georgie][recovery-funnel] tracking unavailable", { eventType, code: error instanceof Error ? error.message : String(error) });
     return null;
   }
@@ -40,6 +137,15 @@ export function createFinancingRecoveryRouter({ store = supabaseRecoveryStore(),
     const enabled = process.env.VERCEL_ENV === "preview";
     if (!enabled) return res.status(404).json({ ok: false, error: "UPLOAD_SESSION_NOT_FOUND" });
     return res.json({ ok: true, session: { status: "active", reviewMode: true, firstName: "Sierra Review Team", businessName: "Sierra Review Company", expiresAt: "2099-12-31T23:59:59.000Z", complete: false, slots: [{ month: "2026-07", status: "open" }, { month: "2026-08", status: "open" }] } });
+  });
+  router.get("/staff/rehash", async (req, res) => {
+    try {
+      const snapshot = await staffRehashSnapshot(req);
+      if (snapshot.unauthorized) return res.status(403).set("Cache-Control", "no-store").json({ ok: false, error: "SIERRA_ADMIN_REQUIRED" });
+      return res.set("Cache-Control", "no-store").json({ ok: true, ...snapshot });
+    } catch (error) {
+      return res.status(503).set("Cache-Control", "no-store").json({ ok: false, error: error instanceof Error ? error.message : "REHASH_STAFF_UNAVAILABLE" });
+    }
   });
   router.get("/upload-session", async (req, res) => {
     try {
