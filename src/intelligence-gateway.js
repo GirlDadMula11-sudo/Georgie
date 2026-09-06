@@ -16,10 +16,9 @@ export function intelligenceRoute(input = "") {
   const highImpact = HIGH_IMPACT.test(text);
   const domain = SIERRA.test(text) ? "sierra" : INVESTMENTS.test(text) ? "investments" : PERSONAL.test(text) ? "personal" : TECHNICAL.test(text) ? "technical" : "general";
 
-  // Cost fence: expensive tiers are opt-in, never automatic. A keyword such as
-  // "production" or "repair" must not silently escalate spend. Until an operator
-  // explicitly enables a tier in runtime configuration, Georgie stays on the fast
-  // model and uses deterministic/tool evidence for control-plane work.
+  // Sierra-native authority is always first. External model tiers are optional
+  // accelerators behind the native runtime; they never own identity, memory,
+  // policy, tools, evidence, completion authority, or basic conversation.
   const requestedTier = policy.reasoningEffort === "high" || highImpact ? "frontier" : policy.reasoningEffort === "medium" ? "balanced" : "fast";
   const frontierEnabled = enabled("GEORGIE_FRONTIER_INFERENCE_ENABLED");
   const balancedEnabled = enabled("GEORGIE_BALANCED_INFERENCE_ENABLED") || frontierEnabled;
@@ -36,11 +35,13 @@ export function intelligenceRoute(input = "") {
       : process.env.OPENAI_FAST_MODEL || "gpt-5.6-luna";
 
   return {
-    version: "2026-08-27.1-cost-fence",
+    version: "2026-09-06.1-sierra-native-authority",
     domain,
     tier,
     requestedTier,
     model,
+    providerAuthority:"sierra_native",
+    externalInferenceRole:"optional_accelerator",
     reasoningEffort: tier === "frontier" ? "high" : tier === "balanced" ? policy.reasoningEffort : "low",
     responseVerbosity: policy.responseVerbosity,
     requiresCurrentEvidence: highImpact || policy.allowWebTool,
@@ -48,10 +49,11 @@ export function intelligenceRoute(input = "") {
     allowWebTool: policy.allowWebTool,
     latencyClass: policy.latencyClass,
     costPolicy: {
-      hierarchy: ["deterministic", "cached_evidence", "fast_model", "balanced_model", "frontier_model"],
+      hierarchy: ["sierra_native", "deterministic", "cached_evidence", "governed_tools", "optional_fast_model", "optional_balanced_model", "optional_frontier_model"],
       selectedTier: tier,
       requestedTier,
       expensiveTierOptInRequired: true,
+      externalInferenceOptional:true,
       frontierEnabled,
       balancedEnabled,
       frontierJustification: tier === "frontier" ? (highImpact ? "high_impact_and_operator_enabled" : "deep_reasoning_and_operator_enabled") : null,

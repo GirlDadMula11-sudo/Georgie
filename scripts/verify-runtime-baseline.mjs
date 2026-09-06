@@ -15,7 +15,9 @@ const requiredMarkers = new Map([
   ["src/v2-turn-engine.js", ["deterministic-runtime-status", "Georgie runtime certification:", 'result?.tool==="system.status"', "unified-georgie-runtime-v1-local-inspection", "deterministic_local"]],
   ["src/memory.js", ["MEMORY_READ_TIMEOUT_MS", "durable_cloud_with_local_mirror", "foregroundReadBudgetMs", "durable local mirror retained"]],
   ["src/georgie.js", ["modelCreditBlock", "model_credits_exhausted", "credit-blocked-truthful-fallback", "Nothing is still running"]],
-  ["src/reliability-fast-paths.js", ["deterministic-practical-guidance", "scheduled blocks", "ten-minute reset"]],
+  ["src/reliability-fast-paths.js", ["sierraNativeConversationResponse", "deterministic-practical-guidance", "scheduled blocks", "ten-minute reset"]],
+  ["src/sierra-native-intelligence.js", ["defaultAuthority:\"sierra_native\"", "externalModelRole:\"optional_accelerator_only\"", "providerFailureDoesNotTerminateGeorgie:true", "I’m here. What are we attacking?"]],
+  ["src/intelligence-gateway.js", ["providerAuthority:\"sierra_native\"", "externalInferenceRole:\"optional_accelerator\"", "sierra_native"]],
   ["src/model-cost-governor.js", ["GEORGIE_MODEL_REQUESTS_PER_MINUTE", "GEORGIE_MODEL_REQUESTS_PER_DAY", "billingCircuitOpen", "blockedRequests"]],
   ["src/resource-governor.js", ["modelCostBudget", "modelCostGovernorStatus"]],
   ["src/capability-manifest.js", ["runtimeAuthority", "sourceMutationDuringStartup: false", "specialistFailureIsolation: true", "coreFirstStartup: true"]],
@@ -33,7 +35,8 @@ const syntaxFiles = [
   "src/github-receipt-relay.js", "src/github-control-inbound.js", "src/governed-connector.js",
   "src/fast-intents.js", "src/capability-manifest.js", "src/resource-governor.js",
   "src/seo-monitor.js", "src/smartlead-reply-closer-worker.js", "src/lender-delivery-worker.js",
-  "src/sierra-closing-outreach-worker.js", "mac-agent/agent.js",
+  "src/sierra-closing-outreach-worker.js", "src/sierra-native-intelligence.js", "src/intelligence-gateway.js",
+  "src/reliability-fast-paths.js", "mac-agent/agent.js",
 ];
 
 const registry = validateRuntimeRegistry();
