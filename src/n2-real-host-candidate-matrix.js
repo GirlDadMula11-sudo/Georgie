@@ -2,7 +2,13 @@ import { createHash } from "node:crypto";
 import { canonicalJson } from "./native-hardware-profile.js";
 
 export const N2_REAL_HOST_MATRIX_VERSION = "sierra.n2-real-host-candidate-matrix.v1";
-export const N2_REAL_HOST_CAMPAIGN_GENERATION = "v1.1";
+export const N2_REAL_HOST_CAMPAIGN_GENERATION = "v2";
+export const N2_REAL_HOST_CAMPAIGN_LINEAGE = Object.freeze({
+  predecessorGeneration: "v1",
+  predecessorFailureSha256: "fa3998a9297a4f10432a0b21bf77d01d9d0c272c524643c41c3d2e17bffa450c",
+  predecessorFailureCode: "n2_tool_missing",
+  repairReason: "isolated_hash_pinned_cmake_bootstrap",
+});
 
 export const N2_REAL_HOST = Object.freeze({
   hardwareFingerprintSha256: "b08acdef052238704e0c288211a022731bdb80e9aff87366d38154cecdadf089",
@@ -81,6 +87,7 @@ export function n2RealHostMatrixReceipt() {
   const body = {
     schema: N2_REAL_HOST_MATRIX_VERSION,
     campaignGeneration: N2_REAL_HOST_CAMPAIGN_GENERATION,
+    lineage: N2_REAL_HOST_CAMPAIGN_LINEAGE,
     host: N2_REAL_HOST,
     buildToolchain: { cmake: N2_PINNED_CMAKE },
     engine: N2_LLAMA_CPP,
