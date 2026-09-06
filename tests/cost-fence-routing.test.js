@@ -22,6 +22,9 @@ test("high-impact language cannot silently escalate to frontier inference", () =
     assert.equal(route.tier, "fast");
     assert.equal(route.costPolicy.downgradedForCost, true);
     assert.equal(route.costPolicy.expensiveTierOptInRequired, true);
+    assert.equal(route.providerAuthority,"sierra_native");
+    assert.equal(route.externalInferenceRole,"optional_accelerator");
+    assert.equal(route.costPolicy.hierarchy[0],"sierra_native");
   });
 });
 
@@ -30,5 +33,6 @@ test("frontier inference requires explicit operator opt-in", () => {
     const route = intelligenceRoute("repair the production database incident");
     assert.equal(route.tier, "frontier");
     assert.equal(route.costPolicy.frontierEnabled, true);
+    assert.equal(route.costPolicy.externalInferenceOptional,true);
   });
 });
