@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { sendClientMessageAndVerify } from "./client-correspondence.js";
+import { followupMessageFor } from "./financing-recovery-followups.js";
 
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 const SUPPRESSION_REASONS = new Set(["opt_out", "complaint", "invalid", "bounce", "dispute", "duplicate", "active_deal", "recent_contact"]);
@@ -130,7 +131,7 @@ export async function processRecoveryIntent(store, intent, {
   prismAdapter = null,
   precontactReviewAdapter = null
 } = {}) {
-  if (!["statement_request", "prism_wakeup", "prism_precontact"].includes(intent.kind)) return store.recordDownstreamFailure(intent, `UNCONNECTED_INTENT_ADAPTER:${intent.kind || "unknown"}`);
+  if (!["statement_request", "statement_followup", "prism_wakeup", "prism_precontact"].includes(intent.kind)) return store.recordDownstreamFailure(intent, `UNCONNECTED_INTENT_ADAPTER:${intent.kind || "unknown"}`);
   if (intent.kind === "prism_precontact") {
     const [{ buildPrismPrecontactPacket }, { createUploadTokenRequest }] = await Promise.all([import("./financing-recovery-evidence.js"), import("./financing-recovery-engagement.js")]);
     const packet = buildPrismPrecontactPacket(intent);
@@ -160,8 +161,8 @@ export async function processRecoveryIntent(store, intent, {
   if (!gate?.allowed) return store.blockIntent(intent, gate?.reason || "SUPPRESSION_STATE_UNCERTAIN");
   if (release !== "canary") return store.holdIntent(intent, "RELEASE_HOLD");
   try {
-    let message = messageFor(intent);
-    if (intent.prismPacket) {
+    let message = intent.kind === "statement_followup" ? followupMessageFor(intent) : messageFor(intent);
+    if (intent.kind !== "statement_followup" && intent.prismPacket) {
       const { recoveryTemplates } = await import("./financing-recovery-engagement.js");
       const template = recoveryTemplates({ channel: "email", firstName: intent.firstName, businessIdentity: intent.businessIdentity, missingMonths: intent.missingMonths, secureLink: intent.secureLink, prismPacket: intent.prismPacket });
       message = { version: template.contract, subject: template.subject, text: template.body };

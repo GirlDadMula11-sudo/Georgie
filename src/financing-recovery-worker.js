@@ -43,13 +43,27 @@ export function supabaseRecoveryStore({ rpc = recoveryRpc } = {}) {
   };
 }
 
-export async function runFinancingRecoveryCycle({ store = supabaseRecoveryStore(), claim = body => recoveryRpc("georgie_claim_recovery_intents", body), prismAdapter = null, precontactReviewAdapter = createPrismReviewAdapter() } = {}) {
+export async function runFinancingRecoveryCycle({
+  store = supabaseRecoveryStore(),
+  claim = body => recoveryRpc("georgie_claim_recovery_intents", body),
+  scheduleFollowups = body => recoveryRpc("georgie_schedule_recovery_followups_v1", body),
+  prismAdapter = null,
+  precontactReviewAdapter = createPrismReviewAdapter()
+} = {}) {
+  let lifecycle = null;
+  try {
+    lifecycle = await scheduleFollowups({ p_limit: 100 });
+  } catch (error) {
+    // Follow-up scheduling is additive. A scheduler/migration issue must not stop
+    // existing recovery intents, uploads, Prism handoffs, or suppressions.
+    console.warn("Recovery lifecycle scheduler unavailable:", error.message);
+  }
   const rows = await claim({ p_limit: 10, p_lease_seconds: 60 });
   for (const row of rows || []) {
     const intent = { ...(row.payload || {}), ...row };
     await processRecoveryIntent(store, intent, { prismAdapter, precontactReviewAdapter }).catch(error => console.warn("Recovery intent persisted failure:", error.message));
   }
-  return { claimed: rows?.length || 0 };
+  return { claimed: rows?.length || 0, lifecycle };
 }
 
 export function startFinancingRecoveryWorker({ schedule = setInterval } = {}) {
