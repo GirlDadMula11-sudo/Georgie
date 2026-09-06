@@ -38,6 +38,8 @@ export function supabaseRecoveryStore({ rpc = recoveryRpc } = {}) {
     transactUploadCompletion: upload => rpc("georgie_complete_recovery_upload_v1", { p_upload: upload }),
     persistEvidence: evidence => rpc("georgie_ingest_recovery_evidence_v1", { p_evidence: evidence, p_quarantine_reason: null }),
     quarantineEvidence: (evidence, reason) => rpc("georgie_ingest_recovery_evidence_v1", { p_evidence: evidence, p_quarantine_reason: reason }),
+    recordFunnelEvent: ({ tokenHash, eventType, eventKey, metadata = {} }) => rpc("georgie_record_recovery_funnel_event_v1", { p_token_hash: tokenHash, p_event_type: eventType, p_event_key: eventKey, p_metadata: metadata }),
+    getFunnelReport: () => rpc("georgie_rehash_funnel_v1", {}),
     recordDownstreamFailure: (intent, error) => complete(intent, "blocked", { contract: "georgie.prism-handoff.v1", error }),
     recordDownstreamReceipt: (intent, receipt) => complete(intent, "completed", { contract: "georgie.prism-handoff.v1", receipt })
   };
