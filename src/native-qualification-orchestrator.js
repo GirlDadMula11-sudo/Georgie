@@ -45,6 +45,30 @@ function bindEvidence(evidence, expected) {
   return item;
 }
 
+function bindSelectedPlanToManifest(selectedPlan, manifest) {
+  const manifestEngine = String(manifest.engine?.name || "").trim();
+  const manifestModel = String(manifest.model?.source || "").trim();
+  const manifestQuantization = String(manifest.model?.quantization || "").trim();
+  const manifestContextWindow = Number(manifest.model?.contextWindow || 0);
+
+  const checks = {
+    engine: selectedPlan.engine === manifestEngine,
+    model: selectedPlan.model === manifestModel,
+    quantization: selectedPlan.quantization === manifestQuantization,
+    contextWindow: selectedPlan.requested?.contextWindow === manifestContextWindow,
+  };
+
+  if (!Object.values(checks).every(Boolean)) {
+    const mismatches = Object.entries(checks)
+      .filter(([, ok]) => !ok)
+      .map(([field]) => field)
+      .join(",");
+    fail("n2_qualification_binding_mismatch", `selected planner candidate does not match candidate manifest: ${mismatches}`);
+  }
+
+  return Object.freeze(checks);
+}
+
 export function orchestrateN2Qualification({
   hostProfile,
   candidates,
@@ -80,6 +104,7 @@ export function orchestrateN2Qualification({
   }
 
   const manifest = requiredObject(candidateManifest, "candidateManifest");
+  const selectedManifestChecks = bindSelectedPlanToManifest(selectedPlan, manifest);
   const manifestHostSha = requiredSha(manifest.hardware?.fingerprintSha256, "candidateManifest.hardware.fingerprintSha256");
   const hostSha = requiredSha(host.hardwareFingerprintSha256, "hostProfile.hardwareFingerprintSha256");
   if (manifestHostSha !== hostSha) fail("n2_qualification_binding_mismatch", "candidate manifest is pinned to a different host");
@@ -119,6 +144,7 @@ export function orchestrateN2Qualification({
     schema: N2_QUALIFICATION_ORCHESTRATOR_VERSION,
     plannerDecisionSha256: plan.plannerDecisionSha256,
     selectedCandidateId: selectedId,
+    selectedManifestChecks,
     candidateManifestSha256,
     hostHardwareFingerprintSha256: hostSha,
     corpusSha256: corpusHash,
