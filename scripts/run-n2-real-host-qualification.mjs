@@ -6,11 +6,11 @@ import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { performance } from "node:perf_hooks";
 import { buildNativeHardwareProfile, canonicalJson } from "../src/native-hardware-profile.js";
-import { N2_REAL_HOST, N2_LLAMA_CPP, N2_REAL_HOST_CANDIDATES, n2RealHostMatrixReceipt } from "../src/n2-real-host-candidate-matrix.js";
+import { N2_REAL_HOST, N2_LLAMA_CPP, N2_REAL_HOST_CANDIDATES, N2_REAL_HOST_CAMPAIGN_GENERATION, N2_REAL_HOST_CAMPAIGN_LINEAGE, n2RealHostMatrixReceipt } from "../src/n2-real-host-candidate-matrix.js";
 import { ensurePinnedCmake } from "../src/n2-pinned-cmake.js";
 
 const execFileAsync = promisify(execFile);
-const ROOT = path.join(os.homedir(), "Library", "Application Support", "Georgie", "N2-Qualification", "v1");
+const ROOT = path.join(os.homedir(), "Library", "Application Support", "Georgie", "N2-Qualification", N2_REAL_HOST_CAMPAIGN_GENERATION);
 const ENGINE_ROOT = path.join(ROOT, "engine");
 const TOOLCHAIN_ROOT = path.join(ROOT, "toolchain");
 const MODEL_ROOT = path.join(ROOT, "models");
@@ -294,6 +294,8 @@ async function qualifyCandidate(engine, candidate, modelPath, index) {
 
   const receiptBody = {
     schema: "sierra.n2-real-host-qualification-receipt.v1",
+    campaignGeneration: N2_REAL_HOST_CAMPAIGN_GENERATION,
+    lineage: N2_REAL_HOST_CAMPAIGN_LINEAGE,
     candidateId: candidate.id,
     hostHardwareFingerprintSha256: N2_REAL_HOST.hardwareFingerprintSha256,
     engine: {
@@ -370,6 +372,8 @@ async function main() {
 
   const campaignBody = {
     schema: "sierra.n2-real-host-qualification-campaign.v1",
+    campaignGeneration: N2_REAL_HOST_CAMPAIGN_GENERATION,
+    lineage: N2_REAL_HOST_CAMPAIGN_LINEAGE,
     startedAt,
     completedAt: new Date().toISOString(),
     hostHardwareFingerprintSha256: hostProfile.hardwareFingerprintSha256,
@@ -398,6 +402,8 @@ async function main() {
 main().catch(async (error) => {
   const failureBody = {
     schema: "sierra.n2-real-host-qualification-failure.v1",
+    campaignGeneration: N2_REAL_HOST_CAMPAIGN_GENERATION,
+    lineage: N2_REAL_HOST_CAMPAIGN_LINEAGE,
     failedAt: new Date().toISOString(),
     hostHardwareFingerprintSha256: N2_REAL_HOST.hardwareFingerprintSha256,
     code: error?.code || "n2_qualification_failed",
