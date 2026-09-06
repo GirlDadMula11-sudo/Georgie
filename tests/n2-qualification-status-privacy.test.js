@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { readN2QualificationStatus, DEFAULT_N2_QUALIFICATION_ROOT } from "../src/n2-qualification-status.js";
+import { N2_REAL_HOST_CAMPAIGN_GENERATION } from "../src/n2-real-host-candidate-matrix.js";
 
 function lockFs(lockPayload) {
   const lock = path.join(DEFAULT_N2_QUALIFICATION_ROOT, "campaign-launch.lock.json");
@@ -23,6 +24,7 @@ function lockFs(lockPayload) {
 test("live process identity is used only for liveness and never leaves the projection", async () => {
   const status = await readN2QualificationStatus({
     fsImpl: lockFs({
+      campaignGeneration: N2_REAL_HOST_CAMPAIGN_GENERATION,
       pid: 4321,
       launchedAt: "2026-09-06T23:00:00.000Z",
       hostHardwareFingerprintSha256: "a".repeat(64),
@@ -35,6 +37,7 @@ test("live process identity is used only for liveness and never leaves the proje
   });
 
   assert.equal(status.status, "running");
+  assert.equal(status.campaignGeneration, N2_REAL_HOST_CAMPAIGN_GENERATION);
   assert.equal(status.promotionAuthority, "none");
   assert.equal(Object.hasOwn(status, "pid"), false);
   assert.doesNotMatch(JSON.stringify(status), /4321/);
@@ -42,7 +45,7 @@ test("live process identity is used only for liveness and never leaves the proje
 
 test("stale lock also strips the process identifier", async () => {
   const status = await readN2QualificationStatus({
-    fsImpl: lockFs({ pid: 9876, launchedAt: "2026-09-06T23:00:00.000Z" }),
+    fsImpl: lockFs({ campaignGeneration: N2_REAL_HOST_CAMPAIGN_GENERATION, pid: 9876, launchedAt: "2026-09-06T23:00:00.000Z" }),
     root: DEFAULT_N2_QUALIFICATION_ROOT,
     processSignal() {
       const error = new Error("dead");
@@ -52,6 +55,7 @@ test("stale lock also strips the process identifier", async () => {
   });
 
   assert.equal(status.status, "stale_lock");
+  assert.equal(status.campaignGeneration, N2_REAL_HOST_CAMPAIGN_GENERATION);
   assert.equal(Object.hasOwn(status, "pid"), false);
   assert.doesNotMatch(JSON.stringify(status), /9876/);
 });

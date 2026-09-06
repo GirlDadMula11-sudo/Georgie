@@ -3,13 +3,14 @@ import path from "node:path";
 import os from "node:os";
 import fs from "node:fs/promises";
 import { canonicalJson } from "./native-hardware-profile.js";
+import { N2_REAL_HOST_CAMPAIGN_GENERATION } from "./n2-real-host-candidate-matrix.js";
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const TERMINAL_FILE = /^(campaign|failure)-([a-f0-9]{64})\.json$/;
 const CANDIDATE_FILE = /^([a-z0-9._-]+)-([a-f0-9]{64})\.json$/;
 
 export const N2_QUALIFICATION_STATUS_SCHEMA = "sierra.n2-qualification-status.v1";
-export const DEFAULT_N2_QUALIFICATION_ROOT = path.join(os.homedir(), "Library", "Application Support", "Georgie", "N2-Qualification", "v1");
+export const DEFAULT_N2_QUALIFICATION_ROOT = path.join(os.homedir(), "Library", "Application Support", "Georgie", "N2-Qualification", N2_REAL_HOST_CAMPAIGN_GENERATION);
 
 function sha256(value) {
   return crypto.createHash("sha256").update(String(value), "utf8").digest("hex");
@@ -32,6 +33,11 @@ function intOrNull(value) {
 function digestOrNull(value) {
   const digest = String(value || "").trim().toLowerCase();
   return SHA256.test(digest) ? digest : null;
+}
+
+function assertGeneration(value) {
+  if (value !== N2_REAL_HOST_CAMPAIGN_GENERATION) throw new Error("N2_STATUS_GENERATION_REJECTED");
+  return value;
 }
 
 function candidateSummary(result = {}) {
@@ -59,6 +65,7 @@ function candidateSummary(result = {}) {
 function sanitizeCampaign(payload = {}, filenameDigest) {
   if (payload?.schema !== "sierra.n2-real-host-qualification-campaign.v1") throw new Error("N2_STATUS_CAMPAIGN_SCHEMA_REJECTED");
   if (payload?.promotionAuthority !== "none") throw new Error("N2_STATUS_PROMOTION_AUTHORITY_REJECTED");
+  const campaignGeneration = assertGeneration(payload?.campaignGeneration);
   const embedded = digestOrNull(payload?.campaignSha256);
   if (!embedded || embedded !== filenameDigest) throw new Error("N2_STATUS_CAMPAIGN_FILENAME_HASH_MISMATCH");
   const body = { ...payload };
@@ -67,6 +74,7 @@ function sanitizeCampaign(payload = {}, filenameDigest) {
   const results = Array.isArray(payload.results) ? payload.results.map(candidateSummary) : [];
   return Object.freeze({
     status: "completed",
+    campaignGeneration,
     campaignSha256: embedded,
     startedAt: bounded(payload.startedAt, 40) || null,
     completedAt: bounded(payload.completedAt, 40) || null,
@@ -84,6 +92,7 @@ function sanitizeCampaign(payload = {}, filenameDigest) {
 function sanitizeFailure(payload = {}, filenameDigest) {
   if (payload?.schema !== "sierra.n2-real-host-qualification-failure.v1") throw new Error("N2_STATUS_FAILURE_SCHEMA_REJECTED");
   if (payload?.promotionAuthority !== "none") throw new Error("N2_STATUS_PROMOTION_AUTHORITY_REJECTED");
+  const campaignGeneration = assertGeneration(payload?.campaignGeneration);
   const embedded = digestOrNull(payload?.failureSha256);
   if (!embedded || embedded !== filenameDigest) throw new Error("N2_STATUS_FAILURE_FILENAME_HASH_MISMATCH");
   const body = { ...payload };
@@ -91,6 +100,7 @@ function sanitizeFailure(payload = {}, filenameDigest) {
   if (sha256(canonicalJson(body)) !== embedded) throw new Error("N2_STATUS_FAILURE_CANONICAL_HASH_MISMATCH");
   return Object.freeze({
     status: "failed",
+    campaignGeneration,
     failureSha256: embedded,
     failedAt: bounded(payload.failedAt, 40) || null,
     hostHardwareFingerprintSha256: digestOrNull(payload.hostHardwareFingerprintSha256),
@@ -157,12 +167,14 @@ export async function readN2QualificationStatus(options = {}) {
   const lockFile = path.join(root, "campaign-launch.lock.json");
   try {
     const lock = await readJson(lockFile, fsImpl);
+    assertGeneration(lock?.campaignGeneration);
     const pid = Number(lock?.pid);
     const alive = await processAlive(pid, options.processSignal || process.kill);
     const status = alive ? "running" : "stale_lock";
     const body = {
       schema: N2_QUALIFICATION_STATUS_SCHEMA,
       status,
+      campaignGeneration: N2_REAL_HOST_CAMPAIGN_GENERATION,
       launchedAt: bounded(lock?.launchedAt, 40) || null,
       hostHardwareFingerprintSha256: digestOrNull(lock?.hostHardwareFingerprintSha256),
       promotionAuthority: "none",
@@ -177,6 +189,7 @@ export async function readN2QualificationStatus(options = {}) {
   const body = {
     schema: N2_QUALIFICATION_STATUS_SCHEMA,
     status: candidateReceipts ? "incomplete_without_terminal_receipt" : "not_started",
+    campaignGeneration: N2_REAL_HOST_CAMPAIGN_GENERATION,
     candidateReceiptCount: candidateReceipts,
     promotionAuthority: "none",
     observedAt: new Date().toISOString(),

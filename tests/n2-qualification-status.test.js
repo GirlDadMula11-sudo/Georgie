@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { readN2QualificationStatus, DEFAULT_N2_QUALIFICATION_ROOT } from "../src/n2-qualification-status.js";
 import { canonicalJson } from "../src/native-hardware-profile.js";
+import { N2_REAL_HOST_CAMPAIGN_GENERATION } from "../src/n2-real-host-candidate-matrix.js";
 import crypto from "node:crypto";
 
 const sha = (value) => crypto.createHash("sha256").update(String(value), "utf8").digest("hex");
@@ -30,6 +31,7 @@ function fakeFs({ files = {}, mtimes = {} } = {}) {
 function campaign() {
   const body = {
     schema: "sierra.n2-real-host-qualification-campaign.v1",
+    campaignGeneration: N2_REAL_HOST_CAMPAIGN_GENERATION,
     startedAt: "2026-09-06T23:00:00.000Z",
     completedAt: "2026-09-06T23:05:00.000Z",
     hostHardwareFingerprintSha256: D("a"),
@@ -72,6 +74,7 @@ function campaign() {
 function failure() {
   const body = {
     schema: "sierra.n2-real-host-qualification-failure.v1",
+    campaignGeneration: N2_REAL_HOST_CAMPAIGN_GENERATION,
     failedAt: "2026-09-06T23:03:00.000Z",
     hostHardwareFingerprintSha256: D("a"),
     code: "n2_model_hash_mismatch",
@@ -86,6 +89,7 @@ test("completed campaign projection exposes only bounded aggregate evidence", as
   const file = path.join(DEFAULT_N2_QUALIFICATION_ROOT, "receipts", `campaign-${payload.campaignSha256}.json`);
   const status = await readN2QualificationStatus({ fsImpl: fakeFs({ files: { [file]: JSON.stringify(payload) }, mtimes: { [file]: 10 } }), root: DEFAULT_N2_QUALIFICATION_ROOT });
   assert.equal(status.status, "completed");
+  assert.equal(status.campaignGeneration, N2_REAL_HOST_CAMPAIGN_GENERATION);
   assert.equal(status.promotionAuthority, "none");
   assert.equal(status.candidates[0].candidateId, "qwen3-4b-q4-k-m");
   assert.equal(status.candidates[0].stressRequests, 60);
@@ -109,20 +113,31 @@ test("terminal receipt must match both filename digest and canonical content", a
   await assert.rejects(() => readN2QualificationStatus({ fsImpl: fakeFs({ files: { [correctName]: JSON.stringify(tampered) } }), root: DEFAULT_N2_QUALIFICATION_ROOT }), /CANONICAL_HASH_MISMATCH/);
 });
 
+test("terminal receipt from another generation is rejected", async () => {
+  const payload = campaign();
+  const body = { ...payload, campaignGeneration: "v1" };
+  delete body.campaignSha256;
+  const stale = { ...body, campaignSha256: sha(canonicalJson(body)) };
+  const file = path.join(DEFAULT_N2_QUALIFICATION_ROOT, "receipts", `campaign-${stale.campaignSha256}.json`);
+  await assert.rejects(() => readN2QualificationStatus({ fsImpl: fakeFs({ files: { [file]: JSON.stringify(stale) } }), root: DEFAULT_N2_QUALIFICATION_ROOT }), /GENERATION_REJECTED/);
+});
+
 test("failure projection remains non-promoting and bounded", async () => {
   const payload = failure();
   const file = path.join(DEFAULT_N2_QUALIFICATION_ROOT, "receipts", `failure-${payload.failureSha256}.json`);
   const status = await readN2QualificationStatus({ fsImpl: fakeFs({ files: { [file]: JSON.stringify(payload) } }), root: DEFAULT_N2_QUALIFICATION_ROOT });
   assert.equal(status.status, "failed");
+  assert.equal(status.campaignGeneration, N2_REAL_HOST_CAMPAIGN_GENERATION);
   assert.equal(status.code, "n2_model_hash_mismatch");
   assert.equal(status.promotionAuthority, "none");
 });
 
 test("live lock is running only when the process is independently alive", async () => {
   const lock = path.join(DEFAULT_N2_QUALIFICATION_ROOT, "campaign-launch.lock.json");
-  const files = { [lock]: JSON.stringify({ pid: 4321, launchedAt: "2026-09-06T23:00:00.000Z", hostHardwareFingerprintSha256: D("a") }) };
+  const files = { [lock]: JSON.stringify({ campaignGeneration: N2_REAL_HOST_CAMPAIGN_GENERATION, pid: 4321, launchedAt: "2026-09-06T23:00:00.000Z", hostHardwareFingerprintSha256: D("a") }) };
   const running = await readN2QualificationStatus({ fsImpl: fakeFs({ files }), root: DEFAULT_N2_QUALIFICATION_ROOT, processSignal(pid, signal) { assert.equal(pid, 4321); assert.equal(signal, 0); } });
   assert.equal(running.status, "running");
+  assert.equal(running.campaignGeneration, N2_REAL_HOST_CAMPAIGN_GENERATION);
 
   const stale = await readN2QualificationStatus({ fsImpl: fakeFs({ files }), root: DEFAULT_N2_QUALIFICATION_ROOT, processSignal() { const error = new Error("dead"); error.code = "ESRCH"; throw error; } });
   assert.equal(stale.status, "stale_lock");
@@ -130,7 +145,7 @@ test("live lock is running only when the process is independently alive", async 
 
 test("lock presence alone never proves running", async () => {
   const lock = path.join(DEFAULT_N2_QUALIFICATION_ROOT, "campaign-launch.lock.json");
-  const files = { [lock]: JSON.stringify({ pid: null, launchedAt: "2026-09-06T23:00:00.000Z" }) };
+  const files = { [lock]: JSON.stringify({ campaignGeneration: N2_REAL_HOST_CAMPAIGN_GENERATION, pid: null, launchedAt: "2026-09-06T23:00:00.000Z" }) };
   const status = await readN2QualificationStatus({ fsImpl: fakeFs({ files }), root: DEFAULT_N2_QUALIFICATION_ROOT });
   assert.equal(status.status, "stale_lock");
 });
@@ -143,6 +158,7 @@ test("candidate-only receipts are reported incomplete, never complete", async ()
   const file = path.join(DEFAULT_N2_QUALIFICATION_ROOT, "receipts", `qwen3-4b-q4-k-m-${D("a")}.json`);
   const status = await readN2QualificationStatus({ fsImpl: fakeFs({ files: { [file]: "{}" } }), root: DEFAULT_N2_QUALIFICATION_ROOT });
   assert.equal(status.status, "incomplete_without_terminal_receipt");
+  assert.equal(status.campaignGeneration, N2_REAL_HOST_CAMPAIGN_GENERATION);
   assert.equal(status.candidateReceiptCount, 1);
   assert.equal(status.promotionAuthority, "none");
 });
@@ -154,5 +170,6 @@ test("no receipts and no lock reports not started", async () => {
   };
   const status = await readN2QualificationStatus({ fsImpl, root: DEFAULT_N2_QUALIFICATION_ROOT });
   assert.equal(status.status, "not_started");
+  assert.equal(status.campaignGeneration, N2_REAL_HOST_CAMPAIGN_GENERATION);
   assert.equal(status.promotionAuthority, "none");
 });
