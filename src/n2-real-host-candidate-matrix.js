@@ -11,6 +11,15 @@ export const N2_REAL_HOST = Object.freeze({
   cpuModel: "Intel(R) Core(TM) i5-7500 CPU @ 3.40GHz",
 });
 
+export const N2_PINNED_CMAKE = Object.freeze({
+  version: "4.4.2",
+  platform: "macos10.10-universal",
+  archive: "cmake-4.4.2-macos10.10-universal.tar.gz",
+  downloadUrl: "https://github.com/Kitware/CMake/releases/download/v4.4.2/cmake-4.4.2-macos10.10-universal.tar.gz",
+  archiveSha256: "80710e6d054a8366ec5f202dd6c22f0c4ebd6f96221260b0793e80816f95260f",
+  binaryRelativePath: "cmake-4.4.2-macos10.10-universal/CMake.app/Contents/bin/cmake",
+});
+
 export const N2_LLAMA_CPP = Object.freeze({
   repository: "https://github.com/ggml-org/llama.cpp.git",
   tag: "v0.4.0",
@@ -71,6 +80,7 @@ export function n2RealHostMatrixReceipt() {
   const body = {
     schema: N2_REAL_HOST_MATRIX_VERSION,
     host: N2_REAL_HOST,
+    buildToolchain: { cmake: N2_PINNED_CMAKE },
     engine: N2_LLAMA_CPP,
     candidates: N2_REAL_HOST_CANDIDATES,
     policy: {
@@ -81,6 +91,8 @@ export function n2RealHostMatrixReceipt() {
       serverLoopbackOnly: true,
       builtInToolsDisabled: true,
       webUiDisabled: true,
+      systemPackageManagerMutation: false,
+      buildToolBootstrapIsolatedAndHashPinned: true,
     },
   };
   return Object.freeze({
