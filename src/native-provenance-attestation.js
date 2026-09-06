@@ -66,17 +66,34 @@ function normalizeDependency(dep, index) {
 
 function normalizeRuntimeConfig(input) {
   const config = requiredObject(input, "runtimeConfig");
+  const seed = Number(config.seed);
+  if (!Number.isSafeInteger(seed)) fail("n2_provenance_invalid", "runtimeConfig.seed must be a safe integer");
   return Object.freeze({
     contextWindow: positiveInteger(config.contextWindow, "runtimeConfig.contextWindow"),
     maxConcurrentSequences: positiveInteger(config.maxConcurrentSequences, "runtimeConfig.maxConcurrentSequences"),
     temperature: boundedNumber(config.temperature, "runtimeConfig.temperature", 0, 2),
     topP: boundedNumber(config.topP, "runtimeConfig.topP", 0, 1),
-    seed: Number.isSafeInteger(Number(config.seed)) ? Number(config.seed) : fail("n2_provenance_invalid", "runtimeConfig.seed must be a safe integer"),
+    seed,
     promptCacheEnabled: requiredBoolean(config.promptCacheEnabled, "runtimeConfig.promptCacheEnabled"),
     speculativeDecodingEnabled: requiredBoolean(config.speculativeDecodingEnabled, "runtimeConfig.speculativeDecodingEnabled"),
     continuousBatchingEnabled: requiredBoolean(config.continuousBatchingEnabled, "runtimeConfig.continuousBatchingEnabled"),
     structuredOutputEnabled: requiredBoolean(config.structuredOutputEnabled, "runtimeConfig.structuredOutputEnabled"),
     structuredOutputSchemaSha256: requiredSha(config.structuredOutputSchemaSha256, "runtimeConfig.structuredOutputSchemaSha256"),
+  });
+}
+
+function manifestTokenizerBundle(manifest) {
+  const tokenizer = requiredObject(manifest.tokenizer, "manifest.tokenizer");
+  const revision = requiredText(tokenizer.revision, "manifest.tokenizer.revision");
+  const files = requiredArray(tokenizer.files, "manifest.tokenizer.files")
+    .map((file, index) => ({
+      path: requiredText(file?.path, `manifest.tokenizer.files[${index}].path`),
+      sha256: requiredSha(file?.sha256, `manifest.tokenizer.files[${index}].sha256`),
+    }))
+    .sort((a, b) => a.path.localeCompare(b.path));
+  return Object.freeze({
+    revision,
+    bundleSha256: sha256(canonicalJson({ revision, files })),
   });
 }
 
@@ -123,6 +140,7 @@ export function validateN2ProvenanceAttestation(input) {
 export function assertProvenanceMatchesManifest({ provenance, manifest, expectedRuntimeConfigSha256 } = {}) {
   const attested = validateN2ProvenanceAttestation(provenance);
   const pinned = requiredObject(manifest, "manifest");
+  const tokenizer = manifestTokenizerBundle(pinned);
   const mismatches = [];
 
   if (attested.engine.name !== pinned.engine?.name) mismatches.push("engine.name");
@@ -133,6 +151,8 @@ export function assertProvenanceMatchesManifest({ provenance, manifest, expected
   if (attested.model.revision !== pinned.model?.revision) mismatches.push("model.revision");
   if (attested.model.artifactSha256 !== String(pinned.model?.artifactSha256 || "").toLowerCase()) mismatches.push("model.artifactSha256");
   if (attested.model.quantization !== pinned.model?.quantization) mismatches.push("model.quantization");
+  if (attested.model.tokenizerRevision !== tokenizer.revision) mismatches.push("model.tokenizerRevision");
+  if (attested.model.tokenizerBundleSha256 !== tokenizer.bundleSha256) mismatches.push("model.tokenizerBundleSha256");
   if (attested.runtimeConfig.contextWindow !== Number(pinned.model?.contextWindow)) mismatches.push("runtimeConfig.contextWindow");
 
   if (expectedRuntimeConfigSha256 != null) {
