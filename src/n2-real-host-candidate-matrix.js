@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { canonicalJson } from "./native-hardware-profile.js";
 
 export const N2_REAL_HOST_MATRIX_VERSION = "sierra.n2-real-host-candidate-matrix.v1";
+export const N2_REAL_HOST_CAMPAIGN_GENERATION = "v1.1";
 
 export const N2_REAL_HOST = Object.freeze({
   hardwareFingerprintSha256: "b08acdef052238704e0c288211a022731bdb80e9aff87366d38154cecdadf089",
@@ -9,6 +10,15 @@ export const N2_REAL_HOST = Object.freeze({
   arch: "x64",
   totalMemoryBytes: 8589934592,
   cpuModel: "Intel(R) Core(TM) i5-7500 CPU @ 3.40GHz",
+});
+
+export const N2_PINNED_CMAKE = Object.freeze({
+  version: "4.4.2",
+  platform: "macos10.10-universal",
+  archive: "cmake-4.4.2-macos10.10-universal.tar.gz",
+  downloadUrl: "https://github.com/Kitware/CMake/releases/download/v4.4.2/cmake-4.4.2-macos10.10-universal.tar.gz",
+  archiveSha256: "80710e6d054a8366ec5f202dd6c22f0c4ebd6f96221260b0793e80816f95260f",
+  binaryRelativePath: "cmake-4.4.2-macos10.10-universal/CMake.app/Contents/bin/cmake",
 });
 
 export const N2_LLAMA_CPP = Object.freeze({
@@ -70,7 +80,9 @@ export const N2_REAL_HOST_CANDIDATES = Object.freeze([
 export function n2RealHostMatrixReceipt() {
   const body = {
     schema: N2_REAL_HOST_MATRIX_VERSION,
+    campaignGeneration: N2_REAL_HOST_CAMPAIGN_GENERATION,
     host: N2_REAL_HOST,
+    buildToolchain: { cmake: N2_PINNED_CMAKE },
     engine: N2_LLAMA_CPP,
     candidates: N2_REAL_HOST_CANDIDATES,
     policy: {
@@ -81,6 +93,9 @@ export function n2RealHostMatrixReceipt() {
       serverLoopbackOnly: true,
       builtInToolsDisabled: true,
       webUiDisabled: true,
+      systemPackageManagerMutation: false,
+      buildToolBootstrapIsolatedAndHashPinned: true,
+      priorGenerationReceiptsImmutable: true,
     },
   };
   return Object.freeze({

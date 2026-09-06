@@ -7,10 +7,12 @@ import { promisify } from "node:util";
 import { performance } from "node:perf_hooks";
 import { buildNativeHardwareProfile, canonicalJson } from "../src/native-hardware-profile.js";
 import { N2_REAL_HOST, N2_LLAMA_CPP, N2_REAL_HOST_CANDIDATES, n2RealHostMatrixReceipt } from "../src/n2-real-host-candidate-matrix.js";
+import { ensurePinnedCmake } from "../src/n2-pinned-cmake.js";
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.join(os.homedir(), "Library", "Application Support", "Georgie", "N2-Qualification", "v1");
 const ENGINE_ROOT = path.join(ROOT, "engine");
+const TOOLCHAIN_ROOT = path.join(ROOT, "toolchain");
 const MODEL_ROOT = path.join(ROOT, "models");
 const RECEIPT_ROOT = path.join(ROOT, "receipts");
 const SERVER_PORT_BASE = 18180;
@@ -52,6 +54,7 @@ function assert(condition, code, message) {
 async function ensureIsolationRoot() {
   await fs.mkdir(ROOT, { recursive: true, mode: 0o700 });
   await fs.mkdir(ENGINE_ROOT, { recursive: true, mode: 0o700 });
+  await fs.mkdir(TOOLCHAIN_ROOT, { recursive: true, mode: 0o700 });
   await fs.mkdir(MODEL_ROOT, { recursive: true, mode: 0o700 });
   await fs.mkdir(RECEIPT_ROOT, { recursive: true, mode: 0o700 });
   const stat = await fs.statfs(ROOT);
@@ -79,8 +82,7 @@ async function ensureCommand(command, args = ["--version"]) {
 
 async function ensureEngine() {
   await ensureCommand("/usr/bin/git", ["--version"]);
-  await ensureCommand("/usr/local/bin/cmake", ["--version"]).catch(async () => ensureCommand("/opt/homebrew/bin/cmake", ["--version"]));
-  const cmake = await fs.access("/usr/local/bin/cmake").then(() => "/usr/local/bin/cmake").catch(() => "/opt/homebrew/bin/cmake");
+  const cmake = await ensurePinnedCmake(TOOLCHAIN_ROOT);
   const src = path.join(ENGINE_ROOT, "llama.cpp-src");
   const build = path.join(src, "build-sierra-n2");
   const server = path.join(build, "bin", "llama-server");
@@ -102,8 +104,8 @@ async function ensureEngine() {
   let built = false;
   try { await fs.access(server); built = true; } catch {}
   if (!built) {
-    await execFileAsync(cmake, ["-S", src, "-B", build, "-DCMAKE_BUILD_TYPE=Release", "-DGGML_METAL=OFF", "-DGGML_ACCELERATE=ON", "-DLLAMA_CURL=OFF"], { timeout: BUILD_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 });
-    await execFileAsync(cmake, ["--build", build, "--config", "Release", "--target", "llama-server", "llama-bench", "-j", "4"], { timeout: BUILD_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 });
+    await execFileAsync(cmake.path, ["-S", src, "-B", build, "-DCMAKE_BUILD_TYPE=Release", "-DGGML_METAL=OFF", "-DGGML_ACCELERATE=ON", "-DLLAMA_CURL=OFF"], { timeout: BUILD_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 });
+    await execFileAsync(cmake.path, ["--build", build, "--config", "Release", "--target", "llama-server", "llama-bench", "-j", "4"], { timeout: BUILD_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 });
   }
   await fs.access(server);
   const binarySha256 = await sha256File(server);
@@ -299,6 +301,13 @@ async function qualifyCandidate(engine, candidate, modelPath, index) {
       sourceCommit: engine.sourceCommit,
       serverBinarySha256: engine.binarySha256,
       build: N2_LLAMA_CPP.build,
+      buildToolchain: {
+        cmakeVersion: engine.cmake.version,
+        cmakeArchiveSha256: engine.cmake.archiveSha256,
+        cmakeBinarySha256: engine.cmake.binarySha256,
+        isolated: engine.cmake.isolated,
+        systemPackageManagerMutation: engine.cmake.systemPackageManagerMutation,
+      },
     },
     model: {
       source: candidate.model,
@@ -368,6 +377,13 @@ async function main() {
     matrixSha256: matrix.matrixSha256,
     engineCommit: engine.sourceCommit,
     engineBinarySha256: engine.binarySha256,
+    buildToolchain: {
+      cmakeVersion: engine.cmake.version,
+      cmakeArchiveSha256: engine.cmake.archiveSha256,
+      cmakeBinarySha256: engine.cmake.binarySha256,
+      isolated: engine.cmake.isolated,
+      systemPackageManagerMutation: engine.cmake.systemPackageManagerMutation,
+    },
     freeBytesAtStart: freeBytes,
     results,
     promotionAuthority: "none",
