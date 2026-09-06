@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "issueNumber": 68,
-  "commentId": 5429030180,
-  "objectiveId": "SIERRA-SEO-PHASE2-20260826-001",
-  "commandId": "cmd_seo_phase2_result_transport_activate_ad505b0_20260826",
-  "idempotencyKey": "seo-phase2-result-transport-activate-ad505b0-v1",
-  "updatedAt": "2026-08-30T13:27:00.000Z",
-  "wakeSequence": 15
+  "issueNumber": 377,
+  "commentId": 5562487405,
+  "objectiveId": "SIERRA-N2-REAL-HOST-20260906-001",
+  "commandId": "cmd_n2_primary_mac_update_20260906_001",
+  "idempotencyKey": "n2-real-host:primary-mac:update:v1",
+  "updatedAt": "2026-09-06T22:02:00.000Z",
+  "wakeSequence": 16
 }
