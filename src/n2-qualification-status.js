@@ -163,7 +163,6 @@ export async function readN2QualificationStatus(options = {}) {
     const body = {
       schema: N2_QUALIFICATION_STATUS_SCHEMA,
       status,
-      pid: Number.isInteger(pid) && pid > 1 ? pid : null,
       launchedAt: bounded(lock?.launchedAt, 40) || null,
       hostHardwareFingerprintSha256: digestOrNull(lock?.hostHardwareFingerprintSha256),
       promotionAuthority: "none",
