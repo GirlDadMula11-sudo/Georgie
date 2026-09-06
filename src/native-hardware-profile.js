@@ -85,7 +85,7 @@ function nvidiaAccelerators(run) {
 
 function hardwareIdentity({ run = defaultRun, osModule = os } = {}) {
   const cpus = osModule.cpus?.() || [];
-  const identity = {
+  return {
     schema: NATIVE_HARDWARE_PROFILE_VERSION,
     platform: process.platform,
     arch: process.arch,
@@ -102,7 +102,6 @@ function hardwareIdentity({ run = defaultRun, osModule = os } = {}) {
       nvidia: nvidiaAccelerators(run),
     },
   };
-  return identity;
 }
 
 function runtimeIdentity({ osModule = os } = {}) {
@@ -116,11 +115,15 @@ function runtimeIdentity({ osModule = os } = {}) {
 export function buildNativeHardwareProfile(options = {}) {
   const hardware = hardwareIdentity(options);
   const runtime = runtimeIdentity(options);
+  const hardwareFingerprintSha256 = sha256(canonicalJson(hardware));
+  const runtimeFingerprintSha256 = sha256(canonicalJson(runtime));
   return Object.freeze({
     schema: "sierra.native-semantic-host-profile.v2",
     hardware,
     runtime,
-    hardwareFingerprintSha256: sha256(canonicalJson(hardware)),
-    runtimeFingerprintSha256: sha256(canonicalJson(runtime)),
+    hardwareFingerprintSha256,
+    runtimeFingerprintSha256,
+    // Backward-compatible alias consumed by the v1 candidate-manifest contract.
+    fingerprintSha256: hardwareFingerprintSha256,
   });
 }
