@@ -73,6 +73,12 @@ test("qualification binds admitted candidate, host, corpus, and evidence before 
   assert.equal(result.nextAction, "controlled_canary_only");
   assert.equal(result.hostHardwareFingerprintSha256, H);
   assert.equal(result.corpusSha256, C);
+  assert.deepEqual(result.selectedManifestChecks, {
+    engine: true,
+    model: true,
+    quantization: true,
+    contextWindow: true,
+  });
   assert.match(result.qualificationReceiptSha256, /^[a-f0-9]{64}$/);
 });
 
@@ -100,4 +106,35 @@ test("qualification rejects sealed evidence from a different corpus", () => {
     corpusSha256: C,
     ...e,
   }), (error) => error?.code === "n2_qualification_binding_mismatch");
+});
+
+test("qualification rejects a manifest for a different planner candidate", () => {
+  const mismatchedManifest = {
+    ...manifest,
+    model: { ...manifest.model, source: "different/model" },
+  };
+  assert.throws(() => orchestrateN2Qualification({
+    hostProfile,
+    candidates,
+    selectedCandidateId: "candidate-a",
+    candidateManifest: mismatchedManifest,
+    corpusSha256: C,
+    ...evidence(),
+  }), (error) => error?.code === "n2_qualification_binding_mismatch");
+});
+
+test("qualification rejects manifest quantization or context drift", () => {
+  for (const model of [
+    { ...manifest.model, quantization: "fp16" },
+    { ...manifest.model, contextWindow: 16384 },
+  ]) {
+    assert.throws(() => orchestrateN2Qualification({
+      hostProfile,
+      candidates,
+      selectedCandidateId: "candidate-a",
+      candidateManifest: { ...manifest, model },
+      corpusSha256: C,
+      ...evidence(),
+    }), (error) => error?.code === "n2_qualification_binding_mismatch");
+  }
 });
