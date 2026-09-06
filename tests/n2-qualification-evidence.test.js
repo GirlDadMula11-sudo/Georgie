@@ -67,6 +67,8 @@ test("complete qualification evidence can advance only to shadow comparison", ()
   assert.equal(receipt.nextGate, "sealed_shadow_comparison");
   assert.equal(receipt.promotionAuthority, "none");
   assert.equal(receipt.checks.shadowDeferred, true);
+  assert.equal(receipt.checks.latencySampleCoverage, true);
+  assert.equal(receipt.checks.thermalCoverage, true);
   assert.match(receipt.receiptSha256, /^[a-f0-9]{64}$/);
 });
 
@@ -80,13 +82,45 @@ test("qualification receipt is canonical and deterministic", () => {
 test("insufficient stress coverage cannot advance", () => {
   const input = passingEvidence();
   input.stress.requests = 999;
-  input.stress.errorCount = 0;
-  input.stress.totalMs = input.stress.totalMs.slice(0, 999);
-  input.stress.firstTokenMs = input.stress.firstTokenMs.slice(0, 999);
+  input.stress.errorCount = 1;
   const receipt = buildN2QualificationEvidence(input);
   assert.equal(receipt.checks.stressCoverage, false);
   assert.equal(receipt.eligibleForShadowComparison, false);
   assert.equal(receipt.promotionAuthority, "none");
+});
+
+test("missing latency samples cannot hide successful-request tail latency", () => {
+  const input = passingEvidence();
+  input.stress.totalMs = input.stress.totalMs.slice(0, -1);
+  const receipt = buildN2QualificationEvidence(input);
+  assert.equal(receipt.checks.latencySampleCoverage, false);
+  assert.equal(receipt.eligibleForShadowComparison, false);
+});
+
+test("deterministic replay coverage is mandatory rather than inferred from a tiny sample", () => {
+  const input = passingEvidence();
+  input.stress.determinismComparisons = 20;
+  input.stress.determinismMismatches = 0;
+  const receipt = buildN2QualificationEvidence(input);
+  assert.equal(receipt.checks.deterministicReplayCoverage, false);
+  assert.equal(receipt.eligibleForShadowComparison, false);
+});
+
+test("process-cold startup needs repeated process launches", () => {
+  const input = passingEvidence();
+  input.coldStart.processColdStartMs = [1200, 1250];
+  const receipt = buildN2QualificationEvidence(input);
+  assert.equal(receipt.checks.processColdStartCoverage, false);
+  assert.equal(receipt.eligibleForShadowComparison, false);
+});
+
+test("thermal telemetry absence is explicit and cannot silently pass", () => {
+  const input = passingEvidence();
+  input.thermal = { source: "unavailable", samples: [], unavailableReason: "host telemetry unavailable" };
+  const receipt = buildN2QualificationEvidence(input);
+  assert.equal(receipt.checks.thermalCoverage, false);
+  assert.equal(receipt.thermal.unavailableReason, "host telemetry unavailable");
+  assert.equal(receipt.eligibleForShadowComparison, false);
 });
 
 test("unsafe memory headroom blocks qualification even when quality is high", () => {
