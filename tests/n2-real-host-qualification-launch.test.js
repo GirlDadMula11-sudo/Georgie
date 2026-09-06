@@ -23,26 +23,56 @@ function onMeasuredPrimaryMac() {
   } catch { return false; }
 }
 
+function processIsAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 1) return false;
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+async function terminalReceiptStatus() {
+  const names = await fsp.readdir(RECEIPTS).catch(() => []);
+  const completed = names.filter((name) => /^campaign-[a-f0-9]{64}\.json$/.test(name)).sort();
+  if (completed.length) {
+    const receipt = JSON.parse(await fsp.readFile(path.join(RECEIPTS, completed.at(-1)), "utf8"));
+    assert.equal(receipt.promotionAuthority, "none");
+    return { status: "completed", campaignSha256: receipt.campaignSha256, results: receipt.results };
+  }
+  const failed = names.filter((name) => /^failure-[a-f0-9]{64}\.json$/.test(name)).sort();
+  if (failed.length) {
+    const receipt = JSON.parse(await fsp.readFile(path.join(RECEIPTS, failed.at(-1)), "utf8"));
+    assert.equal(receipt.promotionAuthority, "none");
+    return { status: "failed", failureSha256: receipt.failureSha256, code: receipt.code, message: receipt.message };
+  }
+  return null;
+}
+
+// Temporary real-host campaign trigger. It is deliberately inert in CI and on
+// every host except the exact measured primary Mac. Remove it after the bounded
+// qualification campaign; long-term production tests remain side-effect free.
 test("real-host N2 qualification launches exactly once on the measured primary Mac", async (t) => {
   if (!onMeasuredPrimaryMac()) return t.skip("qualification launcher is inert away from measured primary-mac");
 
   await fsp.mkdir(RECEIPTS, { recursive: true, mode: 0o700 });
-  const completed = (await fsp.readdir(RECEIPTS)).filter((name) => /^campaign-[a-f0-9]{64}\.json$/.test(name));
-  if (completed.length) {
-    const latest = completed.sort().at(-1);
-    const receipt = JSON.parse(await fsp.readFile(path.join(RECEIPTS, latest), "utf8"));
-    assert.equal(receipt.promotionAuthority, "none");
-    console.log(`N2_QUALIFICATION_STATUS_JSON:${JSON.stringify({ status: "completed", campaignSha256: receipt.campaignSha256, results: receipt.results })}`);
+  const terminal = await terminalReceiptStatus();
+  if (terminal) {
+    console.log(`N2_QUALIFICATION_STATUS_JSON:${JSON.stringify(terminal)}`);
     return;
   }
+
+  let existing = null;
+  try { existing = JSON.parse(await fsp.readFile(LOCK, "utf8")); } catch {}
+  if (existing && processIsAlive(Number(existing.pid))) {
+    console.log(`N2_QUALIFICATION_STATUS_JSON:${JSON.stringify({ status: "already_launched", pid: existing.pid, launchedAt: existing.launchedAt || null })}`);
+    return;
+  }
+  if (existing) await fsp.rm(LOCK, { force: true });
 
   let lock;
   try {
     lock = await fsp.open(LOCK, "wx", 0o600);
   } catch (error) {
     if (error?.code !== "EEXIST") throw error;
-    const existing = JSON.parse(await fsp.readFile(LOCK, "utf8").catch(() => "{}"));
-    console.log(`N2_QUALIFICATION_STATUS_JSON:${JSON.stringify({ status: "already_launched", pid: existing.pid || null, launchedAt: existing.launchedAt || null })}`);
+    const raced = JSON.parse(await fsp.readFile(LOCK, "utf8").catch(() => "{}"));
+    console.log(`N2_QUALIFICATION_STATUS_JSON:${JSON.stringify({ status: "already_launched", pid: raced.pid || null, launchedAt: raced.launchedAt || null })}`);
     return;
   }
 
