@@ -5,7 +5,7 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { captureNativeHardwareProfile } from "../src/native-hardware-profile.js";
+import { buildNativeHardwareProfile } from "../src/native-hardware-profile.js";
 import { N2_REAL_HOST } from "../src/n2-real-host-candidate-matrix.js";
 
 const ROOT = path.join(os.homedir(), "Library", "Application Support", "Georgie", "N2-Qualification", "v1");
@@ -16,7 +16,7 @@ const LOG = path.join(ROOT, "campaign.log");
 function onMeasuredPrimaryMac() {
   if (process.env.CI === "true") return false;
   try {
-    const profile = captureNativeHardwareProfile();
+    const profile = buildNativeHardwareProfile();
     return profile.hardwareFingerprintSha256 === N2_REAL_HOST.hardwareFingerprintSha256 &&
       profile.hardware?.platform === "darwin" && profile.hardware?.arch === "x64" &&
       process.cwd() === "/Users/mac/Georgie";
