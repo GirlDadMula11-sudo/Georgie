@@ -1,10 +1,10 @@
 {
   "version": 1,
   "issueNumber": 377,
-  "commentId": 5562780897,
+  "commentId": 5562788311,
   "objectiveId": "SIERRA-N2-QUALIFICATION-20260906-001",
-  "commandId": "cmd_n2_qualification_mac_update_20260906_001",
-  "idempotencyKey": "n2-qualification:primary-mac:update:v1",
-  "updatedAt": "2026-09-06T22:59:30.000Z",
-  "wakeSequence": 23
+  "commandId": "cmd_n2_qualification_launch_20260906_001",
+  "idempotencyKey": "n2-qualification:primary-mac:launch:v1",
+  "updatedAt": "2026-09-06T23:00:30.000Z",
+  "wakeSequence": 24
 }
