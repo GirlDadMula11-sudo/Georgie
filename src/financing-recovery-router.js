@@ -59,8 +59,8 @@ async function staffRehashSnapshot(req) {
   const { url, key } = auth;
 
   const [dossiers, contacts, dispatch, funnel] = await Promise.all([
-    readSupabase("georgie_rehash_merchant_dossiers?select=id,merchant_id,merchant_name,contact_resolution_state,created_at,updated_at&order=updated_at.desc&limit=300", key, url),
-    readSupabase("georgie_contact_resolution?select=dossier_id,status,confidence,candidate_email&order=updated_at.desc&limit=600", key, url).catch(() => []),
+    readSupabase("georgie_rehash_merchant_dossiers?select=id,merchant_id,merchant_name,contact_resolution_state,created_at&order=created_at.desc&limit=300", key, url),
+    readSupabase("georgie_contact_resolution?select=dossier_id,status,confidence,candidate_email,created_at&order=created_at.desc&limit=600", key, url).catch(() => []),
     readSupabase("georgie_rehash_email_dispatch?select=dossier_id,status,created_at&order=created_at.desc&limit=1000", key, url).catch(() => []),
     readSupabase("georgie_recovery_funnel_events?select=episode_id,event_type,created_at&order=created_at.desc&limit=1500", key, url).catch(() => [])
   ]);
@@ -85,7 +85,7 @@ async function staffRehashSnapshot(req) {
       merchantId: dossier.merchant_id,
       merchantName: dossier.merchant_name,
       contactState: dossier.contact_resolution_state,
-      updatedAt: dossier.updated_at,
+      updatedAt: dossier.created_at,
       contact: contact ? {
         status: contact.status,
         confidence: contact.confidence,
