@@ -127,3 +127,7 @@ export function buildNativeHardwareProfile(options = {}) {
     fingerprintSha256: hardwareFingerprintSha256,
   });
 }
+
+// Explicit capture name for host-bound qualification code. This is an alias,
+// not a second implementation, so hardware identity cannot drift by call site.
+export const captureNativeHardwareProfile = buildNativeHardwareProfile;
