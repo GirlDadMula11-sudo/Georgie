@@ -5,6 +5,6 @@
   "objectiveId": "SIERRA-N2-REAL-HOST-20260906-001",
   "commandId": "cmd_n2_primary_mac_update_20260906_001",
   "idempotencyKey": "n2-real-host:primary-mac:update:v1",
-  "updatedAt": "2026-09-06T22:02:00.000Z",
-  "wakeSequence": 16
+  "updatedAt": "2026-09-06T22:03:15.000Z",
+  "wakeSequence": 17
 }
