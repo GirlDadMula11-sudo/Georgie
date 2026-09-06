@@ -92,6 +92,7 @@ function thresholdChecks({ semantic, adversarial, outage, coldStart, stress, the
   const errorRate = ratio(stress.errorCount, stress.requests);
   const mismatchRate = ratio(stress.determinismMismatches, stress.determinismComparisons);
   const memoryUtilization = stress.memoryLimitBytes > 0 ? stress.peakRssBytes / stress.memoryLimitBytes : null;
+  const expectedRestartSamples = failure.forcedCrashRestarts - failure.crashRecoveryFailures;
 
   return Object.freeze({
     sealedCaseCount: semantic.cases >= t.minimumSealedCases,
@@ -107,6 +108,7 @@ function thresholdChecks({ semantic, adversarial, outage, coldStart, stress, the
     latencySampleCoverage: latencyCoverageComplete,
     deterministicReplayCoverage: stress.determinismComparisons >= MIN_DETERMINISM_COMPARISONS,
     forcedCrashCoverage: failure.forcedCrashRestarts >= t.minimumForcedCrashRestarts,
+    restartLatencyCoverage: failure.restartReadyMs.count === expectedRestartSamples,
     forcedTimeoutCoverage: failure.forcedTimeouts >= t.minimumForcedTimeouts,
     crashIntegrity: failure.corruptionEvents <= t.maximumCrashCorruptionEvents,
     crashRecovery: failure.crashRecoveryFailures <= t.maximumCrashRecoveryFailures,
@@ -116,7 +118,7 @@ function thresholdChecks({ semantic, adversarial, outage, coldStart, stress, the
     memoryHeadroom: memoryUtilization != null && memoryUtilization <= t.maximumMemoryUtilization,
     firstTokenLatency: stress.firstToken.p95Ms != null && stress.firstToken.p95Ms <= t.maximumP95FirstTokenMs,
     totalLatency: stress.total.p95Ms != null && stress.total.p95Ms <= t.maximumP95TotalMs,
-    thermalCoverage: thermal.samples.length > 0,
+    thermalCoverage: thermal.telemetryObserved,
     shadowDeferred: true,
   });
 }
@@ -131,6 +133,7 @@ export function buildN2QualificationEvidence(input = {}) {
     structuredFailOpen: integer(input.semantic?.structuredFailOpen, "semantic.structuredFailOpen"),
   });
   if (semantic.passed > semantic.cases) fail("n2_qualification_invalid", "semantic.passed cannot exceed semantic.cases");
+  if (semantic.structuredFailOpen > semantic.cases) fail("n2_qualification_invalid", "semantic.structuredFailOpen cannot exceed semantic.cases");
 
   const adversarial = Object.freeze({
     corpusSha256: digest(input.adversarial?.corpusSha256, "adversarial.corpusSha256"),
@@ -138,12 +141,15 @@ export function buildN2QualificationEvidence(input = {}) {
     authorityViolations: integer(input.adversarial?.authorityViolations, "adversarial.authorityViolations"),
     promptInjectionEscapes: integer(input.adversarial?.promptInjectionEscapes, "adversarial.promptInjectionEscapes"),
   });
+  if (adversarial.authorityViolations > adversarial.cases) fail("n2_qualification_invalid", "adversarial.authorityViolations cannot exceed adversarial.cases");
+  if (adversarial.promptInjectionEscapes > adversarial.cases) fail("n2_qualification_invalid", "adversarial.promptInjectionEscapes cannot exceed adversarial.cases");
 
   const outage = Object.freeze({
     corpusSha256: digest(input.outage?.corpusSha256, "outage.corpusSha256"),
     cases: integer(input.outage?.cases, "outage.cases"),
     terminalFailures: integer(input.outage?.terminalFailures, "outage.terminalFailures"),
   });
+  if (outage.terminalFailures > outage.cases) fail("n2_qualification_invalid", "outage.terminalFailures cannot exceed outage.cases");
 
   const coldStart = Object.freeze({
     processColdStartMs: summarizeLatencySamples(input.coldStart?.processColdStartMs || []),
@@ -188,18 +194,30 @@ export function buildN2QualificationEvidence(input = {}) {
     determinismMismatchRate: ratio(determinismMismatches, determinismComparisons),
   });
 
+  const thermalSamples = normalizeThermalSamples(input.thermal?.samples || []);
+  for (const sample of thermalSamples) {
+    if (sample.atRequest > requests) fail("n2_qualification_invalid", "thermal sample request index cannot exceed stress.requests");
+  }
+  const telemetryObserved = thermalSamples.some((sample) => [sample.cpuThermalLevel, sample.speedLimit, sample.schedulerLimit, sample.availableCpus].some((value) => value != null));
   const thermal = Object.freeze({
     source: text(input.thermal?.source || "unavailable", "thermal.source"),
-    samples: normalizeThermalSamples(input.thermal?.samples || []),
+    samples: thermalSamples,
+    telemetryObserved,
     unavailableReason: input.thermal?.unavailableReason == null ? null : String(input.thermal.unavailableReason).trim().slice(0, 500),
   });
 
+  const forcedCrashRestarts = integer(input.failure?.forcedCrashRestarts, "failure.forcedCrashRestarts");
+  const crashRecoveryFailures = integer(input.failure?.crashRecoveryFailures, "failure.crashRecoveryFailures");
+  if (crashRecoveryFailures > forcedCrashRestarts) fail("n2_qualification_invalid", "failure.crashRecoveryFailures cannot exceed failure.forcedCrashRestarts");
+  const forcedTimeouts = integer(input.failure?.forcedTimeouts, "failure.forcedTimeouts");
+  const timeoutRecoveryFailures = integer(input.failure?.timeoutRecoveryFailures, "failure.timeoutRecoveryFailures");
+  if (timeoutRecoveryFailures > forcedTimeouts) fail("n2_qualification_invalid", "failure.timeoutRecoveryFailures cannot exceed failure.forcedTimeouts");
   const failure = Object.freeze({
-    forcedCrashRestarts: integer(input.failure?.forcedCrashRestarts, "failure.forcedCrashRestarts"),
-    crashRecoveryFailures: integer(input.failure?.crashRecoveryFailures, "failure.crashRecoveryFailures"),
+    forcedCrashRestarts,
+    crashRecoveryFailures,
     corruptionEvents: integer(input.failure?.corruptionEvents, "failure.corruptionEvents"),
-    forcedTimeouts: integer(input.failure?.forcedTimeouts, "failure.forcedTimeouts"),
-    timeoutRecoveryFailures: integer(input.failure?.timeoutRecoveryFailures, "failure.timeoutRecoveryFailures"),
+    forcedTimeouts,
+    timeoutRecoveryFailures,
     restartReadyMs: summarizeLatencySamples(input.failure?.restartReadyMs || []),
   });
 
