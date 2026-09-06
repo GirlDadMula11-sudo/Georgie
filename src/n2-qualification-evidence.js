@@ -3,6 +3,8 @@ import { canonicalJson } from "./native-hardware-profile.js";
 import { N2_PROMOTION_THRESHOLDS } from "./native-semantic-promotion.js";
 
 const SHA256 = /^[a-f0-9]{64}$/;
+const MIN_PROCESS_COLD_START_SAMPLES = 3;
+const MIN_DETERMINISM_COMPARISONS = 200;
 
 export const N2_QUALIFICATION_EVIDENCE_SCHEMA = "sierra.n2-qualification-evidence.v2";
 
@@ -75,20 +77,21 @@ function normalizeThermalSamples(samples = []) {
     return Object.freeze({
       atRequest: integer(sample.atRequest, `thermal.samples[${index}].atRequest`),
       cpuThermalLevel: optionalFinite(sample.cpuThermalLevel, `thermal.samples[${index}].cpuThermalLevel`),
-      speedLimit: optionalFinite(sample.speedLimit, `thermal.samples[${index}].speedLimit`, { minimum: 0 }),
-      schedulerLimit: optionalFinite(sample.schedulerLimit, `thermal.samples[${index}].schedulerLimit`, { minimum: 0 }),
-      availableCpus: optionalFinite(sample.availableCpus, `thermal.samples[${index}].availableCpus`, { minimum: 0 }),
+      speedLimit: optionalFinite(sample.speedLimit, `thermal.samples[${index}].speedLimit`),
+      schedulerLimit: optionalFinite(sample.schedulerLimit, `thermal.samples[${index}].schedulerLimit`),
+      availableCpus: optionalFinite(sample.availableCpus, `thermal.samples[${index}].availableCpus`),
     });
   }));
 }
 
-function thresholdChecks({ semantic, adversarial, outage, stress, failure }) {
+function thresholdChecks({ semantic, adversarial, outage, coldStart, stress, thermal, failure }) {
   const t = N2_PROMOTION_THRESHOLDS;
+  const qualityPassRate = ratio(semantic.passed, semantic.cases);
+  const successfulRequests = stress.requests - stress.errorCount;
+  const latencyCoverageComplete = stress.total.count === successfulRequests && stress.firstToken.count === successfulRequests;
   const errorRate = ratio(stress.errorCount, stress.requests);
   const mismatchRate = ratio(stress.determinismMismatches, stress.determinismComparisons);
   const memoryUtilization = stress.memoryLimitBytes > 0 ? stress.peakRssBytes / stress.memoryLimitBytes : null;
-  const qualityPassRate = ratio(semantic.passed, semantic.cases);
-  const shadowDeferred = true;
 
   return Object.freeze({
     sealedCaseCount: semantic.cases >= t.minimumSealedCases,
@@ -99,7 +102,10 @@ function thresholdChecks({ semantic, adversarial, outage, stress, failure }) {
     promptInjection: adversarial.promptInjectionEscapes <= t.maximumPromptInjectionEscapes,
     providerOutageCoverage: outage.cases >= t.minimumProviderOutageCases,
     providerOutage: outage.terminalFailures <= t.maximumProviderOutageTerminalFailures,
+    processColdStartCoverage: coldStart.processColdStartMs.count >= MIN_PROCESS_COLD_START_SAMPLES,
     stressCoverage: stress.requests >= t.minimumStressRequests,
+    latencySampleCoverage: latencyCoverageComplete,
+    deterministicReplayCoverage: stress.determinismComparisons >= MIN_DETERMINISM_COMPARISONS,
     forcedCrashCoverage: failure.forcedCrashRestarts >= t.minimumForcedCrashRestarts,
     forcedTimeoutCoverage: failure.forcedTimeouts >= t.minimumForcedTimeouts,
     crashIntegrity: failure.corruptionEvents <= t.maximumCrashCorruptionEvents,
@@ -110,7 +116,8 @@ function thresholdChecks({ semantic, adversarial, outage, stress, failure }) {
     memoryHeadroom: memoryUtilization != null && memoryUtilization <= t.maximumMemoryUtilization,
     firstTokenLatency: stress.firstToken.p95Ms != null && stress.firstToken.p95Ms <= t.maximumP95FirstTokenMs,
     totalLatency: stress.total.p95Ms != null && stress.total.p95Ms <= t.maximumP95TotalMs,
-    shadowDeferred,
+    thermalCoverage: thermal.samples.length > 0,
+    shadowDeferred: true,
   });
 }
 
@@ -138,34 +145,53 @@ export function buildN2QualificationEvidence(input = {}) {
     terminalFailures: integer(input.outage?.terminalFailures, "outage.terminalFailures"),
   });
 
-  const total = summarizeLatencySamples(input.stress?.totalMs || []);
-  const firstToken = summarizeLatencySamples(input.stress?.firstTokenMs || []);
+  const coldStart = Object.freeze({
+    processColdStartMs: summarizeLatencySamples(input.coldStart?.processColdStartMs || []),
+    osCacheState: String(input.coldStart?.osCacheState || "uncontrolled").trim() || "uncontrolled",
+    note: String(input.coldStart?.note || "Process-cold measurement; OS page-cache state is explicitly not assumed cold.").trim().slice(0, 1000),
+  });
+
   const requests = integer(input.stress?.requests, "stress.requests");
-  if (total.count > requests || firstToken.count > requests) fail("n2_qualification_invalid", "latency sample counts cannot exceed stress.requests");
   const errorCount = integer(input.stress?.errorCount, "stress.errorCount");
   if (errorCount > requests) fail("n2_qualification_invalid", "stress.errorCount cannot exceed stress.requests");
+  const total = summarizeLatencySamples(input.stress?.totalMs || []);
+  const firstToken = summarizeLatencySamples(input.stress?.firstTokenMs || []);
+  if (total.count > requests || firstToken.count > requests) fail("n2_qualification_invalid", "latency sample counts cannot exceed stress.requests");
+  const outputTokens = integer(input.stress?.outputTokens, "stress.outputTokens");
+  const wallMs = finite(input.stress?.wallMs, "stress.wallMs", { minimum: 1 });
+  const peakRssBytes = integer(input.stress?.peakRssBytes, "stress.peakRssBytes");
+  const memoryLimitBytes = integer(input.stress?.memoryLimitBytes, "stress.memoryLimitBytes", { minimum: 1 });
+  const swapBytesAtStart = integer(input.stress?.swapBytesAtStart ?? 0, "stress.swapBytesAtStart");
+  const swapBytesAtEnd = integer(input.stress?.swapBytesAtEnd ?? 0, "stress.swapBytesAtEnd");
   const determinismComparisons = integer(input.stress?.determinismComparisons, "stress.determinismComparisons");
   const determinismMismatches = integer(input.stress?.determinismMismatches, "stress.determinismMismatches");
   if (determinismMismatches > determinismComparisons) fail("n2_qualification_invalid", "stress.determinismMismatches cannot exceed determinismComparisons");
 
   const stress = Object.freeze({
     requests,
+    successfulRequests: requests - errorCount,
     errorCount,
     errorRate: ratio(errorCount, requests),
     total,
     firstToken,
-    outputTokens: integer(input.stress?.outputTokens, "stress.outputTokens"),
-    wallMs: finite(input.stress?.wallMs, "stress.wallMs", { minimum: 1 }),
-    throughputTokensPerSecond: Number(input.stress?.outputTokens || 0) / (Number(input.stress?.wallMs) / 1000),
-    peakRssBytes: integer(input.stress?.peakRssBytes, "stress.peakRssBytes"),
-    memoryLimitBytes: integer(input.stress?.memoryLimitBytes, "stress.memoryLimitBytes", { minimum: 1 }),
-    memoryUtilization: Number(input.stress?.peakRssBytes) / Number(input.stress?.memoryLimitBytes),
-    swapBytesAtStart: integer(input.stress?.swapBytesAtStart ?? 0, "stress.swapBytesAtStart"),
-    swapBytesAtEnd: integer(input.stress?.swapBytesAtEnd ?? 0, "stress.swapBytesAtEnd"),
-    swapGrowthBytes: Math.max(0, Number(input.stress?.swapBytesAtEnd ?? 0) - Number(input.stress?.swapBytesAtStart ?? 0)),
+    outputTokens,
+    wallMs,
+    throughputTokensPerSecond: outputTokens / (wallMs / 1000),
+    peakRssBytes,
+    memoryLimitBytes,
+    memoryUtilization: peakRssBytes / memoryLimitBytes,
+    swapBytesAtStart,
+    swapBytesAtEnd,
+    swapGrowthBytes: Math.max(0, swapBytesAtEnd - swapBytesAtStart),
     determinismComparisons,
     determinismMismatches,
     determinismMismatchRate: ratio(determinismMismatches, determinismComparisons),
+  });
+
+  const thermal = Object.freeze({
+    source: text(input.thermal?.source || "unavailable", "thermal.source"),
+    samples: normalizeThermalSamples(input.thermal?.samples || []),
+    unavailableReason: input.thermal?.unavailableReason == null ? null : String(input.thermal.unavailableReason).trim().slice(0, 500),
   });
 
   const failure = Object.freeze({
@@ -175,18 +201,6 @@ export function buildN2QualificationEvidence(input = {}) {
     forcedTimeouts: integer(input.failure?.forcedTimeouts, "failure.forcedTimeouts"),
     timeoutRecoveryFailures: integer(input.failure?.timeoutRecoveryFailures, "failure.timeoutRecoveryFailures"),
     restartReadyMs: summarizeLatencySamples(input.failure?.restartReadyMs || []),
-  });
-
-  const thermal = Object.freeze({
-    source: text(input.thermal?.source || "unavailable", "thermal.source"),
-    samples: normalizeThermalSamples(input.thermal?.samples || []),
-    unavailableReason: input.thermal?.unavailableReason == null ? null : String(input.thermal.unavailableReason).trim().slice(0, 500),
-  });
-
-  const coldStart = Object.freeze({
-    processColdStartMs: summarizeLatencySamples(input.coldStart?.processColdStartMs || []),
-    osCacheState: String(input.coldStart?.osCacheState || "uncontrolled").trim() || "uncontrolled",
-    note: String(input.coldStart?.note || "Process-cold measurement; OS page-cache state is explicitly not assumed cold.").trim().slice(0, 1000),
   });
 
   const normalized = {
@@ -220,7 +234,7 @@ export function buildN2QualificationEvidence(input = {}) {
     promotionAuthority: "none",
   };
 
-  const checks = thresholdChecks({ semantic, adversarial, outage, stress, failure });
+  const checks = thresholdChecks({ semantic, adversarial, outage, coldStart, stress, thermal, failure });
   const requiredBeforeShadow = Object.entries(checks).filter(([name]) => name !== "shadowDeferred");
   const eligibleForShadowComparison = requiredBeforeShadow.every(([, passed]) => passed === true);
   const body = Object.freeze({
