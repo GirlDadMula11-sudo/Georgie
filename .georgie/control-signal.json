@@ -1,10 +1,10 @@
 {
   "version": 1,
   "issueNumber": 377,
-  "commentId": 5562526205,
-  "objectiveId": "SIERRA-N2-REAL-HOST-20260906-001",
-  "commandId": "cmd_n2_primary_mac_profile_20260906_003",
-  "idempotencyKey": "n2-real-host:primary-mac:profile-test:v3",
-  "updatedAt": "2026-09-06T22:08:00.000Z",
-  "wakeSequence": 20
+  "commentId": 5562564282,
+  "objectiveId": "SIERRA-N2-READINESS-20260906-001",
+  "commandId": "cmd_n2_readiness_update_20260906_001",
+  "idempotencyKey": "n2-readiness:primary-mac:update:v1",
+  "updatedAt": "2026-09-06T22:17:00.000Z",
+  "wakeSequence": 21
 }
